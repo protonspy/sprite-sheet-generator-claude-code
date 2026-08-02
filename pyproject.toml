@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sprite-sheet-generator-claude-code"
+version = "0.1.0"
+description = "Turn AI-generated art into game-ready 2D assets"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+dependencies = [
+    "click>=8.1",
+    "numpy>=1.26",
+    "pillow>=10.3",
+    "opencv-python-headless>=4.10",
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "httpx>=0.27",
+    "wasmtime>=21.0",
+    "fal-client>=0.5",
+]
+
+# The suite must pass without these installed; tests that need them skip with a reason.
+[project.optional-dependencies]
+cv = ["onnxruntime>=1.18", "rembg>=2.0"]
+cv-gpu = ["onnxruntime-gpu>=1.18", "rembg>=2.0"]
+
+# [project.scripts] lands with specs/workspace-foundation/, together with ssc.cli:main.
+
+[dependency-groups]
+dev = ["pytest>=8.2", "ruff>=0.5", "mypy>=1.10"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ssc"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+files = ["src"]
+python_version = "3.11"
+strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"

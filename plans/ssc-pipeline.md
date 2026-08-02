@@ -194,6 +194,11 @@ deliverable on its own: M1 already repairs a sheet you have today, with no API k
       outcome of 0.1 as its own record
 - [x] 0.3 (Unit) Fill in `.claude/rules/project.md` (build, test, scoped test, lint,
       format) and `docs/stack.md` with the core dependencies, `fal-client` among them
+- [ ] 0.4 (Unit) Settle in `docs/glossary.md` the vocabulary all twenty-seven specs
+      inherit: key, kind, stage, source, derived, output, anchor, cell, sheet, frame,
+      atlas, tile, seam, nine-slice, job, gate, snap, pixelart, flicker
+- [x] 0.5 (Unit) Distil the design document and the three transcripts in `docs/raw/`
+      into `docs/wiki/` pages reachable from `index.md`, then delete the raw files
 - [ ] 0.6 (Unit) Record as an ADR that `job-store` is built on `fal-client`'s
       `submit` → `get_handle(application, request_id)` → `status`/`result`/`cancel`
       surface, and pin the client version that provides it
@@ -201,11 +206,9 @@ deliverable on its own: M1 already repairs a sheet you have today, with no API k
       workflow names — Nano Banana 2, GPT Image 1.5, Grok Imagine Video, BiRefNet — into
       the shipped registry fallback, and confirm whether Fal exposes them machine-readably
       or they have to be transcribed
-- [ ] 0.4 (Unit) Settle in `docs/glossary.md` the vocabulary all twenty-seven specs inherit:
-      key, kind, stage, source, derived, output, anchor, cell, sheet, frame, atlas, tile, seam, nine-slice, job, gate,
-      snap, pixelart, flicker
-- [x] 0.5 (Unit) Distil the design document and the three transcripts in `docs/raw/`
-      into `docs/wiki/` pages reachable from `index.md`, then delete the raw files
+- [x] 0.8 (Unit) Stand up CI — `pyproject.toml`, the package skeleton, and a GitHub
+      Actions workflow running ruff, ruff format, mypy, pytest on Linux and Windows plus
+      `scc validate` on the artifacts
 
 ## Notes
 

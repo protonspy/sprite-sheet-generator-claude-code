@@ -31,7 +31,7 @@ that needs them skips with a reason rather than failing.
 
 ## Conventions
 
-- **Branch names:** `feat/<slug>`, `fix/<slug>`, `plan/<slug>`.
+- **Branch names:** `feat/<slug>`, `fix/<slug>`, `plan/<slug>`, `ci/<slug>`.
 - **Commits:** Conventional Commits, scoped by module — `feat(core/snap):`,
   `fix(cli/bgremove):`, `docs(wiki):`.
 - **`core/` is pure.** Functions take and return `ndarray` plus a params dataclass. No

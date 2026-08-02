@@ -45,8 +45,21 @@ and not listed here is an undecided dependency.
 
 - **pytest** — the suite, and golden tests over small arrays for each pure core function.
 - **ruff** — lint and format in one tool, fast enough to run per task.
-- **mypy** — checks `src/`. The JSON contracts are typed; a schema that drifts from its
-  dataclass is a defect tests will not catch.
+- **mypy** — checks `src/`, `strict`. The JSON contracts are typed; a schema that drifts
+  from its dataclass is a defect tests will not catch.
+- **hatchling** — build backend. Chosen for handling the `src/` layout with no
+  configuration beyond naming the package.
+
+## CI
+
+- **GitHub Actions** — the repo is on GitHub and the PR is where work lands, so checks
+  belong where the review is.
+- **Matrix: Linux and Windows, one Python.** Two operating systems beat three Python
+  versions here: what actually breaks per platform in this project is paths, line endings
+  and the `wasmtime` runtime, and all three only break on Windows — which is also where
+  it is developed.
+- **`scc validate` runs as its own job.** Exit `2` means it ran and found something, which
+  is a failing check rather than a crashed one.
 
 ## Vendored
 

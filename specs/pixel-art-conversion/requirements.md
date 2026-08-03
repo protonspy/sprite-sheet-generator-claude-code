@@ -23,6 +23,7 @@ what produces `flicker`, and no post-process fixes it.
 - **R1.2** Where `--in` names a directory, the `ssc` CLI shall read every image in it, ordered by filename, as one frame set.
 - **R1.3** When it converts a frame set, the `ssc` CLI shall write one file per input frame under `--out`, each keeping its input filename.
 - **R1.4** If an output file already exists, then the `ssc` CLI shall write nothing and exit `1`.
+- **R1.5** If a frame set would decode to more pixels than the set ceiling, then the `ssc` CLI shall decode none of it and exit `1`.
 
 ## R2 · `snap`
 
@@ -33,6 +34,8 @@ what produces `flicker`, and no post-process fixes it.
 - **R2.5** Where `--colors` or `--palette` is given, the `ssc` CLI shall constrain the recovered image to it.
 - **R2.6** If the snapper reports a failure, then the `ssc` CLI shall exit `1` and report the message the snapper gave.
 - **R2.7** Where `snap` runs inside a workspace, the `ssc` CLI shall reuse a snapped result addressed by a key covering the frame's content, the grid it was given, and every parameter that changes the result.
+- **R2.8** If the snapper returns no memory for a frame, then the `ssc` CLI shall write nothing into the module and exit `1`.
+- **R2.9** If the snapper traps, then the `ssc` CLI shall report it as an error carrying a code and exit `1`.
 
 ## R3 · `pixelart`
 

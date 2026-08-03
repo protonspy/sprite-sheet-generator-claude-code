@@ -33,11 +33,15 @@ class SnapParams:
     grid: bool = False
 
     def as_key(self) -> dict[str, object]:
+        """What the *cached* artefact depends on, which is not the same as what the command
+        depends on. The cache holds the module's raw output; `grid` only decides what is
+        done to it afterwards, so including it would turn toggling `--grid` into a miss on
+        work that was already done.
+        """
         return {
             "colors": self.colors,
             "pixel_size": self.pixel_size,
             "palette": self.palette,
-            "grid": self.grid,
         }
 
 

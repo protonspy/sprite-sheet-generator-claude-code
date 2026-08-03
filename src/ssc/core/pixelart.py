@@ -56,14 +56,28 @@ class PaletteParams:
     fixed: tuple[tuple[int, int, int], ...] = field(default_factory=tuple)
 
 
-def opaque_pixels(frames: list[np.ndarray]) -> np.ndarray:
-    """Every visible RGB pixel of every frame, as one `(N, 3)` array.
+def opaque_pixels(frames: list[np.ndarray], limit: int = MAX_SAMPLE) -> np.ndarray:
+    """A sample of the visible RGB pixels of every frame, as one `(N, 3)` array.
 
     Transparent pixels are excluded rather than counted (R3.3): a fully transparent pixel's
     RGB is whatever happened to be left behind it, and letting it into the palette spends a
     colour of the budget on something nobody can see.
+
+    Sampled **per frame, before concatenating**, and each frame gets an equal share of
+    `limit`. Striding the concatenation instead would mean building it first, so a set of
+    two hundred large frames allocated gigabytes to then throw almost all of it away — the
+    ceiling would be documented and not actually bounding anything. Strided rather than
+    random so that two runs over one set agree.
     """
-    collected = [frame[frame[..., 3] > 0][:, :3] for frame in frames if frame.size]
+    share = max(1, limit // max(len(frames), 1))
+    collected = []
+    for frame in frames:
+        if not frame.size:
+            continue
+        visible = frame[frame[..., 3] > 0][:, :3]
+        if len(visible) > share:
+            visible = visible[:: -(-len(visible) // share)]
+        collected.append(visible)
     if not collected:
         return np.zeros((0, 3), dtype=np.uint8)
     return np.concatenate(collected).astype(np.uint8)
@@ -84,8 +98,8 @@ def build_palette(frames: list[np.ndarray], params: PaletteParams) -> np.ndarray
         # to map onto and an empty animation does not become an error.
         return np.zeros((1, 3), dtype=np.uint8)
 
-    stride = max(1, len(pixels) // MAX_SAMPLE)
-    sample = pixels[::stride]
+    # Already sampled, per frame, by `opaque_pixels`.
+    sample = pixels
 
     # Median cut is PIL's; applying one palette to many frames is ours, because `quantize`
     # has no notion of a set. The image is Nx1 because median cut reads the colour

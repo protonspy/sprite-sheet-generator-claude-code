@@ -217,6 +217,12 @@ deliverable on its own: M1 already repairs a sheet you have today, with no API k
       `assets/<kind>/` makes it create a directory and write `meta.json` outside the
       workspace; `check_layout` is defined and called from nowhere. Both found while
       auditing `asset-listing`, both that leaf's to fix rather than this one's
+- [ ] 0.10 (Unit) Decide what `cli/main.py` does with an exception that is not an `SscError`,
+      as a delta against `workspace-foundation` — it catches `SscError` and nothing else, so
+      anything unexpected leaves the command as a Python traceback rather than the one JSON
+      object R4.1 promises. `pixel-art-conversion` translates its own foreign-runtime traps
+      at that boundary, which closes that path and not the general one. The decision worth
+      making is what a catch-all reports without swallowing the diagnosis a traceback carries
 
 ## Notes
 

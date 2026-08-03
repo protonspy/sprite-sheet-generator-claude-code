@@ -14,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from wasmtime import Engine, Func, Linker, Memory, Module, Store, WasiConfig
+from wasmtime import Engine, Func, Linker, Memory, Module, Store, WasiConfig, WasmtimeError
 
 from ssc.cli.errors import SscError
 
@@ -77,7 +77,42 @@ class Snapper:
                 f"{MODULE_NAME} exports no function {name!r}",
                 fix="rebuild the module with: python wasm/build.py",
             )
-        return function(self.store, *args)
+        try:
+            return function(self.store, *args)
+        except WasmtimeError as trapped:
+            # A trap inside the guest is not an `SscError`, and `cli/main.py` catches only
+            # those — so without this the command exits as a Python traceback instead of
+            # the JSON object every command promises. This is the boundary to foreign
+            # code, so it is the place that owes the translation.
+            raise SscError(
+                "snapper-trapped",
+                f"{MODULE_NAME} trapped during {name!r}: {trapped}",
+                fix="try a smaller input, or rebuild the module with: python wasm/build.py",
+            ) from trapped
+
+    def allocate(self, data: bytes) -> int:
+        """Reserve room inside the module for `data` and write it there.
+
+        A null pointer is the ABI's own way of saying no — for an empty length, for a
+        length past `isize::MAX`, and for an allocation that simply failed, which a
+        several-hundred-megabyte frame under memory pressure is a real way to reach.
+        Writing at address zero regardless is not a crash: it lands inside the guest's own
+        linear memory and corrupts whatever the linker put there, and the module's next
+        `ssc_result_ptr` can then hand back a pointer and length that read as a perfectly
+        successful conversion. Silent wrong output is the outcome worth spending a branch
+        to avoid.
+        """
+        if not data:
+            return 0
+        pointer = int(self.call("ssc_alloc", len(data)))
+        if pointer == 0:
+            raise SscError(
+                "snapper-oom",
+                f"the snapper could not reserve {len(data):,} bytes for this frame",
+                fix="convert fewer frames at once, or scale the input down first",
+            )
+        self.memory.write(self.store, data, pointer)
+        return pointer
 
     def _read(self, ptr: int, length: int) -> bytes:
         return bytes(self.memory.read(self.store, ptr, ptr + length))
@@ -100,27 +135,29 @@ class Snapper:
         the ABI rather than trapping, so the instance stays usable afterwards — which is
         what lets one bad frame not take the rest of the set with it.
         """
-        in_ptr = self.call("ssc_alloc", len(png))
-        self.memory.write(self.store, png, in_ptr)
         encoded = palette.encode()
-        pal_ptr = self.call("ssc_alloc", len(encoded)) if encoded else 0
-        if encoded:
-            self.memory.write(self.store, encoded, pal_ptr)
+        in_ptr = self.allocate(png)
         try:
-            code = self.call(
-                "ssc_snap", in_ptr, len(png), colors, pixel_size, pal_ptr, len(encoded)
-            )
-            if code != 0:
-                message = self._read(self.call("ssc_error_ptr"), self.call("ssc_error_len")).decode(
-                    errors="replace"
+            # Nested rather than side by side: if the palette fails to allocate, the frame
+            # it was going to accompany still has to be handed back to the module.
+            pal_ptr = self.allocate(encoded)
+            try:
+                code = self.call(
+                    "ssc_snap", in_ptr, len(png), colors, pixel_size, pal_ptr, len(encoded)
                 )
-                raise SscError(
-                    "snap-failed",
-                    f"the snapper refused this frame: {message}",
-                    fix="check --palette and --pixel-size, or that --in is an image",
-                )
-            return self._read(self.call("ssc_result_ptr"), self.result_len())
+                if code != 0:
+                    message = self._read(
+                        self.call("ssc_error_ptr"), self.call("ssc_error_len")
+                    ).decode(errors="replace")
+                    raise SscError(
+                        "snap-failed",
+                        f"the snapper refused this frame: {message}",
+                        fix="check --palette and --pixel-size, or that --in is an image",
+                    )
+                return self._read(self.call("ssc_result_ptr"), self.result_len())
+            finally:
+                if pal_ptr:
+                    self.call("ssc_dealloc", pal_ptr, len(encoded))
         finally:
-            self.call("ssc_dealloc", in_ptr, len(png))
-            if encoded:
-                self.call("ssc_dealloc", pal_ptr, len(encoded))
+            if in_ptr:
+                self.call("ssc_dealloc", in_ptr, len(png))

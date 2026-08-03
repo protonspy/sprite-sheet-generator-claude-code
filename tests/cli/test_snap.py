@@ -13,6 +13,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from PIL import Image
+from wasmtime import Func
 
 from ssc.cli import snapper as snapper_module
 from ssc.cli.cache import Cache
@@ -171,3 +172,58 @@ def test_decode_round_trips_what_the_module_returned(
 
     png = snapper.snap(encode(fake_pixels))
     assert decode(png).shape == (*Image.open(io.BytesIO(png)).size[::-1], 4)
+
+
+# R2.8, R2.9 — the module's two ways of saying no.
+
+
+def test_a_refused_allocation_is_an_error_and_nothing_is_written_into_the_module(
+    snapper: Snapper, fake_pixels: np.ndarray, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`ssc_alloc` returns a null pointer when it cannot allocate. Address zero is inside
+    the guest's own memory, so writing there anyway corrupts the module's statics and the
+    next result reads back as a perfectly successful conversion."""
+    from ssc.cli.frames import encode
+
+    written: list[int] = []
+    # Every export answers zero — which for `ssc_alloc` is exactly "I could not allocate".
+    monkeypatch.setattr(Snapper, "call", lambda self, name, *args: 0)
+    monkeypatch.setattr(
+        type(snapper.memory),
+        "write",
+        lambda self, store, data, start: written.append(start),
+    )
+
+    with pytest.raises(SscError) as refused:
+        snapper.snap(encode(fake_pixels))
+    assert refused.value.code == "snapper-oom"
+    assert written == []
+
+
+def test_a_trap_becomes_this_projects_error_contract(
+    snapper: Snapper, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`cli/main.py` catches `SscError` and nothing else, so a raw wasmtime error would
+    leave the command as a traceback instead of the JSON object it promises."""
+    from wasmtime import WasmtimeError
+
+    def trap(self: object, store: object, *args: object) -> None:
+        raise WasmtimeError("out of bounds memory access")
+
+    monkeypatch.setattr(Func, "__call__", trap)
+    with pytest.raises(SscError) as refused:
+        snapper.call("ssc_result_len")
+    assert refused.value.code == "snapper-trapped"
+    assert refused.value.exit_code == 1
+
+
+def test_the_grid_flag_is_not_part_of_the_cache_key(
+    snapper: Snapper, fake_pixels: np.ndarray, tmp_path: Path
+) -> None:
+    """The cache holds the module's raw output, which `--grid` does not change — it only
+    decides what happens to it afterwards."""
+    cache = Cache(tmp_path / "cache")
+    frame = [Frame("a.png", fake_pixels)]
+    snap_frames(frame, SnapParams(grid=True), snapper, cache)
+    _, measured = snap_frames(frame, SnapParams(grid=False), snapper, cache)
+    assert measured["reused"] == 1

@@ -148,3 +148,54 @@ def test_what_is_written_round_trips(tmp_path: Path) -> None:
     frames.write_frames(source, tmp_path / "out.png", [a_frame("hero.png", (1, 2, 3))])
     written = frames.read_frames(tmp_path / "out.png")[0].image
     assert tuple(written[0, 0]) == (1, 2, 3, 255)
+
+
+# R1.5 — a whole set is bounded, not only each frame in it.
+
+
+def test_a_set_past_the_ceiling_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = tmp_path / "set"
+    for name in ("001_a.png", "002_b.png", "003_c.png"):
+        write_png(source / name)
+    # Each frame is 16 pixels; three of them are 48.
+    monkeypatch.setattr(frames, "MAX_SET_PIXELS", 32)
+
+    with pytest.raises(SscError) as refused:
+        frames.read_frames(source)
+    assert refused.value.code == "set-too-large"
+    assert refused.value.fix is not None
+
+
+def test_a_set_within_the_ceiling_is_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = tmp_path / "set"
+    write_png(source / "001_a.png")
+    monkeypatch.setattr(frames, "MAX_SET_PIXELS", 32)
+    assert len(frames.read_frames(source)) == 1
+
+
+def test_the_ceiling_is_checked_from_headers_before_anything_is_decoded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`read none of it` is the requirement, so the refusal cannot come after half the set
+    is already resident. `Image.open` is lazy, so the sizes cost headers and not decodes."""
+    source = tmp_path / "set"
+    for name in ("001_a.png", "002_b.png"):
+        write_png(source / name)
+    monkeypatch.setattr(frames, "MAX_SET_PIXELS", 20)
+
+    decoded: list[Path] = []
+    original = frames.load_image
+    monkeypatch.setattr(frames, "load_image", lambda path: decoded.append(path) or original(path))
+
+    with pytest.raises(SscError):
+        frames.read_frames(source)
+    assert decoded == []
+
+
+def test_a_single_file_is_not_subject_to_the_set_ceiling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One image is bounded by MAX_PIXELS; the set ceiling is about how many arrive at once."""
+    path = write_png(tmp_path / "hero.png")
+    monkeypatch.setattr(frames, "MAX_SET_PIXELS", 1)
+    assert len(frames.read_frames(path)) == 1

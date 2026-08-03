@@ -12,6 +12,7 @@ run green before this work started.
 ## 1 · The frame set
 
 - [x] 1.1 (Unit) Read `--in` as one image or an ordered frame set, and refuse an `--out` that already exists — R1.1, R1.2, R1.3, R1.4
+- [x] 1.2 (Unit) Bound a whole set, not just one frame: refuse past the set ceiling from the headers, and sample the palette per frame rather than after concatenating — R1.5
 
 ## 2 · `snap`
 
@@ -19,6 +20,7 @@ run green before this work started.
 - [x] 2.2 (Unit) Resolve one grid across a set and bring every frame onto it — R2.2, R2.3
 - [x] 2.3 (Unit) Build `ssc tool snap`: `--grid` against the return to the arrival size, and the colour constraints — R2.4, R2.5
 - [x] 2.4 (Unit) Key a snapped frame by its content, its grid and its parameters — R2.7
+- [x] 2.5 (Unit) Treat the module's null pointer as the refusal it is, and turn a trap into this project's error contract — R2.8, R2.9
 
 ## 3 · `pixelart`
 

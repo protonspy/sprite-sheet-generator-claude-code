@@ -30,6 +30,18 @@ IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 #: handle, so the limit is stated here.
 MAX_PIXELS = 64_000_000
 
+#: And a ceiling on a whole *set*, because `MAX_PIXELS` bounds one frame and a directory
+#: holds as many as somebody put there: two hundred frames each just under the per-image
+#: limit is several gigabytes, and every one of them is decoded before anything is
+#: converted. At four bytes a pixel this is a gigabyte of decoded frames, which is
+#: generous for any real animation and far below what would take a machine down.
+#:
+#: The honest fix is to stream a set one frame at a time rather than hold it — but the
+#: palette is computed across every frame, so that is two passes and a different shape for
+#: `read_frames`. A ceiling is what this leaf can promise; streaming is what a later one
+#: can build.
+MAX_SET_PIXELS = 256_000_000
+
 
 @dataclass(frozen=True)
 class Frame:
@@ -65,6 +77,32 @@ def load_image(path: Path) -> np.ndarray:
         ) from unreadable
 
 
+def check_set_size(paths: list[Path]) -> int:
+    """Refuse a set past `MAX_SET_PIXELS` before decoding any of it (R1.5).
+
+    The sizes are read from the headers — `Image.open` is lazy, so `.size` costs a header
+    and not a decode — which is what lets the whole set be refused rather than refused
+    half way through, with the first half already resident.
+    """
+    total = 0
+    for path in paths:
+        try:
+            with Image.open(path) as handle:
+                width, height = handle.size
+        except (OSError, Image.DecompressionBombError, Image.DecompressionBombWarning):
+            # Not this function's refusal to make: `load_image` reports an unreadable file
+            # with the code and the fix that belong to it.
+            continue
+        total += width * height
+        if total > MAX_SET_PIXELS:
+            raise SscError(
+                "set-too-large",
+                f"{len(paths)} frames come to over {MAX_SET_PIXELS:,} pixels decoded",
+                fix="convert the set in smaller batches, or scale the frames down first",
+            )
+    return total
+
+
 def read_frames(path: Path) -> list[Frame]:
     """One image, or a directory read as a frame set ordered by filename (R1.2).
 
@@ -81,6 +119,7 @@ def read_frames(path: Path) -> list[Frame]:
                 f"{path} holds no images",
                 fix="point --in at a file, or at a directory of frames",
             )
+        check_set_size(found)
         return [Frame(child.name, load_image(child)) for child in found]
     raise SscError(
         "no-input",

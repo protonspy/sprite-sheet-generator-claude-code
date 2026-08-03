@@ -26,47 +26,64 @@ LUMA = (0.299, 0.587, 0.114)
 
 
 def luminance(image: np.ndarray) -> np.ndarray:
-    rgb = image[:, :, :3].astype(np.float64)
-    return rgb[:, :, 0] * LUMA[0] + rgb[:, :, 1] * LUMA[1] + rgb[:, :, 2] * LUMA[2]
+    """Perceived brightness, standing in for height (R1.2).
+
+    `float32` here and everywhere below. The values are 0..255 and the arithmetic is a
+    weighted sum and a Sobel, so single precision is far more than this needs — and the
+    intermediates are several arrays the size of the image plus an eight- and a nine-deep
+    stack, which at `frames.MAX_PIXELS` is the difference between a few gigabytes and twice
+    that.
+    """
+    rgb = image[:, :, :3].astype(np.float32)
+    weighted = rgb[:, :, 0] * LUMA[0] + rgb[:, :, 1] * LUMA[1] + rgb[:, :, 2] * LUMA[2]
+    return np.asarray(weighted, dtype=np.float32)
 
 
 def filled(height: np.ndarray, opaque: np.ndarray) -> np.ndarray:
-    """The height field with transparent pixels taking their nearest opaque value (R1.4).
+    """The height field with transparent pixels taking their opaque neighbours' value (R1.4).
 
     A transparent pixel's RGB is usually black and always meaningless. Left in the window it
     puts a cliff around every sprite's silhouette, which is the most visible way to get this
     wrong — the outline lights like a wall. Filling instead of masking is what makes the
     slope at the edge of the art the slope *of* the art.
 
-    Propagation rather than a distance transform: four passes of "take a neighbour's value if
-    you have none" reach far enough at sprite scale, and this stays dependency-free.
+    **One dilation, and one is provably enough.** Only a transparent pixel *inside* an opaque
+    pixel's 3x3 Sobel window can affect that pixel's slope, and every such pixel is a direct
+    neighbour of an opaque one — so it is filled by this single pass. Anything still unfilled
+    is two or more pixels from any art, cannot reach an opaque window, and is overwritten
+    with the flat normal on the way out regardless; a constant is all it needs to be.
+
+    The first version propagated in a loop until nothing was left, which was two defects at
+    once. It used `np.roll`, whose wraparound let a value from the far edge of the canvas
+    bleed into a real pixel's window — R1.4's own second clause, violated. And the loop ran
+    once per pixel of transparent margin, so a tall thin image with one opaque pixel took
+    millions of passes over the whole array: hours, from a file that is nothing on disk.
     """
     if not opaque.any():
         return np.zeros_like(height)
 
-    out = np.where(opaque, height, np.nan)
-    while np.isnan(out).any():
-        neighbours = np.stack(
-            [
-                np.roll(out, 1, axis=0),
-                np.roll(out, -1, axis=0),
-                np.roll(out, 1, axis=1),
-                np.roll(out, -1, axis=1),
-            ]
-        )
-        # A pixel with no filled neighbour yet averages an empty slice, which is expected on
-        # every pass but the last and is not worth warning about — the NaN it produces is
-        # what carries "still unreached" into the next round.
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)
-            spread = np.nanmean(neighbours, axis=0)
-        candidate = np.where(np.isnan(out), spread, out)
-        if np.array_equal(np.isnan(candidate), np.isnan(out)):
-            # Nothing reached this round, so nothing ever will — an opaque region that no
-            # amount of rolling connects to. Whatever is left is flat.
-            return np.nan_to_num(candidate, nan=float(height[opaque].mean()))
-        out = candidate
-    return out
+    known = np.where(opaque, height, np.nan)
+    # Padded slices, never `np.roll`: the edge of the canvas is an edge, not a seam onto the
+    # opposite side. All eight neighbours, because the window that consumes this has eight.
+    padded = np.pad(known, 1, mode="constant", constant_values=np.nan)
+    rows, columns = height.shape
+    neighbours = np.stack(
+        [
+            padded[dy : dy + rows, dx : dx + columns]
+            for dy in range(3)
+            for dx in range(3)
+            if (dy, dx) != (1, 1)
+        ]
+    )
+    # A pixel with no opaque neighbour at all averages an empty slice. That is the expected
+    # case for most of a sparse frame, not a problem, and the NaN it yields is exactly the
+    # "still unknown" marker the fallback below reads.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        spread = np.nanmean(neighbours, axis=0)
+
+    out = np.where(np.isnan(known), spread, known)
+    return np.nan_to_num(out, nan=float(height[opaque].mean())).astype(np.float32)
 
 
 def slopes(height: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -84,11 +101,11 @@ def slopes(height: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
             for dx in range(3)
         ]
     )
-    kernel_x = np.array([-1.0, 0.0, 1.0, -2.0, 0.0, 2.0, -1.0, 0.0, 1.0])
-    kernel_y = np.array([-1.0, -2.0, -1.0, 0.0, 0.0, 0.0, 1.0, 2.0, 1.0])
+    kernel_x = np.array([-1.0, 0.0, 1.0, -2.0, 0.0, 2.0, -1.0, 0.0, 1.0], dtype=np.float32)
+    kernel_y = np.array([-1.0, -2.0, -1.0, 0.0, 0.0, 0.0, 1.0, 2.0, 1.0], dtype=np.float32)
     dx = np.tensordot(kernel_x, windows, axes=(0, 0))
     dy = np.tensordot(kernel_y, windows, axes=(0, 0))
-    return dx / 8.0, dy / 8.0
+    return dx / np.float32(8.0), dy / np.float32(8.0)
 
 
 def derive(image: np.ndarray, *, strength: float = 1.0, flip_y: bool = False) -> np.ndarray:

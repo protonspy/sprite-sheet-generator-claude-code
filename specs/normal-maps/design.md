@@ -18,8 +18,24 @@ and always meaningless, and letting it into the Sobel window puts a cliff around
 sprite's silhouette — the single most visible way to get this wrong. So the height field is
 built with transparent pixels filled from the nearest opaque luminance rather than from
 their own, the slopes are taken on that filled field, and the output is overwritten with a
-flat normal wherever alpha is zero (R1.4). The fill is a two-pass propagation, not a
-distance transform: exact enough at this scale and no dependency.
+flat normal wherever alpha is zero (R1.4).
+
+**The fill is exactly one dilation, and one is provably enough.** Only a transparent pixel
+*inside* an opaque pixel's 3x3 window can affect that pixel's slope, and every such pixel is
+a direct neighbour of an opaque one. Anything further out cannot reach an opaque window and
+is overwritten flat on the way out, so a constant is all it needs to be.
+
+It is padded slicing rather than `np.roll`, and that is not a style choice: the edge of the
+canvas is an edge, not a seam onto the opposite side. A sprite that touches two edges of its
+frame — which any cropped or keyed one does — would otherwise have the far side's art
+averaged into its own, silently. Bounding it at one pass is also what keeps the cost tied to
+the pixel count rather than to the width of the transparent margin; the loop it replaced ran
+once per pixel of margin over the whole array.
+
+Every intermediate is `float32`. The values are 0..255 and the arithmetic is a weighted sum
+and a Sobel, so single precision is more than enough, and the intermediates are several
+image-sized arrays plus an eight- and a nine-deep stack — at `frames.MAX_PIXELS` that choice
+is worth several gigabytes.
 
 **The output's alpha is the input's alpha**, so the map's silhouette matches the sprite's
 and an engine sampling outside it gets nothing rather than a flat blue rectangle.

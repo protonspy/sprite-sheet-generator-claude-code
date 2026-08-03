@@ -12,7 +12,7 @@ import numpy as np
 
 from ssc.cli import kinds
 from ssc.cli import workspace as ws
-from ssc.cli.commands.convert import parse_guides
+from ssc.cli.args import parse_guides
 from ssc.cli.errors import SscError
 from ssc.cli.frames import load_input
 from ssc.cli.main import ssc_command

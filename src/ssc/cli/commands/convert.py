@@ -1,12 +1,15 @@
-"""`ssc tool snap`, `ssc tool pixelart`, `ssc tool bgremove` and `ssc tool board`.
+"""The `tool` commands that need no workspace: `snap`, `pixelart`, `bgremove`, `board`,
+`tile`, `normal`, `layers`, `ninepatch` and `states`.
 
-The four commands that need no workspace. They find one if they are standing in it — `snap`
-caches there — but none of them requires it, because a caller with a directory of loose PNGs
-and no `ssc init` is exactly who these are for.
+They find a workspace if they are standing in one — `snap` caches there — but none requires
+it, because a caller with a directory of loose PNGs and no `ssc init` is exactly who these
+are for.
 
 They share a module because they share a shape: `--in`/`--out`, the frame-set reading, the
-refusal to overwrite, and a ceiling on every dial whose cost scales with its own value. A
-fifth command of a different shape is the point at which to split this up.
+refusal to overwrite, and a ceiling on every dial whose cost scales with its own value. This
+docstring used to say a fifth command was the point to split it up; there are nine now and
+the shape has held, so what would justify splitting is a command that breaks it rather than
+the count reaching some number.
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ from pathlib import Path
 import click
 
 from ssc.cli import workspace as ws
+from ssc.cli.args import parse_guides
 from ssc.cli.cache import Cache
 from ssc.cli.errors import UsageError
 from ssc.cli.frames import Frame, read_frames, write_frames, write_one
@@ -593,20 +597,6 @@ def layers(source: Path, scroll: str | None, *, dry_run: bool) -> Result:
 STATES = ("normal", "hover", "pressed", "disabled")
 
 
-def parse_guides(value: str | None) -> tuple[int, int, int, int] | None:
-    if value is None:
-        return None
-    parts = [part.strip() for part in value.split(",") if part.strip()]
-    if len(parts) != 4 or not all(part.lstrip("-").isdigit() for part in parts):
-        raise UsageError(
-            "invalid-guides",
-            f"{value!r} is not four numbers",
-            fix="write it as left,right,top,bottom — distances inwards from each edge",
-        )
-    left, right, top, bottom = (int(part) for part in parts)
-    return left, right, top, bottom
-
-
 @ssc_command("ninepatch", help="Report the guides an engine stretches a panel by.")
 @click.option("--guides", default=None, help="left,right,top,bottom. Omit to derive them.")
 @click.option(
@@ -660,7 +650,19 @@ def ninepatch_guides(source: Path, guides: str | None, *, dry_run: bool) -> Resu
 def control_states(source: Path, out: Path, *, dry_run: bool) -> Result:
     """R3.1, R3.2, R3.3 — one sheet, in the order the engine expects."""
     frames = read_frames(source)
-    named = {Path(frame.name).stem.lower(): frame for frame in frames}
+    named: dict[str, Frame] = {}
+    for frame in frames:
+        # Lower-cased, so `Hover.png` is the hover state — and that is exactly why the
+        # collision has to be refused rather than resolved: `Hover.png` beside `hover.PNG`
+        # would otherwise drop one of them from the sheet with nothing said.
+        state = Path(frame.name).stem.lower()
+        if state in named:
+            raise UsageError(
+                "duplicate-state",
+                f"{named[state].name} and {frame.name} are both the {state!r} state",
+                fix="one file per state; rename or remove one of them",
+            )
+        named[state] = frame
 
     unknown = sorted(set(named) - set(STATES))
     if unknown:

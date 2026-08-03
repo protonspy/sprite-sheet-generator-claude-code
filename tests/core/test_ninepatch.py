@@ -167,3 +167,43 @@ def test_the_nine_regions_are_reported_with_their_sizes() -> None:
 def test_guides_that_describe_no_panel_are_refused(guides: tuple[int, int, int, int]) -> None:
     with pytest.raises(ValueError, match="guide"):
         ninepatch.describe(panel(32, 32, block=4), guides)
+
+
+def test_asymmetric_guides_put_every_region_where_it_belongs() -> None:
+    """A row/column swap passes every symmetric test and ships a panel that stretches the
+    wrong pair of edges — invisible until something resizes it."""
+    described = ninepatch.describe(panel(32, 32, block=4), (8, 4, 2, 12))
+
+    regions = described["regions"]
+    assert regions["top_left"] == {"width": 8, "height": 2}
+    assert regions["top"] == {"width": 20, "height": 2}
+    assert regions["top_right"] == {"width": 4, "height": 2}
+    assert regions["left"] == {"width": 8, "height": 18}
+    assert regions["centre"] == {"width": 20, "height": 18}
+    assert regions["right"] == {"width": 4, "height": 18}
+    assert regions["bottom_left"] == {"width": 8, "height": 12}
+    assert regions["bottom"] == {"width": 20, "height": 12}
+    assert regions["bottom_right"] == {"width": 4, "height": 12}
+
+
+def test_the_regions_cut_from_asymmetric_guides_start_where_they_should() -> None:
+    cut = ninepatch.bounds(panel(32, 32, block=4), (8, 4, 2, 12))
+
+    assert cut["top_left"] == (slice(0, 2), slice(0, 8))
+    assert cut["centre"] == (slice(2, 20), slice(8, 28))
+    assert cut["bottom_right"] == (slice(20, 32), slice(28, 32))
+    assert len(cut) == 9
+
+
+def test_a_region_the_guides_leave_empty_is_skipped_rather_than_indexed() -> None:
+    """`lines[0]` on an empty region would raise; a zero-width edge is legal input."""
+    finding = check_nineslice(panel(32, 32, block=4), NineSliceParams(guides=(0, 4, 4, 4)))
+
+    assert finding.status in {Status.OK, Status.DEFECT}
+
+
+def test_guides_that_describe_no_panel_skip_the_check_with_the_reason() -> None:
+    finding = check_nineslice(panel(32, 32, block=4), NineSliceParams(guides=(20, 20, 4, 4)))
+
+    assert finding.status is Status.SKIPPED
+    assert "centre" in (finding.reason or "")

@@ -239,3 +239,39 @@ def test_states_of_different_sizes_are_refused(tmp_path: Path) -> None:
     assert payload["error"]["code"] == "states-differ"
     assert "16x8" in payload["error"]["message"]
     assert "24x8" in payload["error"]["message"]
+
+
+@pytest.mark.parametrize(
+    "guides",
+    [
+        "9" * 350,  # `int()` takes it; the float division inside `snap` would not
+        "\u00b2,0,0,0",  # `str.isdigit()` is true for a superscript; `int()` refuses it
+        "4,4,4,x",
+    ],
+)
+def test_a_guide_that_is_not_a_plain_number_is_refused_rather_than_crashing(
+    guides: str, tmp_path: Path
+) -> None:
+    """Each of these used to reach an `internal-error` instead of the refusal the parser
+    exists to give — one through Python's float range, one through `isdigit()` being true
+    for digits `int()` does not accept."""
+    code, payload = run(
+        "tool", "ninepatch", "--guides", guides, "--in", str(panel(tmp_path / "p.png"))
+    )
+
+    assert code == 2
+    assert payload["error"]["code"] == "invalid-guides"
+
+
+def test_two_files_that_name_one_state_are_refused(tmp_path: Path) -> None:
+    """The state name is lower-cased, so `Hover.png` is the hover state — which is exactly
+    why a collision has to be refused rather than silently resolved."""
+    directory = tmp_path / "button"
+    panel(directory / "Hover.png", 16, 8, block=2)
+    panel(directory / "hover.bmp", 16, 8, block=2)
+
+    code, payload = run("tool", "states", "--in", str(directory), "--out", str(tmp_path / "s.png"))
+
+    assert code == 2
+    assert payload["error"]["code"] == "duplicate-state"
+    assert "hover" in payload["error"]["message"]

@@ -13,8 +13,9 @@ attention as the successful cases.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
-from ssc.core.recover import GridSpec, detect_grid
+from ssc.core.recover import detect_grid
 
 
 def drawn(
@@ -48,7 +49,12 @@ def test_a_spaced_grid_is_detected_as_what_can_be_seen_of_it() -> None:
     it. So the contract is the observable one: cells tight to content, spacing measured.
     """
     found = detect_grid(drawn(3, 2, cell=10, spacing=4))
-    assert found == GridSpec(columns=3, rows=2, cell=(8, 8), margin=(1, 1), spacing=(6, 6))
+    assert found is not None
+    summary = (found.columns, found.rows, found.cell, found.margin, found.spacing)
+    assert summary == (3, 2, (8, 8), (1, 1), (6, 6))
+    # And the bands the cutting actually uses, which are where the content is rather than
+    # a position re-derived from those three scalars.
+    assert found.columns_at == ((1, 8), (15, 8), (29, 8))
 
 
 def test_what_is_detected_tiles_back_to_the_pitch_that_was_drawn() -> None:
@@ -168,3 +174,69 @@ def test_a_full_two_by_two_is_still_detected() -> None:
     found = detect_grid(drawn(2, 2, cell=10, spacing=2))
     assert found is not None
     assert (found.columns, found.rows) == (2, 2)
+
+
+# The re-review's two, and the root cause they share.
+
+
+def test_columns_of_differing_widths_are_each_cut_where_they_are() -> None:
+    """The blocker, properly this time. `regular()` allows 25% of variation, so widths of
+    10 and 8 alternating are a grid — and reconstructing every position from one maximum
+    cell and one maximum gap drifts a little further out of step with every column, until
+    one rectangle holds two sprites and the last runs off the image.
+
+    The bands cannot drift, because they are measurements rather than a reconstruction.
+    """
+    from ssc.core.recover import crop, rects_from
+
+    widths = [10, 8, 10, 8, 10, 8, 10, 8]
+    gap = 5
+    total = sum(widths) + gap * (len(widths) - 1)
+    image = np.zeros((12, total, 4), dtype=np.uint8)
+    x = 0
+    for index, width in enumerate(widths):
+        image[2:10, x : x + width, 3] = 255
+        image[2:10, x : x + width, 0] = 10 + index * 20
+        x += width + gap
+
+    found = detect_grid(image)
+    assert found is not None
+    assert found.columns == len(widths)
+
+    for index, piece in enumerate(crop(image, rect) for rect in rects_from(found)):
+        opaque = piece[piece[..., 3] > 0]
+        assert set(np.unique(opaque[:, 0]).tolist()) == {10 + index * 20}, (
+            f"piece {index} holds another piece's pixels"
+        )
+
+
+def test_a_sheet_with_one_blank_cell_is_still_a_sheet() -> None:
+    """A blink, a fade, a frame the animator left empty. Refusing the whole layout because
+    one cell of it is empty was the first fix's overreach — an occupancy check cannot tell
+    that apart from two shapes on a diagonal, so it is not the check to use."""
+    image = np.zeros((24, 24, 4), dtype=np.uint8)
+    for row, column in ((0, 0), (0, 1), (1, 0)):
+        y, x = 2 + row * 12, 2 + column * 12
+        image[y : y + 8, x : x + 8, 3] = 255
+
+    found = detect_grid(image)
+    assert found is not None
+    assert (found.columns, found.rows) == (2, 2)
+
+
+def test_a_gutter_wider_than_a_cell_is_not_a_gutter() -> None:
+    """What refuses the diagonal instead: both axes are regular taken alone, and only a
+    real sheet has gaps that are small against its cells."""
+    image = np.zeros((40, 40, 4), dtype=np.uint8)
+    image[2:10, 2:10, 3] = 255
+    image[25:33, 25:33, 3] = 255
+    assert detect_grid(image) is None
+
+
+def test_a_rectangle_off_the_edge_is_refused_rather_than_truncated() -> None:
+    """A numpy slice past the edge truncates silently, which is how a piece became a 2x10
+    file on disk while the command's JSON called it 10x10."""
+    from ssc.core.recover import Rect, crop
+
+    with pytest.raises(ValueError, match="not inside"):
+        crop(np.zeros((10, 10, 4), dtype=np.uint8), Rect(x=5, y=0, width=10, height=10))

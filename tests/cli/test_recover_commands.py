@@ -293,3 +293,23 @@ def test_an_asset_reached_through_a_link_is_refused(
     assert code == 1
     assert payload["error"]["code"] == "asset-escapes-workspace"
     assert not (elsewhere / "frames").exists()
+
+
+def test_a_piece_filter_on_a_grid_is_refused_rather_than_ignored(tmp_path: Path) -> None:
+    """R1.11 — the flags filter *found* pieces, and a grid's cells are given. Advertising
+    them on every mode and then quietly doing nothing is the worse of the two options."""
+    code, payload = run(
+        "tool",
+        "cut",
+        "--grid",
+        "2x1",
+        "--min-size",
+        "1000",
+        "--in",
+        str(sheet(tmp_path)),
+        "--out",
+        str(tmp_path / "o"),
+    )
+    assert code == 2
+    assert payload["error"]["code"] == "filter-without-mode"
+    assert not (tmp_path / "o").exists()

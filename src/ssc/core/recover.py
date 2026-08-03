@@ -53,6 +53,16 @@ class GridSpec:
     margin: tuple[int, int]
     spacing: tuple[int, int]
 
+    #: The bands themselves, as `(start, length)` per column and per row. `cell`, `margin`
+    #: and `spacing` above are a *summary* — three scalars for a caller to read — and the
+    #: cutting uses these instead. Reconstructing a position as `margin + n * (cell +
+    #: spacing)` assumes the layout is perfectly periodic, and `regular()` deliberately
+    #: allows 25% of variation, so the reconstruction drifted a little further out of step
+    #: with every column until one rectangle held two sprites and the last ran off the
+    #: image. The bands cannot drift: they are where the content actually is.
+    columns_at: tuple[tuple[int, int], ...] = ()
+    rows_at: tuple[tuple[int, int], ...] = ()
+
     def as_dict(self) -> dict[str, object]:
         return {
             "columns": self.columns,
@@ -72,6 +82,16 @@ REGULARITY = 0.25
 
 
 def crop(image: np.ndarray, rect: Rect) -> np.ndarray:
+    """The pixels inside `rect`, refusing one that is not wholly inside the image.
+
+    A numpy slice past the edge truncates silently, which is how a rectangle that ran off
+    the sheet became a 2x10 file on disk while the command's own JSON reported it as 10x10.
+    A caller's metadata disagreeing with its own output is worth a branch to prevent.
+    """
+    if rect.x < 0 or rect.y < 0 or rect.bottom > image.shape[0] or rect.right > image.shape[1]:
+        raise ValueError(
+            f"{rect.as_dict()} is not inside a {image.shape[1]}x{image.shape[0]} image"
+        )
     return image[rect.y : rect.bottom, rect.x : rect.right]
 
 
@@ -92,8 +112,8 @@ def regular(values: list[int]) -> bool:
     return longest > 0 and (longest - min(values)) <= REGULARITY * longest
 
 
-def axis_layout(occupied: np.ndarray) -> tuple[int, int, int, int] | None:
-    """`(count, cell, margin, spacing)` along one axis, or `None` if it is not a grid."""
+def axis_layout(occupied: np.ndarray) -> list[tuple[int, int]] | None:
+    """The content bands along one axis, or `None` if this axis is not a grid."""
     found = runs_of(occupied)
     if not found:
         return None
@@ -112,7 +132,15 @@ def axis_layout(occupied: np.ndarray) -> tuple[int, int, int, int] | None:
     if gaps and not regular(gaps):
         return None
 
-    return len(found), max(lengths), found[0][0], max(gaps) if gaps else 0
+    # A gutter wider than a cell is not a gutter. This is what tells a sheet apart from two
+    # shapes that happen to sit on a diagonal: both are regular along each axis taken alone,
+    # and only the sheet has gaps that are small against its cells. An occupancy check
+    # cannot make that call — it would also refuse a real animation with one blank frame in
+    # it, which is a legitimate sheet.
+    if gaps and max(gaps) > max(lengths):
+        return None
+
+    return found
 
 
 def detect_grid(image: np.ndarray, mask: np.ndarray | None = None) -> GridSpec | None:
@@ -132,25 +160,21 @@ def detect_grid(image: np.ndarray, mask: np.ndarray | None = None) -> GridSpec |
     if across is None or down is None:
         return None
 
-    columns, cell_width, margin_x, spacing_x = across
-    rows, cell_height, margin_y, spacing_y = down
-    found = GridSpec(
-        columns=columns,
-        rows=rows,
-        cell=(cell_width, cell_height),
-        margin=(margin_x, margin_y),
-        spacing=(spacing_x, spacing_y),
-    )
+    def gap_after(bands: list[tuple[int, int]]) -> int:
+        return max(
+            (bands[i + 1][0] - (bands[i][0] + bands[i][1]) for i in range(len(bands) - 1)),
+            default=0,
+        )
 
-    # Both axes reading as regular is not enough, and this is the check that says so. Two
-    # blobs placed diagonally on a blank canvas are regular across *and* down — two runs
-    # each way — and are emphatically not a 2x2 sheet. A grid is only a grid if something
-    # actually occupies every cell of it (R2.4).
-    if not all(
-        occupied[rect.y : rect.bottom, rect.x : rect.right].any() for rect in rects_from(found)
-    ):
-        return None
-    return found
+    return GridSpec(
+        columns=len(across),
+        rows=len(down),
+        cell=(max(length for _, length in across), max(length for _, length in down)),
+        margin=(across[0][0], down[0][0]),
+        spacing=(gap_after(across), gap_after(down)),
+        columns_at=tuple(across),
+        rows_at=tuple(down),
+    )
 
 
 def rects_from(spec: GridSpec) -> list[Rect]:
@@ -165,14 +189,9 @@ def rects_from(spec: GridSpec) -> list[Rect]:
     edge of every piece and pulling in the neighbour's.
     """
     return [
-        Rect(
-            x=spec.margin[0] + column * (spec.cell[0] + spec.spacing[0]),
-            y=spec.margin[1] + row * (spec.cell[1] + spec.spacing[1]),
-            width=spec.cell[0],
-            height=spec.cell[1],
-        )
-        for row in range(spec.rows)
-        for column in range(spec.columns)
+        Rect(x=x, y=y, width=width, height=height)
+        for y, height in spec.rows_at
+        for x, width in spec.columns_at
     ]
 
 

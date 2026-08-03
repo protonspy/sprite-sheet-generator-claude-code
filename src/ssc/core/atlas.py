@@ -42,7 +42,16 @@ class EntryDoesNotFit(ValueError):
 
 
 class GapTooWide(ValueError):
-    """A padding or an extrude that is out of range, or an extrude past its padding (R2.3)."""
+    """An extrude wider than the padding it has to fit inside (R2.3)."""
+
+
+class GapOutOfRange(ValueError):
+    """A padding or an extrude outside what either may be (R2.5).
+
+    Separate from `GapTooWide` because the answers are opposites: one is fixed by raising
+    the padding, the other by lowering whichever value is past the ceiling. Merging them
+    means half the callers are told to raise a number that is already too large.
+    """
 
 
 @dataclass(frozen=True)
@@ -117,6 +126,9 @@ def default_width(entries: list[Entry], padding: int) -> int:
     square because a caller who did not say has no opinion, and a 4096x40 strip is a worse
     answer than a 256x256 for every consumer of it. The height is *not* rounded up — that
     would waste up to half the file to satisfy a constraint nothing in this project has.
+
+    Takes the entries already in shelf order, like `shelve` and for the same reason: this is
+    where `shelve` is called repeatedly, so re-sorting here is re-sorting per search step.
     """
     widest = max(entry.size[0] for entry in entries) + 2 * padding
     width = next_power_of_two(max(widest, 1))
@@ -191,9 +203,9 @@ def place(
         # of looking for it, and the search is what scales with the set.
         raise EntryDoesNotFit(f"{len(entries)} entries is past the ceiling of {MAX_ENTRIES}")
     if padding < 0 or extrude < 0:
-        raise GapTooWide("padding and extrude are distances, so neither can be negative")
+        raise GapOutOfRange("padding and extrude are distances, so neither can be negative")
     if padding > MAX_GAP or extrude > MAX_GAP:
-        raise GapTooWide(f"padding and extrude are capped at {MAX_GAP}")
+        raise GapOutOfRange(f"padding and extrude are capped at {MAX_GAP}")
     if extrude > padding:
         # The whole point of the extrusion is to fill the gap. Wider than the gap, it writes
         # into the neighbour whose sampling it exists to protect (R2.3).

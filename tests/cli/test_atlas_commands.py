@@ -126,7 +126,7 @@ def test_an_extrude_wider_than_the_padding_is_refused(icons: Path, tmp_path: Pat
     )
 
     assert code == 2
-    assert payload["error"]["code"] == "invalid-gap"
+    assert payload["error"]["code"] == "extrude-past-padding"
     assert "--padding" in payload["error"]["fix"]
     assert "wider than the padding" in payload["error"]["message"]
 
@@ -267,7 +267,7 @@ def test_naming_an_animating_kind_still_packs_an_ordinary_sheet(
     ("argv", "code"),
     [
         (["--padding", "100"], "invalid-gap"),
-        (["--padding", "1", "--extrude", "4"], "invalid-gap"),
+        (["--padding", "1", "--extrude", "4"], "extrude-past-padding"),
     ],
 )
 def test_an_out_of_range_gap_is_told_apart_from_an_extrude_past_its_padding(

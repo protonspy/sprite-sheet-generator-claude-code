@@ -43,14 +43,25 @@ does not fit that width is R1.6's refusal rather than a silent widening.
 
 Serves R1.6, R2.3, R3.2.
 
-`core/atlas.py` is pure, per `.claude/rules/project.md`: `ndarray` in, `ndarray` out, and
-`ValueError` for a refusal. The three refusals — an entry that does not fit, an extrude
-wider than the padding, a duplicate id — are raised there and translated to `UsageError` in
-`cli/`, the same way `CanvasTooLarge` already is.
+`core/atlas.py` is pure, per `.claude/rules/project.md`: `ndarray` in, `ndarray` out, and a
+`ValueError` for a refusal. **Each refusal has its own type**, because the `fix` differs by
+which one it is and the CLI must not tell them apart by reading the message — "padding and
+extrude are capped at 64" contains the word `extrude` and is not the extrusion's refusal:
 
-`MAX_CANVAS` from `core/assemble.py` bounds the atlas, imported rather than redefined. It is
-the same reason that constant exists: `--width` multiplied by a computed height is another
-value that multiplies into an allocation.
+| Raised | Means | Answered by |
+|---|---|---|
+| `EntryDoesNotFit` | an entry too wide for the atlas, or a set past `MAX_ENTRIES` | a wider atlas, or smaller sets |
+| `GapTooWide` | an extrude wider than its padding | more padding, or less extrusion |
+| `GapOutOfRange` | a padding or extrude negative or past `MAX_GAP` | a value inside the range |
+| `ValueError` | a duplicate id, an empty set | the set being packed |
+
+`MAX_CANVAS` from `core/assemble.py` bounds the atlas, imported rather than redefined, for
+the reason that constant exists: `--width` multiplied by a computed height is another value
+that multiplies into an allocation. **`MAX_ENTRIES` bounds the set, and is checked before
+the width search rather than after it** — `default_width` doubles, placing every entry at
+each step, so a ceiling on the *result* does not bound the cost of looking for it. For the
+same reason the shelf sort belongs to `place` and not to `shelve`: it does not change
+between the search's steps.
 
 The kind is read through `kinds.resolve`, and only two of its fields are consulted:
 `atlas_layout` picks bin or grid, and `animates` is R3.2's refusal. Nothing here reads

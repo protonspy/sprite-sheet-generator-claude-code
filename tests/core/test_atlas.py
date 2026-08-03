@@ -276,10 +276,12 @@ def test_each_refusal_has_its_own_type() -> None:
     """Read by the CLI to pick a `fix`. Told apart by message, "padding and extrude are
     capped at 64" routes to the extrusion's refusal, whose fix is to raise the padding that
     is already too large."""
-    with pytest.raises(atlas.GapTooWide):
+    with pytest.raises(atlas.GapOutOfRange):
         atlas.place(sizes((8, 8)), padding=atlas.MAX_GAP + 1)
-    with pytest.raises(atlas.GapTooWide):
+    with pytest.raises(atlas.GapOutOfRange):
         atlas.place(sizes((8, 8)), padding=-1)
+    with pytest.raises(atlas.GapTooWide):
+        atlas.place(sizes((8, 8)), padding=1, extrude=2)
     with pytest.raises(atlas.EntryDoesNotFit):
         atlas.place(sizes((200, 8)), width=64)
 

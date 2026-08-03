@@ -28,6 +28,7 @@ image viewer.
 - **R1.4** If two inputs resolve to the same id, then the `ssc` CLI shall refuse the pack and name both files.
 - **R1.5** The `ssc` CLI shall place the same inputs in the same rectangles on every run.
 - **R1.6** If an entry cannot be placed within the atlas' bounds, then the `ssc` CLI shall refuse the pack and name the entry that did not fit.
+- **R1.7** If a set holds more entries than the atlas ceiling, then the `ssc` CLI shall refuse the pack before placing any of them and report the ceiling.
 
 ## R2 · The gap between entries
 
@@ -35,6 +36,7 @@ image viewer.
 - **R2.2** Where `--extrude` is given, the `ssc` CLI shall repeat each entry's border pixels that far outwards from its rectangle.
 - **R2.3** If `--extrude` is larger than `--padding`, then the `ssc` CLI shall refuse the pack, because an extrusion wider than the gap writes into a neighbour.
 - **R2.4** The `ssc` CLI shall report an entry's rectangle as the entry's own pixels, excluding anything extruded from them.
+- **R2.5** If `--padding` or `--extrude` is negative or past the gap ceiling, then the `ssc` CLI shall refuse the pack and report the range, distinguishably from R2.3's refusal.
 
 ## R3 · Which sets are atlases
 

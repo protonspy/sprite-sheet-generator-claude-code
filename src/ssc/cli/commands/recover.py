@@ -628,7 +628,11 @@ def pack_atlas(
     # "padding and extrude are capped" contains the word `extrude` and is not that refusal.
     except atlas.GapTooWide as refused:
         raise UsageError(
-            "invalid-gap", str(refused), fix="--extrude must be no wider than --padding"
+            "extrude-past-padding", str(refused), fix="raise --padding, or lower --extrude"
+        ) from refused
+    except atlas.GapOutOfRange as refused:
+        raise UsageError(
+            "invalid-gap", str(refused), fix=f"--padding and --extrude run 0 to {atlas.MAX_GAP}"
         ) from refused
     except atlas.EntryDoesNotFit as refused:
         raise UsageError(

@@ -11,12 +11,14 @@ covers profile resolution, which R3.1 reads. All were run green before this work
 - [x] 1.1 (TDD) Place a set of sizes on shelves — sorted by height then id, no two rectangles overlapping, none outside the atlas — R1.1, R1.5
 - [x] 1.2 (Unit) Choose the default width: the smallest power of two that fits the widest entry and keeps the packed height no greater than itself — R1.1
 - [x] 1.3 (Unit) Refuse an entry that does not fit the atlas' width, naming it — R1.6
+- [x] 1.4 (Unit) Bound the set before the width search runs, and sort it once for the whole search — R1.7
 
 ## 2 · The gap
 
 - [x] 2.1 (TDD) Hold `--padding` between every pair of rectangles and at the atlas edge — R2.1
 - [x] 2.2 (TDD) Extrude each entry's border outwards, repeating the border pixel and never writing past the padding — R2.2, R2.3
 - [x] 2.3 (Unit) Report the rectangle as the entry's own pixels, excluding the extrusion — R2.4
+- [x] 2.4 (Unit) Give each refusal its own type, so an out-of-range gap and an over-wide extrusion carry different fixes — R2.5
 
 ## 3 · Drawing and identity
 

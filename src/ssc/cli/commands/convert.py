@@ -25,6 +25,8 @@ from ssc.cli.snap import SnapParams, snap_frames
 from ssc.cli.snapper import Snapper
 from ssc.core.bgremove import PRESETS, BgRemoveParams, remove
 from ssc.core.board import checkerboard, pose_board
+from ssc.core.normal import MAX_STRENGTH, MIN_STRENGTH
+from ssc.core.normal import derive as derive_normal
 from ssc.core.pixelart import (
     PaletteParams,
     build_palette,
@@ -437,6 +439,50 @@ def tile_wrap(source: Path, out: Path, mode: str, *, dry_run: bool) -> Result:
             # reported as the no-op it was, which is the honest answer to "did this do
             # anything" and what makes re-running visibly idempotent.
             "pixels_changed": moved,
+            "written": [str(path) for path in written],
+        },
+        dry_run=dry_run,
+    )
+
+
+@ssc_command("normal", help="Derive a normal map so a 2D engine can light the art.")
+@click.option("--flip-y", is_flag=True, help="Encode +Y down, for engines that expect it.")
+@click.option("--strength", type=float, default=1.0, help="How far the surface tilts.")
+@click.option("--out", required=True, type=click.Path(path_type=Path), help="File or directory.")
+@click.option(
+    "--in",
+    "source",
+    required=True,
+    type=click.Path(path_type=Path),
+    help="An image, or a directory of frames.",
+)
+def normal_map(source: Path, out: Path, strength: float, flip_y: bool, *, dry_run: bool) -> Result:
+    """R1.1, R1.3, R1.5, R2.1 — one map per input, and the convention it used."""
+    frames = read_frames(source)
+    maps: list[Frame] = []
+    for frame in frames:
+        try:
+            maps.append(
+                Frame(frame.name, derive_normal(frame.image, strength=strength, flip_y=flip_y))
+            )
+        except ValueError as refused:
+            raise UsageError(
+                "invalid-strength",
+                str(refused),
+                fix=f"pass --strength between {MIN_STRENGTH} and {MAX_STRENGTH}",
+            ) from refused
+
+    written = write_frames(source, out, maps, dry_run=dry_run)
+    return Result(
+        "tool normal",
+        f"{len(maps)} normal map{'' if len(maps) == 1 else 's'} at strength {strength}",
+        {
+            "strength": strength,
+            # An engine that assumes the other convention lights every surface backwards, and
+            # the map looks correct either way — so the answer travels with the file rather
+            # than living in whoever ran the command's memory.
+            "convention": "+y-down" if flip_y else "+y-up",
+            "maps": len(maps),
             "written": [str(path) for path in written],
         },
         dry_run=dry_run,

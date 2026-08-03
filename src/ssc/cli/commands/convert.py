@@ -487,3 +487,90 @@ def normal_map(source: Path, out: Path, strength: float, flip_y: bool, *, dry_ru
         },
         dry_run=dry_run,
     )
+
+
+#: A layer never scrolls faster than the camera, and one that never moves at all is a sky.
+#: Both ends are legal, which is why an omitted `--scroll` derives the whole ladder rather
+#: than defaulting a layer to zero: zero and "nobody said" would otherwise be one value.
+MIN_SCROLL = 0.0
+MAX_SCROLL = 1.0
+
+
+def parse_scroll(value: str | None, layers: int) -> list[float]:
+    """One factor per layer, given or derived (R2.2, R2.3, R2.4, R2.6).
+
+    Derived linearly from position: the far layer at `1/n`, the near one at `1`, evenly
+    spaced. That is a starting point rather than a claim — real parallax is a ratio of
+    distances nobody knows, so the number a caller tunes by eye is the real answer and this
+    is what they tune from.
+    """
+    if value is None:
+        return [(index + 1) / layers for index in range(layers)]
+
+    parts = [part.strip() for part in value.split(",") if part.strip()]
+    try:
+        factors = [float(part) for part in parts]
+    except ValueError as refused:
+        raise UsageError(
+            "invalid-scroll",
+            f"{value!r} is not a list of numbers",
+            fix="write it as 0.2,0.5,1.0 — one per layer, far to near",
+        ) from refused
+
+    if len(factors) != layers:
+        raise UsageError(
+            "scroll-count",
+            f"{len(factors)} scroll factor{'' if len(factors) == 1 else 's'} for {layers} layers",
+            fix=f"give {layers}, or omit --scroll and let them be derived",
+        )
+    for factor in factors:
+        if not MIN_SCROLL <= factor <= MAX_SCROLL:
+            raise UsageError(
+                "invalid-scroll",
+                f"a scroll factor of {factor} is outside {MIN_SCROLL}..{MAX_SCROLL}",
+                fix="0 is infinitely far away and 1 moves with the camera",
+            )
+    return factors
+
+
+@ssc_command("layers", help="Read a stack of background layers and their scroll factors.")
+@click.option("--scroll", default=None, help="Comma-separated factors, far to near.")
+@click.option(
+    "--in",
+    "source",
+    required=True,
+    type=click.Path(path_type=Path),
+    help="A directory of layers, ordered by filename far to near.",
+)
+def layers(source: Path, scroll: str | None, *, dry_run: bool) -> Result:
+    """R2.1, R2.5 — the stack, and the refusal that keeps it one.
+
+    No `--out`: nothing here transforms a pixel. The layers stay the files they were, and
+    what this command produces is the stack — which is a fact about the set, not a new image.
+    """
+    frames = read_frames(source)
+    sizes = {(frame.image.shape[1], frame.image.shape[0]) for frame in frames}
+    if len(sizes) > 1:
+        found = ", ".join(f"{width}x{height}" for width, height in sorted(sizes))
+        raise UsageError(
+            "layers-differ",
+            f"a background scrolls every layer across one viewport, and these are {found}",
+            fix="ssc tool expand them to a common size",
+        )
+
+    factors = parse_scroll(scroll, len(frames))
+    width, height = next(iter(sizes))
+    return Result(
+        "tool layers",
+        f"{len(frames)} layer{'' if len(frames) == 1 else 's'} at {width}x{height}",
+        {
+            "layered": True,
+            "size": {"width": width, "height": height},
+            "derived": scroll is None,
+            "layers": [
+                {"index": index, "file": frame.name, "scroll": factor}
+                for index, (frame, factor) in enumerate(zip(frames, factors, strict=True))
+            ],
+        },
+        dry_run=dry_run,
+    )

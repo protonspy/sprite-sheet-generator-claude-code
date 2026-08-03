@@ -34,7 +34,6 @@ from ssc.core.pixelart import (
 )
 from ssc.core.tile import MODES as TILE_MODES
 from ssc.core.tile import close as close_wrap
-from ssc.core.tile import pixels_changed
 
 #: A colour budget outside this is not a budget. The floor is 2 because one colour is not
 #: an image, and the ceiling is the largest indexed palette a PNG can carry.
@@ -416,14 +415,14 @@ def tile_wrap(source: Path, out: Path, mode: str, *, dry_run: bool) -> Result:
     moved = 0
     for frame in frames:
         try:
-            image, _ = close_wrap(frame.image, mode=mode)
+            image, report = close_wrap(frame.image, mode=mode)
         except ValueError as refused:
             raise UsageError(
                 "not-tileable",
                 f"{frame.name}: {refused}",
                 fix="a tile needs at least two pixels on each side",
             ) from refused
-        moved += pixels_changed(frame.image, image)
+        moved += int(report["pixels_changed"])
         closed.append(Frame(frame.name, image))
 
     written = write_frames(source, out, closed, dry_run=dry_run)

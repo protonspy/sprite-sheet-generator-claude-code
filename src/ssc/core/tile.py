@@ -42,14 +42,22 @@ def close(image: np.ndarray, *, mode: Mode = "edge") -> tuple[np.ndarray, dict[s
         raise ValueError(f"{mode!r} is not a way to close a wrap; use one of {', '.join(MODES)}")
 
     if mode == "mirror":
-        return mirrored(image), {"mode": "mirror", "edges": ["right", "bottom"], "pixels": 0}
+        out = mirrored(image)
+    else:
+        out = image.copy()
+        out[:, -1] = out[:, 0]
+        # After the column, so the corner is the first row's first pixel either way round —
+        # the two writes agree on it rather than racing for it.
+        out[-1, :] = out[0, :]
 
-    closed = image.copy()
-    closed[:, -1] = closed[:, 0]
-    # After the column, so the corner is the first row's first pixel either way round — the
-    # two writes agree on it rather than racing for it.
-    closed[-1, :] = closed[0, :]
-    return closed, {"mode": "edge", "edges": ["right", "bottom"], "pixels": int(height + width)}
+    # What moved, not what was written to. The two differ on a tile that already wrapped,
+    # and it is the difference an operator asking "did that do anything" wants: the answer
+    # for a re-run is 0, which is what makes the idempotence visible rather than claimed.
+    return out, {
+        "mode": mode,
+        "edges": ["right", "bottom"],
+        "pixels_changed": pixels_changed(image, out),
+    }
 
 
 def mirrored(image: np.ndarray) -> np.ndarray:
@@ -71,6 +79,5 @@ def mirrored(image: np.ndarray) -> np.ndarray:
 
 
 def pixels_changed(before: np.ndarray, after: np.ndarray) -> int:
-    """How many pixels actually differ. `edge` reports what it wrote; this is what it moved,
-    and the two differ on a tile that already wrapped."""
+    """How many pixels differ between the two."""
     return int(np.count_nonzero(np.any(before != after, axis=-1)))

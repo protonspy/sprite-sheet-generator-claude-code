@@ -364,18 +364,22 @@ class SeamParams:
     floor: float = 0.5
 
 
-def _wrap_ratio(image: np.ndarray, axis: int) -> float:
+def _wrap_ratio(image: np.ndarray, axis: int, floor: float) -> float:
     """How far the wrap boundary differs, over how far neighbours ordinarily differ.
 
     Both halves are mean absolute differences over the same axis and the same channels, so
     the units cancel and the answer is dimensionless: about 1 when the boundary is as
     ordinary as any other adjacency, far above it when it is not.
+
+    `floor` is passed in rather than read off `SeamParams`. Reading the class attribute is
+    the same expression to look at and silently ignores whatever the caller tuned, which is
+    worse than not offering the field at all.
     """
     values = _rgb(image).astype(np.int16)
     lines = values if axis == 0 else np.swapaxes(values, 0, 1)
     interior = float(np.abs(np.diff(lines, axis=0)).mean()) if lines.shape[0] > 1 else 0.0
-    across = float(np.abs(lines[-1].astype(np.int16) - lines[0].astype(np.int16)).mean())
-    return across / max(interior, SeamParams.floor)
+    across = float(np.abs(lines[-1] - lines[0]).mean())
+    return across / max(interior, floor)
 
 
 def check_seam(image: np.ndarray, params: SeamParams | None = None) -> Finding:
@@ -392,8 +396,8 @@ def check_seam(image: np.ndarray, params: SeamParams | None = None) -> Finding:
             f"a {width}x{height} image has no wrap: an edge and its opposite are one pixel",
         )
 
-    vertical = _wrap_ratio(image, axis=0)
-    horizontal = _wrap_ratio(image, axis=1)
+    vertical = _wrap_ratio(image, axis=0, floor=params.floor)
+    horizontal = _wrap_ratio(image, axis=1, floor=params.floor)
     measurement = {
         "horizontal": round(horizontal, 3),
         "vertical": round(vertical, 3),

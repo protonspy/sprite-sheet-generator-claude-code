@@ -149,7 +149,11 @@ def test_the_last_column_and_row_become_copies_of_the_first() -> None:
     assert np.array_equal(closed[-1, :], closed[0, :])
     assert report["mode"] == "edge"
     assert report["edges"] == ["right", "bottom"]
-    assert report["pixels"] == 8 + 8
+    # What moved, not what was written to: this gradient's rows are already identical, so
+    # only the column write changes anything. Reporting the region's size instead would
+    # claim work on every re-run of an already-closed tile.
+    assert report["pixels_changed"] == tile.pixels_changed(image, closed)
+    assert report["pixels_changed"] == 8
 
 
 def test_closing_leaves_the_rest_of_the_art_alone() -> None:
@@ -245,3 +249,32 @@ def test_mirror_handles_an_odd_side_without_losing_the_middle() -> None:
 def test_an_image_one_pixel_on_a_side_is_refused(shape: tuple[int, int]) -> None:
     with pytest.raises(ValueError, match="two pixels"):
         tile.close(np.zeros((*shape, 4), dtype=np.uint8))
+
+
+def test_a_closed_tile_reports_nothing_moved_when_it_was_already_closed() -> None:
+    once, _ = tile.close(gradient(8, 8))
+
+    _, report = tile.close(once)
+
+    assert report["pixels_changed"] == 0
+
+
+def test_mirror_reports_what_it_moved_rather_than_a_placeholder() -> None:
+    image = noisy(8, 8)
+
+    mirrored_image, report = tile.close(image, mode="mirror")
+
+    assert report["pixels_changed"] == tile.pixels_changed(image, mirrored_image)
+    assert report["pixels_changed"] > 0
+
+
+def test_the_floor_the_caller_passes_is_the_floor_that_is_used() -> None:
+    """Read off the class instead of the instance, this field is the same expression to
+    look at and silently ignores whatever was tuned — worse than not offering it."""
+    image = wrapping(16, 16)
+    image[-1, :, :3] = 121  # one level away: real, and tiny against any sensible floor
+
+    tight = check_seam(image, SeamParams(floor=0.01))
+    loose = check_seam(image, SeamParams(floor=100.0))
+
+    assert tight.measurement["vertical"] > loose.measurement["vertical"]

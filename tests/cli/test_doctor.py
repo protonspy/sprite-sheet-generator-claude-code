@@ -21,7 +21,7 @@ def checks(payload: dict[str, object]) -> dict[str, dict[str, object]]:
     return {entry["check"]: entry for entry in payload["checks"]}  # type: ignore[index,union-attr]
 
 
-def test_all_seven_checks_appear_in_every_report() -> None:
+def test_every_check_appears_in_every_report() -> None:
     """R1.1 — and a check that did not apply says so rather than being left out.
 
     `seam` is in the report too, and skipped. It arrived as `specs/tile-assets/`'s delta and

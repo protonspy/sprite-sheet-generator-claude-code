@@ -66,6 +66,12 @@ def test_environment_secrets_reads_the_environment_at_call_time(
         ("proxy auth Basic sk-live-9999", "proxy auth Basic "),
         ("could not connect to postgres://svc:sk-live-9999@10.0.0.5:5432/prod", "postgres://svc:"),
         ("amqp://guest:sk-live-9999@broker/", "@broker/"),
+        # A managed cache's DSN is all password and no username.
+        ("redis://:sk-live-9999@cache.internal:6379/0", "redis://:"),
+        # What an HTTP client writes when it stringifies a prepared request, which is the
+        # shape a provider's exception carries far more often than the bare header.
+        ("{'Authorization': 'Bearer sk-live-9999'}", "'Authorization': 'Bearer "),
+        ('{"Authorization": "Bearer sk-live-9999"}', '"Authorization": "Bearer '),
     ],
 )
 def test_a_credential_is_recognised_by_shape(text: str, kept: str) -> None:

@@ -32,10 +32,6 @@ repeated per task.
 - [x] 4.5 (Unit) Reject any subdirectory of an asset other than `frames/` — R2.5
 - [x] 4.6 (Unit) Call that rejection where a caller addresses one asset, and the escape check on every route that reaches one, the two that create included — R2.5
 
-## 7 · What a command may say
-
-- [x] 7.1 (Unit) Redact a credential — an environment secret by value, a `key=value` pair or an authorization scheme by shape — at the boundary every command's output crosses — R4.6
-
 ## 5 · The cache
 
 - [x] 5.1 (TDD) Derive the cache key from the inputs' content, the command, the parameters that affect the result, and a salt later leaves extend — R5.1
@@ -44,6 +40,10 @@ repeated per task.
 ## 6 · Deleting
 
 - [x] 6.1 (TDD) `ssc clean` — delete the files classed `derived`, never one classed `source`, and drop each deleted file's record — R6.1, R6.2, R6.3
+
+## 7 · What a command may say
+
+- [x] 7.1 (Unit) Redact a credential — an environment secret by value, a `key=value` pair, an authorization scheme or a connection string's password by shape — at the boundary every command's output crosses — R4.6
 
 ## Notes
 

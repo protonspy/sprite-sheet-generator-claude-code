@@ -250,9 +250,19 @@ deliverable on its own: M1 already repairs a sheet you have today, with no API k
       which is the path written on purpose, and through `gen --dry-run`'s resolved call,
       which is not an error at all. Two rules, because a credential arrives two ways: by
       value, matching what the environment holds under a secret-looking name in whatever
-      format it appears; and by shape, matching `api_key=…` or `Authorization: Bearer …`
-      for one that never passed through this process's environment. Recorded as
-      `workspace-foundation` R4.6
+      format it appears; and by shape, matching `api_key=…`, `Authorization: Bearer …` or
+      a connection string's password for one that never passed through this process's
+      environment. Recorded as `workspace-foundation` R4.6
+- [ ] 0.12 (Unit) Bind an asset write to the directory that was checked, as a delta against
+      `workspace-foundation` — `asset new` and `tool slice` re-check with `under_assets`
+      after `mkdir`, which is what moves a lost race from a written `meta.json` to an empty
+      directory, but `atomic.write_new` and `atomic.replace` each call
+      `parent.mkdir(parents=True, exist_ok=True)` again and open by path, so a component
+      swapped in the few statements after the second check is still followed. The honest
+      close is a directory handle opened once and every write made relative to it
+      (`os.open(dir, O_DIRECTORY)` + `dir_fd=`), which is a change to the write helpers
+      rather than to their callers. `record_frames`, which `tool cut` uses, has the same
+      shape with a wider window and belongs in the same pass
 
 ## Notes
 

@@ -53,15 +53,20 @@ CREDENTIAL_PAIR = re.compile(
 # `auth` has to precede it: on its own, `bearer` and `basic` are ordinary English, and a
 # guard that turns "a basic bounding box" into "a basic *** box" is a guard somebody
 # disables — which costs more than the narrower pattern does.
+# The quotes are not decoration: an HTTP client stringifying a prepared request writes
+# `{'Authorization': 'Bearer …'}`, which is the shape a provider's exception carries far
+# more often than the bare header does.
 AUTH_SCHEME = re.compile(
-    r"((?:proxy-)?authorizations?|auth)([\"']?\s*[=:]?\s*)((?:bearer|basic)\s+)(\S+)",
+    r"((?:proxy-)?authorizations?|auth)([\"']?\s*[=:]?\s*[\"']?)((?:bearer|basic)\s+)([^\s\"']+)",
     re.IGNORECASE,
 )
 
 # `scheme://user:password@host`. Neither rule above sees this one: there is no keyword in
 # front of the password, and a connection string is routinely held under a name like
-# `DATABASE_URL` that reads nothing like a credential.
-URL_USERINFO = re.compile(r"(://[^/\s:@]+:)([^/\s@]+)(@)")
+# `DATABASE_URL` that reads nothing like a credential. The username is optional because a
+# managed cache's DSN routinely has none — `redis://:password@host` is the common shape,
+# and it is all password.
+URL_USERINFO = re.compile(r"(://[^/\s:@]*:)([^/\s@]+)(@)")
 
 
 def environment_secrets() -> list[str]:
@@ -83,7 +88,8 @@ def scrub(text: str) -> str:
         text = text.replace(secret, PLACEHOLDER)
     text = CREDENTIAL_PAIR.sub(lambda match: match.group(1) + PLACEHOLDER, text)
     text = AUTH_SCHEME.sub(
-        lambda match: match.group(1) + match.group(2) + match.group(3) + PLACEHOLDER, text
+        lambda match: "".join(match.group(1, 2, 3)) + PLACEHOLDER,
+        text,
     )
     return URL_USERINFO.sub(lambda match: match.group(1) + PLACEHOLDER + match.group(3), text)
 

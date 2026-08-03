@@ -13,16 +13,10 @@ from pathlib import Path
 
 from ssc.cli import meta
 from ssc.cli.errors import SscError
+from ssc.cli.listing import asset_dirs
 from ssc.cli.main import ssc_command
 from ssc.cli.output import Result
 from ssc.cli.workspace import Workspace
-
-
-def assets(workspace: Workspace) -> list[Path]:
-    """Every directory holding a `meta.json`, in a stable order."""
-    if not workspace.assets.is_dir():
-        return []
-    return sorted(path.parent for path in workspace.assets.glob("*/*/" + meta.META_NAME))
 
 
 def inside(directory: Path, relative: str) -> Path:
@@ -58,7 +52,7 @@ def inside(directory: Path, relative: str) -> Path:
 def clean(*, dry_run: bool, workspace: Workspace) -> Result:
     deleted: list[str] = []
 
-    for directory in assets(workspace):
+    for directory in asset_dirs(workspace):
         record = meta.load(directory)
         removable = [entry for entry in record.files if entry.file_class == "derived"]
         if not removable:

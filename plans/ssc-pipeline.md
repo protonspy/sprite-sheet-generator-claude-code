@@ -1,6 +1,8 @@
 ---
 autonomy: auto
 ci: wait
+worktree: per-group
+merge: auto
 ---
 
 # ssc — the 2D sprite pipeline

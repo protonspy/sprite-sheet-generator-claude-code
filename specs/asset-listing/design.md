@@ -1,40 +1,78 @@
 # Asset listing — design
 
-<!-- The design must fit the decision being made. Every heading below except
-     "What changes" is OPTIONAL: delete the ones this change does not decide.
-
-     A heading filled with "N/A", or with prose written to satisfy the heading, is
-     worse than an absent heading — the next session reads invented architecture as
-     a decision somebody made, and honors it. Filler becomes binding.
-
-     Delete this comment too. -->
-
 ## What changes
 
-Serves R1.1.
+Serves R1.1, R1.2, R2.1, R2.2, R2.6, R3.1, R3.2, R3.4, R3.6, R3.8.
 
-<!-- Required. What changes, where, and why. For a change that decides nothing
-     structural, this section is the whole design and that is the correct outcome.
+Two new modules and no change to anything that exists:
 
-     Keep the "Serves" line above and make it real: the design has to name the
-     requirements it answers, or the trace from what to how is unreadable — and
-     `scc spec validate` says so. -->
+- **`src/ssc/cli/listing.py`** — reading the workspace back. It walks `assets/*/*/meta.json`,
+  classifies each recorded file by medium, resolves an asset from a `<kind>/<key>` or bare
+  `<key>` address, and walks a file's lineage. Nothing here is a command, which is what
+  lets `show`'s stage resolution be tested against a hand-built `AssetMeta` rather than
+  through the CLI.
+- **`src/ssc/cli/commands/media.py`** — the `image` and `video` groups. They differ in
+  exactly one value, the medium they filter on, so both are built by one factory rather
+  than written twice. `ssc video list` differing from `ssc image list` by a typo in one of
+  the two copies is the failure that costs a day to see.
 
-## Boundaries and contracts <!-- optional -->
+`app.py` gains two `add_command` lines. `meta.py`, `workspace.py` and `output.py` are
+untouched: the record already carries everything both commands report, which is the point
+of `workspace-foundation` having recorded it.
 
-<!-- Only if this change moves a boundary or an external contract, and only for the
-     parts that actually move. -->
+**The noun scopes `show`, not just `list`.** `ssc video show hero` considers only the
+videos in that asset's chain, which is what R3.4's default and R3.5's refusal are written
+against. Without it the two `show` commands would be one command reachable by two names,
+and a caller asking for the last video of a mixed asset would get whatever image happened
+to be written after it.
 
-## Data <!-- optional -->
+`show` reaches into `sheet-doctor` for R3.8 by calling `commands.doctor.load_input` and
+`commands.doctor.measure` with no parameters. That is a CLI-layer module importing another
+CLI-layer module, not `core` reaching sideways, and it keeps the ceilings on decode size
+that `doctor` already enforces — `show` reads files somebody downloaded, so it inherits
+the same exposure.
 
-<!-- Only if a data shape changes. -->
+## Data
 
-## Alternatives considered <!-- optional -->
+Nothing is written. `list` emits `files`, an array of
+`{kind, key, stage, class, path, media}` objects, plus `unclassified` naming any recorded
+file whose extension placed it in neither medium (R1.2). `show` emits `file` in that same
+shape extended with `produced_by` and `sha256`, plus `lineage` — the same objects, ordered
+root-first — and `doctor`, which is `sheet-doctor`'s report or `null` with a `doctor_skipped`
+reason beside it (R3.9). A recorded file that is not on disk takes that same path rather
+than failing the command: the record is the only thing that explains where the file went,
+so refusing to print it is refusing to answer the question that was asked.
 
-<!-- Only where there were real alternatives with trade-offs. Say which won and why.
-     If the decision is hard to reverse, write an ADR under docs/adr/ and cite it
-     here instead of arguing it twice. -->
+The `unclassified` field is why R1.2 exists rather than the obvious "ignore it". A file
+that is recorded and appears in no listing is invisible to the only caller that cannot
+run `ls`, and invisible is the one thing this leaf is built to prevent.
 
-## Risks <!-- optional -->
+## Alternatives considered
 
-<!-- What could go wrong that the task list does not already cover. -->
+**The medium: derived from the extension, not recorded in `meta.json`.** The alternative is
+a `media` field on `FileRecord`, set by whichever command wrote the file. Deriving won on
+two grounds. A recorded field can disagree with the file — `meta.json` is hand-editable and
+this project's own error path tells people to fix it by hand — and a derived one cannot.
+And it costs `workspace-foundation` a delta, a schema bump and a field every future
+`record()` call site has to remember, to store something that is a pure function of a string
+already in the record. The cost of being wrong is small and symmetrical: adding the field
+later is additive, and the classifier stays as the fallback for records written before it.
+
+Not an ADR. Reversing it is one field and one migration on a schema with no data in the
+world yet, which is `design.md`'s side of the line in [knowledge-base.md](../../.claude/rules/knowledge-base.md).
+
+**A bare key is accepted, and ambiguity refuses.** `adr:0007-group-assets-by-kind-then-key`
+made keys unique per kind rather than globally, so `show hero` can genuinely mean two
+assets. Requiring `<kind>/<key>` always would make the common case — one asset with that
+key — needlessly verbose for the agent this leaf exists for. Guessing between two would be
+worse than either. So: resolve when unambiguous, refuse and name the candidates when not
+(R3.3), which is the same shape as every other refusal here — a code, a message, and a
+`fix` the caller can run.
+
+## Risks
+
+**A lineage cycle is reachable through a hand-edited `meta.json`.** `derived_from` is a
+list of paths validated for escape, not for acyclicity, so `a → b → a` survives being
+loaded and would spin the walk forever. R3.7 makes it a refusal with the offending file
+named; the walk carries a seen-set and stops at the second visit. This is the only loop in
+the leaf and it reads untrusted input, so it is worth the four lines.

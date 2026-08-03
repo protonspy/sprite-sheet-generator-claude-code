@@ -27,10 +27,12 @@ and not listed here is an undecided dependency.
 - **pyyaml** — `ssc.yaml` and the per-asset recipe files.
 - **wasmtime** — runs the vendored pixel snapper as a WASI module, so no Rust toolchain
   and no per-platform binaries at runtime.
-- **httpx** — HTTP for anything the provider client does not cover.
-- **fal-client** — the generation provider. Chosen for `submit` → `get_handle(app,
-  request_id)` → `status`/`result`/`cancel`, which is what lets a job survive the death
-  of the process that started it.
+- **httpx** — HTTP for anything the provider client does not cover, which today is reading
+  a model's published OpenAPI schema.
+- **fal-client** — the generation provider, pinned `>=1.0,<2`. Chosen for `submit` →
+  `get_handle(app, request_id)` → `status`/`result`/`cancel`, which is what lets a job
+  survive the death of the process that started it; the pin and the version evidence are
+  `adr:0006-job-store-rides-the-fal-client-handle-surface`.
 
 ## Optional extras
 
@@ -64,7 +66,10 @@ and not listed here is an undecided dependency.
 
 - **spritefusion-pixel-snapper** (MIT, Hugo Duprez) — compiled to `wasm32-wasip1` and
   committed as `vendor/pixel-snapper.wasm` with its `LICENSE`. Adopted for its dithering
-  preservation; see `docs/wiki/prior-art.md`.
+  preservation; see `docs/wiki/prior-art.md`,
+  `adr:0002-vendor-the-pixel-snapper-as-a-wasi-module` and
+  `adr:0003-patch-upstream-and-call-it-over-a-flat-abi`. Rebuilt by `wasm/build.py`, which
+  needs `cargo` and the `wasm32-wasip1` target — neither at runtime nor in CI.
 
 ## Not adopted
 

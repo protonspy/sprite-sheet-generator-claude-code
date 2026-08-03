@@ -381,3 +381,100 @@ def test_an_array_option_accepts_a_list(registry: models.Registry) -> None:
     )
 
     assert checked["image_urls"] == ["https://x/a"]
+
+
+# `fetch_from_provider` itself — mocked at `urlopen`, never at the function, because the
+# scheme check, the quoting and the cap are the security-bearing part and were untested.
+
+
+class Response:
+    def __init__(self, body: bytes, *, chunk: int = 64 * 1024, delay: float = 0.0) -> None:
+        self.body = body
+        self.chunk = chunk
+        self.delay = delay
+        self.at = 0
+
+    def read(self, size: int | None = None) -> bytes:
+        import time as clock
+
+        if self.delay:
+            clock.sleep(self.delay)
+        take = min(size or len(self.body), self.chunk)
+        piece = self.body[self.at : self.at + take]
+        self.at += len(piece)
+        return piece
+
+    def __enter__(self) -> Response:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+
+def serving(body: bytes, **over: Any) -> Any:
+    seen: list[str] = []
+
+    def urlopen(url: str, timeout: float | None = None) -> Response:
+        seen.append(url)
+        return Response(body, **over)
+
+    urlopen.seen = seen  # type: ignore[attr-defined]
+    return urlopen
+
+
+def test_the_fetcher_asks_the_url_the_endpoint_belongs_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    import urllib.request
+
+    body = json.dumps(openapi_document(NANO)).encode()
+    urlopen = serving(body)
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+
+    found = models.fetch_from_provider(NANO)
+
+    assert found is not None and set(found["properties"]) == {"prompt"}
+    # Quoted: the endpoint has a `/` in it, and it is going into a query parameter.
+    assert "fal-ai%2Fnano-banana-2" in urlopen.seen[0]
+
+
+def test_the_fetcher_reads_nothing_but_https(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`urlopen` will open `file://` quite happily, and the one thing this must never do is
+    read a local path because a string looked like one."""
+    import urllib.request
+
+    monkeypatch.setattr(models, "SCHEMA_URL", "file:///etc/passwd?{endpoint}")
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: pytest.fail("it opened the URL"))
+
+    assert models.fetch_from_provider(NANO) is None
+
+
+def test_a_response_past_the_cap_is_not_read_into_memory(monkeypatch: pytest.MonkeyPatch) -> None:
+    import urllib.request
+
+    monkeypatch.setattr(models, "MAX_SCHEMA_BYTES", 1024)
+    monkeypatch.setattr(urllib.request, "urlopen", serving(b"x" * 4096, chunk=256))
+
+    assert models.fetch_from_provider(NANO) is None
+
+
+def test_a_response_that_trickles_is_abandoned(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The attack the socket timeout cannot see: every `recv` stays under it, and a plain
+    bounded read waits for as long as the server cares to take."""
+    import urllib.request
+
+    body = json.dumps(openapi_document(NANO)).encode()
+    monkeypatch.setattr(models, "MAX_FETCH_SECONDS", 0.05)
+    monkeypatch.setattr(urllib.request, "urlopen", serving(body, chunk=8, delay=0.02))
+
+    assert models.fetch_from_provider(NANO) is None
+
+
+def test_a_mixed_enum_still_accepts_its_own_members() -> None:
+    """`value in allowed` lets `True` match an integer enum's `1`; asking per member rather
+    than per enum is what keeps `[true, 5]` accepting `5`."""
+    model = models.Model(endpoint="x", media="image", role="r", provider="p")
+    option = models.Option(name="odd", allowed=[True, 5])
+
+    models._check_value(model, option, 5)
+    models._check_value(model, option, True)
+    with pytest.raises(UsageError):
+        models._check_value(model, option, 1)

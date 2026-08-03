@@ -38,7 +38,14 @@ MAX_SCHEMA_BYTES = 4 * 1024 * 1024
 #: every `recv` under this and never finishes. `load` bounds the whole fetch instead.
 SOCKET_TIMEOUT = 10.0
 
-#: The deadline that actually stops the trickle, across every model in one call.
+#: How long one fetch may take in total. This is the one that stops the trickle: the read is
+#: chunked and abandoned when this elapses, because a check *before* the call cannot
+#: interrupt a call already in progress, however tightly it is set.
+MAX_FETCH_SECONDS = 10.0
+
+#: And this bounds the *set* — six models is six fetches, so a budget per call is a minute of
+#: hanging on a command that only reads a schema. It skips fetches not yet started; the one
+#: above is what bounds the one that has.
 FETCH_BUDGET_SECONDS = 20.0
 
 #: No model has hundreds of options. A live schema past this is not a model's input schema.
@@ -189,13 +196,26 @@ def fetch_from_provider(endpoint: str) -> dict[str, Any] | None:
         # this function must never do is read a local path because a string looked like one.
         return None
 
+    give_up_at = time.monotonic() + MAX_FETCH_SECONDS
+    chunks: list[bytes] = []
+    read = 0
     with urllib.request.urlopen(url, timeout=SOCKET_TIMEOUT) as response:
-        # Bounded, and one byte over the cap so the difference between "big" and "exactly at
-        # the limit" is visible. `read()` with no argument is how a hostile response — or an
-        # honest but enormous one — becomes this process's memory.
-        raw = response.read(MAX_SCHEMA_BYTES + 1)
-    if len(raw) > MAX_SCHEMA_BYTES:
+        # Chunked, and timed between chunks. `read()` with no argument is how a hostile
+        # response — or an honest but enormous one — becomes this process's memory; and a
+        # single bounded `read` still waits forever on a server that trickles a byte at a
+        # time, because each `recv` stays under the socket timeout and the socket timeout is
+        # the only clock a plain read consults.
+        while read <= MAX_SCHEMA_BYTES:
+            if time.monotonic() > give_up_at:
+                return None
+            chunk = response.read(64 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            read += len(chunk)
+    if read > MAX_SCHEMA_BYTES:
         return None
+    raw = b"".join(chunks)
 
     document: dict[str, Any] = json.loads(raw.decode("utf-8"))
     found = input_schema_of(document, endpoint)
@@ -309,9 +329,12 @@ class Registry:
 
 
 def _check_value(model: Model, option: Option, value: Any) -> None:
-    if option.allowed is not None and (
-        isinstance(value, bool) is not any(isinstance(item, bool) for item in option.allowed)
-        or value not in option.allowed
+    # `value in allowed` alone lets `True` match an integer enum's `1`, because Python says
+    # they are equal. The match has to agree about the type as well as the value, and it is
+    # per member rather than per enum so a mixed `[true, 5]` still accepts `5`.
+    if option.allowed is not None and not any(
+        item == value and isinstance(item, bool) == isinstance(value, bool)
+        for item in option.allowed
     ):
         raise UsageError(
             "invalid-option",

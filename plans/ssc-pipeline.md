@@ -163,10 +163,18 @@ deliverable on its own: M1 already repairs a sheet you have today, with no API k
 
 - `specs/style-and-palette/` — `ssc tool style`, the project-locked `palette.json`,
   named presets (pico8, nes, gameboy, sweetie16), ordered or Floyd-Steinberg
-  dithering as a project decision, and palette coherence across every asset.
+  dithering as a project decision, and palette coherence across every asset. Plus
+  **`ssc tool recolour`**, which maps one palette onto another: a red slime and a blue slime
+  are one asset and a colour map, not two generations. Same economics as `mirror` —
+  deterministic, instant, and free where the paid path is not — so it belongs in the free
+  path `budget-guard` refuses against, for the same reason `mirror` does.
 - `specs/asset-derivation/` — `ssc asset new <key> --extends <parent>` and the
   `<asset>.yaml` behind it: it inherits the recipe (kind, pixel_size, palette, cell,
   frame counts, fps, the parent's anchors as a generation reference), never the pixels.
+- `specs/image-transforms/` — the exact transforms nothing offers yet: mirror about either
+  axis, rotation by a quarter turn, `trim` to one box across a frame set, and `offset` by a
+  whole number of pixels — each moving the recorded anchor with the pixels. Written as a map
+  ahead of its milestone; nothing in it is implemented.
 
 ### M6 — computer vision · the `[cv]` extra
 

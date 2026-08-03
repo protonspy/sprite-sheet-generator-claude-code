@@ -481,27 +481,46 @@ def test_global_mode_takes_the_gem(tmp_path: Path) -> None:
     assert written[4, 4, 3] == 0
 
 
-def test_the_written_frame_has_no_semi_transparent_pixel(tmp_path: Path) -> None:
-    """The output has to pass this project's own `halo` check, which is the defect that
-    names this command as its fix."""
+def test_the_written_frame_passes_this_projects_own_halo_check(tmp_path: Path) -> None:
+    """R3.1 end to end. Deliberately *without* `--edge-pass`: the alpha is binary whatever
+    flags are passed, and a version of this test that passed the flag would have looked like
+    it proved the flag mattered while proving only this."""
     import numpy as np
 
     from ssc.core.doctor import check_halo
 
     source = green_scene(tmp_path / "hero.png")
-    run(
-        "tool",
-        "bgremove",
-        "--tol",
-        "90",
-        "--edge-pass",
-        "--in",
-        str(source),
-        "--out",
-        str(tmp_path / "out.png"),
-    )
-    written = np.array(Image.open(tmp_path / "out.png").convert("RGBA"))
+    run("tool", "bgremove", "--tol", "90", "--in", str(source), "--out", str(tmp_path / "o.png"))
+    written = np.array(Image.open(tmp_path / "o.png").convert("RGBA"))
     assert check_halo(written).clean
+
+
+def test_the_edge_pass_is_what_takes_the_cast_out_through_the_cli(tmp_path: Path) -> None:
+    """What `--edge-pass` actually changes, which `check_halo` cannot see: `halo` reads
+    alpha only, and alpha is already binary by R3.1. The flag is about colour."""
+    import numpy as np
+
+    from ssc.core.bgremove import PRESETS
+
+    image = np.zeros((6, 6, 4), dtype=np.uint8)
+    image[..., :3] = PRESETS["green"]
+    image[..., 3] = 255
+    image[2:4, 2:4, :3] = (220, 180, 150)
+    image[2, 2, :3] = (90, 200, 80)  # a subject pixel carrying green spill
+    source = tmp_path / "spill.png"
+    Image.fromarray(image, mode="RGBA").save(source)
+
+    def cast_at(out: Path, *flags: str) -> tuple[int, int, int]:
+        run("tool", "bgremove", "--tol", "40", *flags, "--in", str(source), "--out", str(out))
+        written = np.array(Image.open(out).convert("RGBA"))
+        return tuple(int(value) for value in written[2, 2, :3])  # type: ignore[return-value]
+
+    kept = cast_at(tmp_path / "kept.png")
+    cleaned = cast_at(tmp_path / "cleaned.png", "--edge-pass")
+
+    assert kept == (90, 200, 80), "without the flag the cast is left alone"
+    assert cleaned[1] <= max(cleaned[0], cleaned[2]), "with it the green is clamped down"
+    assert cleaned != kept
 
 
 def test_a_magenta_preset_is_named_not_remembered(tmp_path: Path) -> None:
@@ -597,3 +616,21 @@ def test_a_set_is_keyed_frame_by_frame_and_counted_across_them(tmp_path: Path) -
     assert payload["frames"] == 2
     assert payload["transparent_px"] + payload["opaque_px"] == 2 * 100
     assert sorted(path.name for path in (tmp_path / "out").iterdir()) == ["001_a.png", "002_b.png"]
+
+
+def test_an_absurd_edge_trim_is_refused_rather_than_run(tmp_path: Path) -> None:
+    """The one dial whose cost is set independently of the input size."""
+    source = green_scene(tmp_path / "hero.png")
+    code, payload = run(
+        "tool",
+        "bgremove",
+        "--edge-trim",
+        "2000000000",
+        "--in",
+        str(source),
+        "--out",
+        str(tmp_path / "out.png"),
+    )
+    assert code == 2
+    assert payload["error"]["code"] == "invalid-amount"
+    assert not (tmp_path / "out.png").exists()

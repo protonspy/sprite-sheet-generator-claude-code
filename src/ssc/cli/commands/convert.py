@@ -1,8 +1,12 @@
-"""`ssc tool snap`, `ssc tool pixelart` and `ssc tool board`.
+"""`ssc tool snap`, `ssc tool pixelart`, `ssc tool bgremove` and `ssc tool board`.
 
-The three commands that need no workspace (R1.1). They find one if they are standing in
-it — `snap` caches there — but none of them requires it, because a caller with a directory
-of loose PNGs and no `ssc init` is exactly who these are for.
+The four commands that need no workspace. They find one if they are standing in it — `snap`
+caches there — but none of them requires it, because a caller with a directory of loose PNGs
+and no `ssc init` is exactly who these are for.
+
+They share a module because they share a shape: `--in`/`--out`, the frame-set reading, the
+refusal to overwrite, and a ceiling on every dial. A fifth command of a different shape is
+the point at which to split this up.
 """
 
 from __future__ import annotations
@@ -45,6 +49,13 @@ MAX_BOARD_SIDE = 8192
 #: The distance from black to white in RGB. A tolerance at it keys every pixel of every
 #: frame, which is not a background removal but an erasure, so it is the ceiling.
 MAX_TOLERANCE = 442
+
+#: `cv2.erode` costs one pass per iteration *regardless of image size*, so this is the one
+#: dial whose cost an attacker sets independently of the input: a 1x1 PNG and a large enough
+#: number runs for hours. Every other knob in this file already had a ceiling; this one was
+#: found without one by the security review. A trim wider than the largest sprite anyone
+#: packs has removed the whole silhouette long before it gets here.
+MAX_TRIM = 512
 
 
 def parse_hex(value: str) -> tuple[int, int, int]:
@@ -337,6 +348,13 @@ def bgremove(
             raise UsageError(
                 "invalid-amount", f"{name} {value} is negative", fix=f"pass {name} 0 or more"
             )
+    if edge_trim > MAX_TRIM:
+        raise UsageError(
+            "invalid-amount",
+            f"--edge-trim {edge_trim} is past {MAX_TRIM}",
+            fix=f"pass {MAX_TRIM} or less; a trim that wide has removed the silhouette "
+            "long before it gets there",
+        )
 
     params = BgRemoveParams(
         key=parse_key(chroma),

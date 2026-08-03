@@ -139,17 +139,30 @@ def test_trim_of_zero_changes_nothing() -> None:
     assert np.array_equal(trim(opaque, 0), opaque)
 
 
-def test_a_speck_is_removed_rather_than_merely_thinned() -> None:
-    """Why despeckle runs before trim: trimming first turns a speck into a smaller speck."""
-    image = np.zeros((10, 10, 4), dtype=np.uint8)
+def test_despeckle_judges_the_size_before_the_trim_shrinks_it() -> None:
+    """The order is load-bearing, and this is the scene that proves it rather than one that
+    passes either way.
+
+    A 1px speck erodes away whichever order runs, so a test built on one says nothing. With
+    a 3x3 speck beside a 4x4 subject at `--despeckle 5 --edge-trim 1`: despeckle first keeps
+    the subject, because it judged 16 pixels; trim first shrinks the subject to 4 and the
+    despeckle then eats **the subject as well**. That is the failure the order prevents —
+    not a speck surviving, but `--despeckle 5` silently deleting something much bigger
+    than five pixels.
+    """
+    image = np.zeros((12, 12, 4), dtype=np.uint8)
     image[..., :3] = GREEN
     image[..., 3] = 255
-    image[4:8, 4:8, :3] = SKIN
-    image[1, 1, :3] = SKIN
+    image[7:11, 7:11, :3] = SKIN  # the subject, 16 px
+    image[2:5, 2:5, :3] = SKIN  # the speck, 9 px
 
-    out, _ = remove(image, BgRemoveParams(key=GREEN, tolerance=10, despeckle=3, edge_trim=1))
-    assert out[1, 1, 3] == 0
-    assert out[6, 6, 3] == 255
+    out, _ = remove(image, BgRemoveParams(key=GREEN, tolerance=10, despeckle=5, edge_trim=1))
+    assert out[8, 8, 3] == 255, "the subject must survive"
+
+    # The same two steps in the other order keep nothing at all, which is what makes this
+    # an order and not a coincidence.
+    opaque = ~reachable_from_border(key_mask(image, GREEN, 10))
+    assert not despeckle_opaque(trim(opaque, 1), 5).any()
 
 
 # R3.2 — the cast, not the alpha.
@@ -201,3 +214,23 @@ def test_the_counts_add_up_to_the_frame() -> None:
     out, measured = remove(scene(), BgRemoveParams(key=GREEN, tolerance=10))
     assert measured["transparent_px"] + measured["opaque_px"] == out[..., 3].size
     assert measured["opaque_px"] == int((out[..., 3] == 255).sum())
+
+
+def test_a_trim_past_the_mask_is_clamped_rather_than_run() -> None:
+    """`cv2.erode` costs a pass per iteration regardless of image size, so an unclamped call
+    is a 1x1 image and a large number away from running for hours. Past the longest side the
+    answer stops changing, so the clamp reaches the same result without spending the time."""
+    opaque = np.zeros((8, 8), dtype=bool)
+    opaque[2:6, 2:6] = True
+
+    assert not trim(opaque, 10_000_000).any()
+    assert np.array_equal(trim(opaque, 10_000_000), trim(opaque, 8))
+
+
+def test_a_subject_touching_the_image_edge_is_not_trimmed_there() -> None:
+    """OpenCV treats what is outside the frame as opaque for an erosion, so a silhouette
+    running off the edge keeps that edge. That is the right answer — there is no background
+    on that side to pull away from — and it is worth pinning, because it is the reason a
+    fully opaque frame does not erode at all."""
+    opaque = np.ones((6, 6), dtype=bool)
+    assert trim(opaque, 3).all()

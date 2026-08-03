@@ -38,6 +38,7 @@ that name.
 - **R3.2** Where `--edge-pass` is given, the `ssc` CLI shall remove the key colour's contribution from the pixels bordering the transparent region.
 - **R3.3** Where `--edge-trim` is given, the `ssc` CLI shall shrink the opaque region by that many pixels.
 - **R3.4** Where `--despeckle` is given, the `ssc` CLI shall make transparent every opaque group smaller than that many pixels.
+- **R3.5** If `--edge-trim` is past the trim ceiling, then the `ssc` CLI shall change nothing and exit `2`.
 
 ## R4 · Reporting
 

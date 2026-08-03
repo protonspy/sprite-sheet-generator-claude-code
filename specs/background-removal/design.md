@@ -16,9 +16,20 @@ The pipeline per frame, in order, each step optional except the first two:
 key mask  →  flood or global  →  despeckle  →  edge trim  →  edge pass  →  binary alpha
 ```
 
-The order is the design. `despeckle` before `edge-trim` because trimming first turns a
-speck into a smaller speck rather than removing it; `edge-pass` last because it reads the
-final silhouette to decide which pixels border the transparent region.
+The order is the design, and `despeckle` before `edge-trim` is the part worth the paragraph:
+**the threshold has to be measured against the sizes the caller can see.** Run the trim
+first and every group has already been eroded, so `--despeckle 5` deletes things that were
+far larger than five pixels when the caller looked at them.
+
+Measured, on a 4×4 subject beside a 3×3 speck with `--despeckle 5 --edge-trim 1`:
+
+| order | survives |
+|---|---|
+| despeckle → trim | the subject, and one pixel of the speck |
+| trim → despeckle | **nothing** — the trim shrank the subject to 4px and the despeckle then ate it |
+
+`edge-pass` is last because it reads the final silhouette to decide which pixels border the
+transparent region.
 
 ## Flood, and why it is the default
 

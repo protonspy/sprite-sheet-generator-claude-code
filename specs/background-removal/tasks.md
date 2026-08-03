@@ -15,7 +15,7 @@ module the command is added to. All were run green before this work started.
 ## 2 · What becomes transparent
 
 - [x] 2.1 (Unit) Keep only the key-coloured region reachable from the border, and the global alternative — R2.1, R2.2
-- [x] 2.2 (Unit) Despeckle, then trim, in that order — R3.3, R3.4
+- [x] 2.2 (Unit) Despeckle, then trim, in that order, and clamp a trim that cannot matter — R3.3, R3.4, R3.5
 
 ## 3 · The edge
 

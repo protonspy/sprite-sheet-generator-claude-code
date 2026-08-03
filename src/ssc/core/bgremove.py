@@ -75,8 +75,12 @@ def reachable_from_border(mask: np.ndarray) -> np.ndarray:
 def despeckle_opaque(opaque: np.ndarray, smallest: int) -> np.ndarray:
     """Drop opaque groups below `smallest` pixels (R3.4).
 
-    Before the trim rather than after: trimming first turns a speck into a smaller speck
-    instead of removing it, so the two are not commutative and the order is the design.
+    Before the trim, so that the threshold is measured against **the sizes the caller can
+    see**. Run it after and every group has already been eroded, so `--despeckle 5` deletes
+    things that were far larger than five pixels when the caller looked at them — and it
+    deletes them silently. Measured: a 4x4 subject beside a 3x3 speck, with
+    `--despeckle 5 --edge-trim 1`, keeps the subject in this order and loses *both* in the
+    other one.
     """
     if smallest <= 1:
         return opaque
@@ -88,10 +92,19 @@ def despeckle_opaque(opaque: np.ndarray, smallest: int) -> np.ndarray:
 
 
 def trim(opaque: np.ndarray, pixels: int) -> np.ndarray:
-    """Shrink the opaque region by `pixels` (R3.3)."""
+    """Shrink the opaque region by `pixels` (R3.3).
+
+    Clamped to the longest side of the mask, which is where erosion runs out of anything to
+    remove — past it the answer is an empty mask however many more passes are asked for. The
+    clamp is not a policy, it is the same result reached without spending the time: `erode`
+    costs one pass per iteration *regardless of image size*, so an unclamped call is a 1x1
+    image and a large number away from running for hours. The CLI refuses absurd values too,
+    but this is the library, and it should not depend on its caller having done that.
+    """
     if pixels <= 0:
         return opaque
-    eroded: np.ndarray = cv2.erode(opaque.astype(np.uint8), CROSS, iterations=pixels).astype(bool)
+    passes = min(pixels, max(opaque.shape))
+    eroded: np.ndarray = cv2.erode(opaque.astype(np.uint8), CROSS, iterations=passes).astype(bool)
     return eroded
 
 

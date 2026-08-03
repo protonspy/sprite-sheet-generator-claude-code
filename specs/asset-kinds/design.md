@@ -40,3 +40,17 @@ this one can fill it.
 **Validating a profile lazily, when a command uses it.** Rejected in favour of validating on
 read (R1.5): a typo in `ssc.yaml` should be a refusal from `kind list`, not a wrong cell size
 surfacing three commands later as art that is subtly the wrong size.
+
+That promise only holds if it covers every field, and the first version did not: `cell`,
+`checks` and the booleans were checked while the name fields were coerced with `str()`,
+which accepted a map, a null and a boolean without a word. `anchor` and `atlas_layout` have
+real domains — `core.assemble` implements three anchors — so they are checked against them.
+
+## Reading a file nobody wrote carefully
+
+`ssc.yaml` is the first structured input this tool parses beyond a schema number, and it is
+a file that survives hand-editing by an agent. So it is bounded in size before it is read,
+its document shape is checked before anything indexes into it, `RecursionError` is caught
+alongside `YAMLError` because PyYAML's scanner raises the former on deeply nested flow
+collections, and anchors are refused: `safe_load` does not bound alias expansion, and six
+levels of them is a kilobyte on disk and hundreds of millions of nodes in memory.

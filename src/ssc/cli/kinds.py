@@ -23,6 +23,45 @@ from ssc.cli.workspace import Workspace
 BUILT_IN = "built-in"
 DECLARED = "ssc.yaml"
 
+#: The anchors `core.assemble` actually implements. A profile naming one it does not is a
+#: typo that would otherwise fall through to "centre" behaviour in whichever leaf reads the
+#: field — which is exactly the "three commands later" failure validating on read exists to
+#: prevent.
+ANCHORS = ("feet", "bottom", "centre")
+
+#: What `atlas-packing` will know how to do. Declared here because the field is declared
+#: here; a layout nobody implements is a promise to a caller that nothing keeps.
+LAYOUTS = ("grid", "bin")
+
+#: Fields that are a name and nothing more. Constrained to being *a string* rather than to a
+#: set, because a template name is a project's to choose.
+FREE_TEXT = ("template",)
+
+#: A configuration file is a few dozen lines. The ceiling is here because everything below
+#: it — the parse, the alias expansion, the map of maps — is work proportional to the file,
+#: and `ssc.yaml` is a file that survives hand-editing by an agent.
+MAX_CONFIG_BYTES = 1 << 20
+
+
+class StrictLoader(yaml.SafeLoader):
+    """`safe_load` without anchors.
+
+    `safe_load` refuses to construct arbitrary objects but does **not** bound alias
+    expansion: six levels of `&a: [*b, *b, ...]` is a kilobyte on disk and hundreds of
+    millions of nodes in memory, and it hangs every kind-aware command in the workspace.
+    A configuration file has no legitimate use for an anchor, so the answer is to refuse
+    them rather than to count them.
+    """
+
+    def compose_node(self, parent: Any, index: Any) -> Any:
+        if self.check_event(yaml.events.AliasEvent):  # type: ignore[no-untyped-call]
+            event = self.peek_event()  # type: ignore[no-untyped-call]
+            raise yaml.YAMLError(
+                f"anchors and aliases are not allowed in ssc.yaml "
+                f"(line {event.start_mark.line + 1})"
+            )
+        return super().compose_node(parent, index)
+
 
 @dataclass(frozen=True)
 class Profile:
@@ -142,14 +181,37 @@ def declared(workspace: Workspace | None) -> dict[str, dict[str, Any]]:
     """The `kinds:` map from `ssc.yaml`, or nothing outside a workspace."""
     if workspace is None or not workspace.config_path.is_file():
         return {}
+
+    size = workspace.config_path.stat().st_size
+    if size > MAX_CONFIG_BYTES:
+        raise SscError(
+            "invalid-config",
+            f"{workspace.config_path} is {size:,} bytes, over the {MAX_CONFIG_BYTES:,} ceiling",
+            fix="a workspace config is a few dozen lines; check what is in there",
+        )
+
     try:
-        document = yaml.safe_load(workspace.config_path.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError as broken:
+        document = yaml.load(  # StrictLoader is SafeLoader with aliases refused
+            workspace.config_path.read_text(encoding="utf-8"), Loader=StrictLoader
+        )
+    except (yaml.YAMLError, RecursionError) as broken:
+        # RecursionError as well: deeply nested flow collections blow the stack inside
+        # PyYAML's own scanner, and it is not a YAMLError, so it escaped as a traceback.
         raise SscError(
             "invalid-config",
             f"{workspace.config_path} is not valid YAML: {broken}",
             fix="fix it by hand, or restore it from git",
         ) from broken
+
+    if document is None:
+        return {}
+    if not isinstance(document, dict):
+        raise SscError(
+            "invalid-config",
+            f"{workspace.config_path} is a {type(document).__name__}, not a map of settings",
+            fix="the file is `schema: 1` and settings under it",
+        )
+
     found = document.get("kinds") or {}
     if not isinstance(found, dict):
         raise SscError(
@@ -168,6 +230,15 @@ def merge(name: str, stated: dict[str, Any]) -> Resolved:
     the template it did not mention.
     """
     check_name(name, "a kind")
+    if not isinstance(stated, dict):
+        # A kind whose declaration is a scalar or a list. Guarded before `set(stated)`,
+        # which raises a bare TypeError on both — and `cli/main.py` catches only SscError,
+        # so that left the command as a traceback rather than as the refusal R1.5 promises.
+        raise SscError(
+            "invalid-kind",
+            f"kind {name!r} is declared as {type(stated).__name__}, not a map of fields",
+            fix=f"write kinds.{name} as a map, or remove it",
+        )
     base = BUILT_INS.get(name, Profile(name=name))
     source = {item: (BUILT_IN if name in BUILT_INS else "default") for item in FIELDS}
 
@@ -200,10 +271,33 @@ def merge(name: str, stated: dict[str, Any]) -> Resolved:
                 )
             values[item] = value
         else:
-            values[item] = str(value)
+            values[item] = check_text(item, value, name)
         source[item] = DECLARED
 
     return Resolved(profile=Profile(name=name, **{**_asdict(base), **values}), source=source)
+
+
+def check_text(item: str, value: Any, name: str) -> str:
+    """A field that is a name: a string, and one of the set where there is a set.
+
+    Coercing with `str()` accepted a nested map, a null and a boolean alike — and an
+    `anchor: cetnre` accepted here falls through to centre behaviour in whichever leaf reads
+    it, which is the failure this whole validate-on-read design claims to prevent.
+    """
+    if not isinstance(value, str):
+        raise SscError(
+            "invalid-kind",
+            f"kind {name!r} declares {item} as {type(value).__name__}, not a name",
+            fix=f"write a name under kinds.{name}.{item}",
+        )
+    allowed = {"anchor": ANCHORS, "atlas_layout": LAYOUTS}.get(item)
+    if allowed is not None and value not in allowed:
+        raise SscError(
+            "invalid-kind",
+            f"kind {name!r} declares {item} {value!r}; it is one of {', '.join(allowed)}",
+            fix=f"use one of {', '.join(allowed)} under kinds.{name}.{item}",
+        )
+    return value
 
 
 def _asdict(profile: Profile) -> dict[str, Any]:

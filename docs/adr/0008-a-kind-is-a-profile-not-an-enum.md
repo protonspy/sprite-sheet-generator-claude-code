@@ -40,7 +40,16 @@ is the thing to look for in review.
 
 **A profile is validated when it is read, not when it is used.** A typo in `ssc.yaml`
 surfaces as a refusal from `ssc kind list` rather than as a wrong cell size three commands
-later.
+later. That is a promise about *every* field, which is stronger than it sounds: coercing a
+name field with `str()` accepted a map, a null and a boolean alike, and an `anchor: cetnre`
+that reached a consumer would have fallen through to centre behaviour with nothing said. So
+the fields with a domain are checked against it, and the rest are checked for being names.
+
+**`ssc.yaml` is the first attacker-influenced structured input this tool parses**, and it
+is a file that survives hand-editing. It is bounded in size, its document shape is checked
+before anything indexes into it, and anchors are refused outright — `safe_load` blocks
+arbitrary object construction but does not bound alias expansion, and a kilobyte of aliases
+hangs every kind-aware command in the workspace.
 
 **Built-ins can change under a project.** A project that names no cell inherits one, and a
 later version of `ssc` may ship a different one. That is the price of built-ins being

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -173,17 +174,133 @@ def test_asset_new_accepts_a_kind_a_project_declared(tmp_path: Path, monkeypatch
     assert (tmp_path / "assets/portrait/queen/meta.json").is_file()
 
 
+#: The shapes `adr:0008`'s consequence actually forbids. The first version of this matched
+#: only a literal `kind == "..."`, which is narrower than the claim it enforces: a
+#: `kind.startswith(...)`, a `match kind:`, a membership test against literals or the
+#: reversed comparison would all have sailed through — and the five M2 leaves that consume a
+#: profile are exactly where one of those would appear.
+BRANCHES_ON_A_NAME = re.compile(
+    r"""kind\w*\s*(?:==|!=)\s*["']
+      | ["']\w+["']\s*(?:==|!=)\s*kind\b
+      | kind\w*\s*\.startswith\(
+      | kind\w*\s+(?:not\s+)?in\s*[\[{(]\s*["']
+      | match\s+\w*kind\w*\s*:
+    """,
+    re.VERBOSE,
+)
+
+
 def test_nothing_in_the_codebase_branches_on_a_kinds_name() -> None:
     """The defect `adr:0008` exists to prevent, as a grep rather than a type — every
     consumer reads a profile, so a comparison against a kind's name is the smell."""
-    import re
-
     source = Path(__file__).resolve().parents[2] / "src"
     offending = [
         f"{path.relative_to(source)}:{number}"
         for path in source.rglob("*.py")
         if path.name != "kinds.py"
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
-        if re.search(r'kind\s*==\s*["\']', line)
+        if BRANCHES_ON_A_NAME.search(line)
     ]
     assert offending == []
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'if kind == "character":',
+        'if asset.kind != "tile":',
+        'if "character" == kind:',
+        'if kind.startswith("char"):',
+        'if kind in {"character", "icon"}:',
+        "match kind:",
+    ],
+)
+def test_the_grep_catches_each_shape_it_claims_to(line: str) -> None:
+    """A check nobody has verified is a check nobody should rely on — and this one is the
+    sole enforcement of R3.1 in the whole codebase."""
+    assert BRANCHES_ON_A_NAME.search(line)
+
+
+@pytest.mark.parametrize(
+    "line", ["profile = resolve(kind, workspace)", "available = kinds.every(workspace)"]
+)
+def test_the_grep_does_not_flag_reading_a_profile(line: str) -> None:
+    assert not BRANCHES_ON_A_NAME.search(line)
+
+
+# The security review's two: `ssc.yaml` is the first attacker-influenced structured input.
+
+
+@pytest.mark.parametrize("document", ["- a\n- b\n", "just a string\n"])
+def test_a_config_that_is_not_a_map_is_refused(tmp_path: Path, document: str) -> None:
+    """`document.get` on a list is an AttributeError, and `cli/main.py` catches only
+    SscError — so it left the command as a traceback rather than as JSON."""
+    space = ws.create(tmp_path)
+    space.config_path.write_text(document, encoding="utf-8")
+    with pytest.raises(SscError) as refused:
+        kinds.every(space)
+    assert refused.value.code == "invalid-config"
+
+
+@pytest.mark.parametrize("value", ["5", "true", "[1, 2]"])
+def test_a_kind_declared_as_something_other_than_a_map_is_refused(
+    tmp_path: Path, value: str
+) -> None:
+    space = ws.create(tmp_path)
+    space.config_path.write_text(f"schema: 1\nkinds:\n  character: {value}\n", encoding="utf-8")
+    with pytest.raises(SscError) as refused:
+        kinds.every(space)
+    assert refused.value.code == "invalid-kind"
+    assert "character" in refused.value.message
+
+
+def test_an_anchor_that_is_not_one_is_refused_here_and_not_three_commands_later(
+    tmp_path: Path,
+) -> None:
+    """The promise validate-on-read makes: `anchor: cetnre` would otherwise be coerced to a
+    string and fall through to centre behaviour in whichever leaf reads it."""
+    space = workspace_with(tmp_path, {"icon": {"anchor": "cetnre"}})
+    with pytest.raises(SscError) as refused:
+        kinds.resolve("icon", space)
+    assert refused.value.code == "invalid-kind"
+    assert "feet" in refused.value.message
+
+
+@pytest.mark.parametrize("value", [{"x": 1}, None, True, [{"a": 1}]])
+def test_a_name_field_that_is_not_a_name_is_refused(tmp_path: Path, value: Any) -> None:
+    """Coercing with `str()` accepted every one of these silently."""
+    space = workspace_with(tmp_path, {"icon": {"template": value}})
+    with pytest.raises(SscError) as refused:
+        kinds.resolve("icon", space)
+    assert refused.value.code == "invalid-kind"
+
+
+def test_anchors_and_aliases_are_refused(tmp_path: Path) -> None:
+    """`safe_load` blocks arbitrary object construction but does not bound alias expansion:
+    six levels of `&a: [*b x 50]` is a kilobyte on disk and hangs every kind-aware command
+    in the workspace. A config file has no legitimate use for an anchor."""
+    bomb = "schema: 1\nkinds:\n  a: &x {cell: 8x8}\n  b: *x\n"
+    space = ws.create(tmp_path)
+    space.config_path.write_text(bomb, encoding="utf-8")
+    with pytest.raises(SscError) as refused:
+        kinds.every(space)
+    assert refused.value.code == "invalid-config"
+    assert "anchors" in refused.value.message
+
+
+def test_a_config_past_the_size_ceiling_is_refused_before_it_is_parsed(tmp_path: Path) -> None:
+    space = ws.create(tmp_path)
+    space.config_path.write_text("schema: 1\n# " + "x" * kinds.MAX_CONFIG_BYTES, encoding="utf-8")
+    with pytest.raises(SscError) as refused:
+        kinds.every(space)
+    assert refused.value.code == "invalid-config"
+    assert "ceiling" in refused.value.message
+
+
+def test_a_deeply_nested_document_is_a_refusal_not_a_stack_overflow(tmp_path: Path) -> None:
+    """PyYAML's own scanner raises RecursionError, which is not a YAMLError and escaped."""
+    space = ws.create(tmp_path)
+    space.config_path.write_text("kinds: " + "[" * 20_000 + "]" * 20_000, encoding="utf-8")
+    with pytest.raises(SscError) as refused:
+        kinds.every(space)
+    assert refused.value.code == "invalid-config"

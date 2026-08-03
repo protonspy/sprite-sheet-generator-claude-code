@@ -11,6 +11,8 @@ this work started.
 - [x] 1.1 (Unit) Model a job — id, provider, application, request id, model, arguments, state, cost, history — and read it back — R1.3
 - [x] 1.2 (TDD) Write a job atomically, and write it before the call it describes is made — R1.1, R1.2
 - [x] 1.3 (Unit) Create `jobs/` with the workspace, and report a file that will not read as a job rather than failing the scan — R1.4
+- [x] 1.4 (Unit) Validate a record's shapes, not only its keys, so a bad file stays local to itself — R1.4
+- [x] 1.5 (Unit) Redact a credential-shaped argument on the way to disk, not only on the way to stdout — R1.5
 
 ## 2 · The states
 

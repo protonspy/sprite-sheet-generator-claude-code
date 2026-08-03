@@ -24,6 +24,7 @@ assumes.
 - **R1.2** The `ssc` CLI shall write a job record atomically, leaving either the previous record or the new one after an interrupted write.
 - **R1.3** The `ssc` CLI shall record, for each job, its own id, the provider, the application, the provider's request id, the arguments as resolved, the model, its state, its cost, and when it entered each state it has been in.
 - **R1.4** If a file under the jobs directory cannot be read as a job record, then the `ssc` CLI shall report that file and continue with the others.
+- **R1.5** The `ssc` CLI shall replace a credential-shaped argument with `***` before writing a job record, as well as before reporting one.
 
 ## R2 · The states
 

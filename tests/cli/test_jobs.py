@@ -236,3 +236,73 @@ def test_a_registered_provider_is_found_by_name(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setitem(jobs.PROVIDERS, "fake", Fake())
 
     assert jobs.provider_for("fake") is not None
+
+
+# What the reviews found, each pinned so it cannot come back.
+
+
+def test_a_history_of_the_wrong_shape_is_refused_rather_than_half_read(
+    space: workspace.Workspace,
+) -> None:
+    """`list(...)` of a string is a list of characters, which passed validation and then
+    failed far away inside the sort — turning one hand-edited file into "no job lists"."""
+    (jobs.directory(space) / "j-bad.json").write_text(
+        json.dumps({**a_job().as_dict(), "history": "running"}), encoding="utf-8"
+    )
+
+    found, unreadable = jobs.every(space, newest_first=True)
+
+    assert found == []
+    assert unreadable == ["j-bad.json"]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("arguments", ["not", "an", "object"]),
+        ("cost_usd", "free"),
+        ("request_id", {"id": 1}),
+        ("error", 7),
+        ("history", [{"state": "submitted"}]),
+    ],
+)
+def test_a_field_of_the_wrong_type_keeps_the_bad_record_local_to_itself(
+    field: str, value: Any, space: workspace.Workspace
+) -> None:
+    jobs.save(space, a_job())
+    (jobs.directory(space) / "j-bad.json").write_text(
+        json.dumps({**a_job(id="j-bad").as_dict(), field: value}), encoding="utf-8"
+    )
+
+    found, unreadable = jobs.every(space)
+
+    assert [job.id for job in found] == ["j-0001"]
+    assert unreadable == ["j-bad.json"]
+
+
+def test_json_too_deep_to_parse_is_a_finding_not_the_end_of_the_scan(
+    space: workspace.Workspace,
+) -> None:
+    """`RecursionError` is not a `ValueError`, so it escaped the handler and one hostile file
+    broke the listing for every job — the diagnostic somebody needs precisely then."""
+    jobs.save(space, a_job())
+    (jobs.directory(space) / "j-deep.json").write_text("[" * 5000 + "]" * 5000, encoding="utf-8")
+
+    found, unreadable = jobs.every(space)
+
+    assert [job.id for job in found] == ["j-0001"]
+    assert unreadable == ["j-deep.json"]
+
+
+def test_a_credential_shaped_argument_is_not_written_to_disk(
+    space: workspace.Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`jobs/` is git-ignored, which stops `git add .` and nothing else — a workspace still
+    gets zipped, bundled and shared."""
+    jobs.save(space, a_job(arguments={"prompt": "a knight", "api_key": "sk-live-9999"}))
+
+    text = jobs.path_of(space, "j-0001").read_text(encoding="utf-8")
+
+    assert "sk-live-9999" not in text
+    # And what makes the job readable afterwards is not credential-shaped, so it stays.
+    assert "a knight" in text

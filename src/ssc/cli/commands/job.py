@@ -105,7 +105,11 @@ def job_wait(
 ) -> Result:
     """R3.3 — and it says which of the two happened, because a caller that cannot tell
     "finished" from "gave up" has to guess whether the money bought anything."""
-    if timeout <= 0 or poll <= 0:
+    # Not `<= 0`: every comparison against `nan` is False, so `--timeout nan` walked
+    # through that guard, made the deadline `nan`, and left the poll loop running forever —
+    # a command that never returns, which inside a harness is exactly what `wait` exists to
+    # avoid looking like.
+    if not timeout > 0 or not poll > 0 or timeout == float("inf"):
         raise SscError(
             "invalid-wait",
             "--timeout and --poll are durations, and both have to be above zero",

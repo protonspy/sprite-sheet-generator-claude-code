@@ -20,6 +20,7 @@ from typing import Any, Protocol
 from ssc.cli.atomic import replace as write_atomically
 from ssc.cli.errors import SscError, UsageError
 from ssc.cli.names import check_name
+from ssc.cli.redact import scrubbed
 from ssc.cli.workspace import Workspace
 
 SCHEMA = 1
@@ -160,17 +161,40 @@ class Job:
             raise ValueError(f"a job record needs {', '.join(missing)}")
         if data["state"] not in STATES:
             raise ValueError(f"{data['state']!r} is not a job state")
+
+        # Shapes, not just presence. A `history` of the wrong shape used to pass here and
+        # then fail far away, inside the sort in `every` — which turned one hand-edited file
+        # into "no job in this workspace lists", the exact opposite of what R1.4 promises.
+        # Every check here is one that keeps a bad record local to itself.
+        arguments = data.get("arguments") or {}
+        if not isinstance(arguments, dict):
+            raise ValueError("a job record's arguments are an object")
+        history = data.get("history") or []
+        if not isinstance(history, list) or not all(
+            isinstance(entry, dict) and {"state", "at"} <= set(entry) for entry in history
+        ):
+            raise ValueError("a job record's history is a list of {state, at}")
+        cost = data.get("cost_usd")
+        if (cost is not None and not isinstance(cost, (int, float))) or isinstance(cost, bool):
+            raise ValueError("a job record's cost_usd is a number or null")
+        request_id = data.get("request_id")
+        if request_id is not None and not isinstance(request_id, str):
+            raise ValueError("a job record's request_id is a string or null")
+        error = data.get("error")
+        if error is not None and not isinstance(error, str):
+            raise ValueError("a job record's error is a string or null")
+
         return cls(
             id=str(data["id"]),
             provider=str(data["provider"]),
             application=str(data["application"]),
             model=str(data["model"]),
-            arguments=dict(data.get("arguments") or {}),
+            arguments=dict(arguments),
             state=str(data["state"]),
-            request_id=data.get("request_id"),
-            cost_usd=data.get("cost_usd"),
-            error=data.get("error"),
-            history=list(data.get("history") or []),
+            request_id=request_id,
+            cost_usd=None if cost is None else float(cost),
+            error=error,
+            history=[dict(entry) for entry in history],
         )
 
 
@@ -186,10 +210,18 @@ def path_of(workspace: Workspace, job_id: str) -> Path:
 
 
 def save(workspace: Workspace, job: Job) -> Path:
-    """The record on disk, atomically (R1.2)."""
+    """The record on disk, atomically and redacted (R1.2, R1.5).
+
+    Redacted on the way *in*, not only on the way out. `jobs/` is git-ignored, which stops an
+    accidental `git add .` and nothing else: a workspace gets zipped for a colleague, dropped
+    into a support bundle, or `git add -f`'d, and a resolved argument holding a token would
+    sit there in cleartext with no retention policy to remove it. What a credential-shaped
+    key holds is not worth keeping — the prompt, the size and the seed, which is what makes
+    a job readable afterwards, are not credential-shaped and survive untouched.
+    """
     return write_atomically(
         path_of(workspace, job.id),
-        json.dumps(job.as_dict(), indent=2, sort_keys=True).encode("utf-8"),
+        json.dumps(scrubbed(job.as_dict()), indent=2, sort_keys=True).encode("utf-8"),
     )
 
 
@@ -203,7 +235,7 @@ def load(workspace: Workspace, job_id: str) -> Job:
         )
     try:
         return Job.from_dict(json.loads(path.read_text(encoding="utf-8")))
-    except (OSError, ValueError) as refused:
+    except (OSError, ValueError, RecursionError) as refused:
         raise SscError(
             "job-invalid",
             f"{path} is not a readable job record: {refused}",
@@ -227,7 +259,10 @@ def every(workspace: Workspace, *, newest_first: bool = False) -> tuple[list[Job
     for path in sorted(where.glob("*.json")):
         try:
             found.append(Job.from_dict(json.loads(path.read_text(encoding="utf-8"))))
-        except (OSError, ValueError):
+        except (OSError, ValueError, RecursionError):
+            # `RecursionError` is not a `ValueError`: deeply nested JSON raises it out of
+            # `json.loads`, and uncaught it made one hostile file break the listing for
+            # every job — which is the diagnostic somebody needs precisely then.
             unreadable.append(path.name)
     if newest_first:
         found.sort(key=lambda job: job.submitted_at, reverse=True)

@@ -295,3 +295,42 @@ def test_resume_without_a_provider_reports_the_record(space: Path) -> None:
 
     assert code == 0
     assert payload["asked_provider"] is False
+
+
+@pytest.mark.parametrize("argv", [["--timeout", "nan"], ["--poll", "nan"], ["--timeout", "inf"]])
+def test_a_duration_that_is_not_a_number_is_refused_rather_than_looping_forever(
+    argv: list[str], space: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every comparison against `nan` is False, so `--timeout nan` walked through a `<= 0`
+    guard, made the deadline `nan`, and left the loop running forever — a command that never
+    returns, which is what `wait` exists to avoid looking like."""
+    record(space, "j-0001")
+    monkeypatch.setitem(jobs.PROVIDERS, "fake", Fake(["running"]))
+
+    code, payload = run("job", "wait", *argv, "j-0001")
+
+    assert code == 1
+    assert payload["error"]["code"] == "invalid-wait"
+
+
+def test_a_credential_shaped_argument_never_reaches_the_output(
+    space: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ssc.cli import workspace as ws
+
+    jobs.save(
+        ws.Workspace(root=space),
+        jobs.Job.new(
+            id="j-0002",
+            provider="fake",
+            application="fake/model",
+            model="model",
+            arguments={"prompt": "a knight", "api_key": "sk-live-9999"},
+            at=AT,
+        ),
+    )
+
+    result = CliRunner().invoke(main, ["job", "list", "--json"], catch_exceptions=False)
+
+    assert "sk-live-9999" not in result.stdout
+    assert "a knight" in result.stdout

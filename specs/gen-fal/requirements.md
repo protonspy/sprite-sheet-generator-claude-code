@@ -37,6 +37,22 @@ the check that runs before submission, and `specs/job-store/` is the record.
 - **R2.4** If an image is too large to send inline and no upload was asked for, then the `ssc` CLI shall refuse and name the option that uploads it.
 - **R2.5** The `ssc` CLI shall check every option against the chosen model's schema before submitting.
 - **R2.6** Where an image is passed to an image model, the `ssc` CLI shall submit to that model's editing endpoint, and shall refuse when that model has none.
+- **R2.7** (ADDED) Where the caller names a prompt template, the `ssc` CLI shall use it instead of the one the asset's kind names.
+- **R2.8** (ADDED) The `ssc` CLI shall fill a template's named slots from values the caller supplies, and shall refuse a call whose template names a slot no value was given for.
+
+> **R2.7 and R2.8, added when the character templates arrived.** R2.1 assumed one kind, one
+> template, and that holds for every kind that produces one asset. A `character` does not: it
+> is generated as a South anchor against a pixel-grid board, corrected to a neutral pose,
+> turned into the other directions, then animated — four sets of words about one asset.
+> Making each of those a kind would be a kind per *stage*, which is not what a kind is, so
+> the override is per call.
+>
+> R2.8 is what keeps that from becoming a worse prompt. The slots are a closed vocabulary, so
+> a typo is refused rather than substituted into nothing, and a template whose slot was never
+> filled is refused **before** submission — the failure it prevents is the literal text
+> `{name}` reaching the model inside a prompt that is then billed, in an image plausible
+> enough that nobody looks. A value the chosen template does not use is not an error: one set
+> of values driving several templates is the ordinary way to work.
 
 ## R3 · The size a layout needs, against the sizes a model has
 

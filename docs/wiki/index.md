@@ -19,6 +19,8 @@ hold the reasoning behind it.
   why that split is not a preference.
 - [[model-parameters]] — what the four named models actually accept, why none of them
   takes a size in pixels, and what that costs the layout.
+- [[prompt-templates]] — the frame a caller's words go into, why one kind is not one
+  template, and the eight named slots a template may carry.
 
 ## Repairing it
 

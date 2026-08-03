@@ -131,6 +131,31 @@ BUILT_INS: dict[str, Profile] = {
         checks=("palette",),
         template="map",
     ),
+    # The one kind that is not a game asset. Box art is the roster and character-select
+    # illustration: painterly, on its own background, at a size no cell ever is. It is here
+    # because a character's art is generated somewhere, and the alternative was a second
+    # command that bills — which is the shape `gen image` exists to avoid.
+    #
+    # `checks` is empty because none of them apply: every check `doctor` ships measures a
+    # property of a pixel-art sprite — `pixel_grid` wants real pixels, `palette` a bounded
+    # set of colours, `halo` and `bleed` a cut-out on chroma — and a rendered illustration
+    # is deliberately none of those.
+    #
+    # **Stating what that does and does not buy today.** `doctor` reads this field to decide
+    # whether `seam` and `nineslice` run, and nothing else: the other seven run whatever the
+    # kind says. So an empty tuple opts out of two checks and does not stop `pixel_grid`
+    # reporting a painterly portrait as off-grid. That is a gap between what
+    # `specs/asset-kinds/` R1.1 says this field means — "the checks that apply to it" — and
+    # what `doctor` does with it, and it is not this kind's to close: every kind has it, and
+    # `banner`'s `checks=("palette",)` does not suppress `pixel_grid` either.
+    #
+    # It is never packed, so `atlas_layout` keeps the default rather than claiming one.
+    "box-art": Profile(
+        name="box-art",
+        cell=(1024, 1536),
+        checks=(),
+        template="box-art",
+    ),
 }
 
 FIELDS = {item.name for item in fields(Profile)} - {"name"}

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import secrets
 import time
 from dataclasses import dataclass, field
@@ -277,12 +278,98 @@ def templates() -> dict[str, str]:
     return {str(name): str(text) for name, text in found.items()}
 
 
-def prompt_for(template: str, text: str, cell: tuple[int, int]) -> str:
-    """The caller's prompt, wrapped in the template the kind named (R2.1).
+#: The named slots a template may carry, and the whole of them. A closed vocabulary rather
+#: than free-form keys: these are the parameters that recur across the character templates
+#: and are worth being structured about, and an open set would drift into a second prompt
+#: language nobody documents. Anything else is prose, and prose goes in `--prompt`.
+VARIABLES = (
+    "name",
+    "archetype",
+    "costume",
+    "prop",
+    "silhouette",
+    "setting",
+    "direction",
+    "remove",
+)
+
+
+#: Every token a template may carry, the eight named slots plus the three the pipeline fills
+#: itself. One expression, because the substitution is one pass — see `prompt_for`.
+SLOT = re.compile(r"\{(" + "|".join([*VARIABLES, "width", "height", "prompt"]) + r")\}")
+
+
+def parse_variables(pairs: tuple[str, ...]) -> dict[str, str]:
+    """`--var key=value`, repeatable, and always text (R2.8).
+
+    Unlike `--opt`, these never reach a model's schema — they are substituted into a prompt,
+    so a value is a string and nothing else. `--var name=7` is a character called 7.
+    """
+    found: dict[str, str] = {}
+    for pair in pairs:
+        name, separator, raw = pair.partition("=")
+        name = name.strip()
+        if not separator or not name:
+            raise UsageError(
+                "invalid-variable",
+                f"{pair!r} is not key=value",
+                fix="write it as --var name=value, once per variable",
+            )
+        if SLOT.search(raw):
+            # A value that is itself a placeholder is a substitution that failed upstream —
+            # a script that built `--var name={name}` out of a config it could not read. It
+            # passes the empty check, because it is not empty, and one pass of `re.sub` will
+            # not expand it either. So it is refused here: `{name}` in a billed prompt is the
+            # exact outcome R2.8 exists to prevent, and arriving by this route makes it no
+            # less expensive.
+            raise UsageError(
+                "invalid-variable",
+                f"--var {name} was given a value that is itself a template slot: {raw!r}",
+                fix="something upstream did not substitute it; pass the real text",
+            )
+        if name not in VARIABLES:
+            raise UsageError(
+                "unknown-variable",
+                f"{name!r} is not a prompt variable",
+                fix=f"the variables are: {', '.join(VARIABLES)} — anything else goes in --prompt",
+            )
+        if name in found:
+            raise UsageError(
+                "invalid-variable",
+                f"--var {name} was given more than once",
+                fix="pass each variable once",
+            )
+        found[name] = raw
+    return found
+
+
+def wanted_by(body: str) -> list[str]:
+    """The variables a template names, in the order a caller would read them."""
+    return [name for name in VARIABLES if "{" + name + "}" in body]
+
+
+def prompt_for(
+    template: str,
+    text: str,
+    cell: tuple[int, int],
+    variables: dict[str, str] | None = None,
+) -> str:
+    """The caller's prompt, wrapped in the template the kind named (R2.1, R2.8).
 
     Substituted rather than `format`ted, deliberately: a caller's prompt is arbitrary text and
     routinely holds a brace, and `str.format` would read it as a field and raise — turning a
     perfectly good prompt into an error nobody could explain.
+
+    What a template still needs is worked out from the template, before the caller's text is
+    anywhere near it. Somebody who writes "a knight {holding a torch}" is describing a knight,
+    not naming a variable, and a check run against the finished string would refuse them.
+
+    **The substitution is one pass, and that is a correctness property rather than a tidiness
+    one.** Replacing slot by slot means each replacement can rewrite text an earlier one just
+    inserted: with `--var name={prop}` the value of `prop` lands where `name` belongs, because
+    `prop` happens to be substituted second. `re.sub` walks the template once and never
+    revisits what it wrote, so a value is inserted exactly as given no matter what it holds
+    and no matter what order the slots were supplied in.
     """
     available = templates()
     if template not in available:
@@ -291,13 +378,23 @@ def prompt_for(template: str, text: str, cell: tuple[int, int]) -> str:
             f"this asset's kind names the prompt template {template!r}, which ssc does not ship",
             fix=f"the templates are: {', '.join(sorted(available))}",
         )
+
+    body = available[template]
+    given = dict(variables or {})
+    missing = [name for name in wanted_by(body) if not given.get(name, "").strip()]
+    if missing:
+        # Before the call rather than after, because what this prevents is the literal text
+        # `{name}` reaching the model inside a prompt that is then paid for.
+        raise UsageError(
+            "missing-variable",
+            f"the {template!r} template needs {', '.join(missing)}, "
+            f"which {'was' if len(missing) == 1 else 'were'} not given",
+            fix=" ".join(f"--var {name}=…" for name in missing),
+        )
+
     width, height = cell
-    return (
-        available[template]
-        .replace("{width}", str(width))
-        .replace("{height}", str(height))
-        .replace("{prompt}", text)
-    )
+    filled = {**given, "width": str(width), "height": str(height), "prompt": text}
+    return SLOT.sub(lambda found: filled.get(found.group(1), found.group(0)), body)
 
 
 # ------------------------------------------------------------- what is asked
@@ -418,6 +515,7 @@ class Ask:
     model: str | None = None
     role: str | None = None
     options: dict[str, Any] = field(default_factory=dict)
+    variables: dict[str, str] = field(default_factory=dict)
     upload: bool = False
 
 
@@ -550,7 +648,7 @@ def build(
     template: str | None = None
     if ask.prompt is not None:
         template = ask.template or profile.template
-        core["prompt"] = prompt_for(template, ask.prompt, profile.cell)
+        core["prompt"] = prompt_for(template, ask.prompt, profile.cell, ask.variables)
     if ask.seconds is not None:
         core["seconds"] = ask.seconds
     if ask.seed is not None:

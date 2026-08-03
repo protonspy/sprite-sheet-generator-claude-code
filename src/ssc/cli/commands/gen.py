@@ -136,6 +136,13 @@ def shared(command: Any) -> Any:
 @click.option("--size", default=None, help="The size the layout needs, as WxH.")
 @click.option("--ref", "reference", default=None, type=click.Path(path_type=Path))
 @click.option("--from-stage", default=None, help="Use this stage of the asset as the reference.")
+@click.option("--template", default=None, help="Override the prompt template the kind names.")
+@click.option(
+    "--var",
+    "variables",
+    multiple=True,
+    help="Fill a named slot in the template, as key=value. Repeatable.",
+)
 @click.option("--prompt", required=True, help="What to generate.")
 def gen_image(
     asset: str,
@@ -146,6 +153,8 @@ def gen_image(
     seed: int | None,
     stage: str | None,
     model: str | None,
+    template: str | None,
+    variables: tuple[str, ...],
     options: tuple[str, ...],
     upload: bool,
     no_wait: bool,
@@ -155,7 +164,14 @@ def gen_image(
     dry_run: bool,
     workspace: Workspace,
 ) -> Result:
-    """R1.1, R1.2, R2.1, R3.1 — and the reference, which moves the call to `/edit` (R2.6)."""
+    """R1.1, R1.2, R2.1, R2.7, R3.1 — and the reference, which moves the call to `/edit` (R2.6).
+
+    `--template` is the exception to "the kind names the template", and it exists because one
+    kind has more than one job. A `character` asset is generated several times over its life —
+    the South anchor with a pixel-grid board, then the other directions, then the poses — and
+    those want different words. Making each a kind would be a kind per *stage* rather than per
+    *asset*, which is not what a kind is.
+    """
     check_wait(timeout, poll)
     image = (
         source_image(workspace, asset, from_stage, reference)
@@ -171,7 +187,9 @@ def gen_image(
         size=parse_size(size),
         seed=seed,
         model=model,
+        template=template,
         options=gen.parse_options(options),
+        variables=gen.parse_variables(variables),
         upload=upload,
     )
     return gen.run(
@@ -191,6 +209,13 @@ def gen_image(
 @click.option("--seconds", type=int, default=None, help="Clip length, where the model takes one.")
 @click.option("--in", "source", default=None, type=click.Path(path_type=Path))
 @click.option("--from-stage", default=None, help="Which stage of the asset to animate.")
+@click.option("--template", default=None, help="Which animation template. Defaults to the base.")
+@click.option(
+    "--var",
+    "variables",
+    multiple=True,
+    help="Fill a named slot in the template, as key=value. Repeatable.",
+)
 @click.option("--prompt", required=True, help="What the subject does.")
 def gen_video(
     asset: str,
@@ -200,6 +225,8 @@ def gen_video(
     seconds: int | None,
     stage: str | None,
     model: str | None,
+    template: str | None,
+    variables: tuple[str, ...],
     options: tuple[str, ...],
     upload: bool,
     no_wait: bool,
@@ -209,20 +236,29 @@ def gen_video(
     dry_run: bool,
     workspace: Workspace,
 ) -> Result:
-    """One template and no board, whatever the asset's kind — the kind had its say when the
-    image this animates was generated. Video length stays a per-model fact: nothing here
-    defaults `--seconds`, because the sources disagree head-on about what loops well."""
+    """No board, whatever the asset's kind — a video model given a grid paints the grid onto
+    the character, and the kind had its say when the image this animates was generated.
+
+    The template is the kind-independent one, because what an animation must not do is the
+    same for every kind: hold the direction, hold the camera, and leave the background alone.
+    `--template walk` adds the motion of a walk cycle to that base; a different animation is
+    a different template rather than a different command.
+
+    Video length stays a per-model fact: nothing here defaults `--seconds`, because the
+    sources disagree head-on about what loops well.
+    """
     check_wait(timeout, poll)
     ask = gen.Ask(
         verb="gen video",
         media="video",
         stage=stage or "video",
         prompt=prompt,
-        template=gen.VIDEO_TEMPLATE,
+        template=template or gen.VIDEO_TEMPLATE,
         image=source_image(workspace, asset, from_stage, source),
         seconds=seconds,
         model=model,
         options=gen.parse_options(options),
+        variables=gen.parse_variables(variables),
         upload=upload,
     )
     return gen.run(

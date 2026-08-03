@@ -221,6 +221,397 @@ def test_the_prompt_is_the_kinds_template_around_what_was_asked(
     assert "chroma-green" in sent
 
 
+def test_a_named_template_overrides_the_one_the_kind_names(space: Path, api: FakeClient) -> None:
+    """R2.7 — one kind, more than one job.
+
+    A `character` is generated several times over its life: the South anchor against a
+    pixel-grid board, then the other directions, then the poses. Those want different words
+    and they are all the same asset, so the override is per call rather than per kind.
+    """
+    _, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--template",
+        "anchor",
+        *HERO,
+        "--dry-run",
+    )
+    assert payload["template"] == "anchor"
+    sent = payload["arguments"]["prompt"]
+    assert "South-facing idle" in sent
+    assert "64x64" in sent  # still the kind's cell — the override changes words, not facts
+
+
+def test_the_anchor_template_carries_the_rules_the_wiki_paid_for(
+    space: Path, api: FakeClient
+) -> None:
+    """`docs/wiki/anchor-and-directions.md` has two lessons that cost someone real work, and
+    a template that drops them is a template that will cost it again.
+
+    The neutral pose is the expensive one: an object in the anchor becomes attached to the
+    body in every frame derived from it, and removing it afterwards is hand-work per frame.
+    The board's role is the other: unstated, the model paints the checkerboard into the art.
+    """
+    _, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--template",
+        "anchor",
+        *HERO,
+        "--dry-run",
+    )
+    sent = payload["arguments"]["prompt"]
+    assert "every single frame derived from this one" in sent
+    assert "never take its content" in sent
+
+
+def test_box_art_keeps_its_background_where_every_other_template_refuses_one(
+    space: Path, api: FakeClient
+) -> None:
+    """The one template that must not ask for chroma.
+
+    Box art is the character-select illustration and is never cut out, so a chroma key would
+    be asking the model to delete the setting that is the point. `docs/wiki/` is equally
+    clear that it must not then be fed back as a sprite reference — that is a rule for the
+    caller, and the template's job is only to not produce a sprite by accident.
+    """
+    CliRunner().invoke(main, ["asset", "new", "kael", "--kind", "box-art"])
+    _, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "box-art/kael",
+        "--prompt",
+        "a knight",
+        "--var",
+        "name=Kael",
+        "--var",
+        "archetype=frost warden",
+        "--var",
+        "costume=rime-blue plate",
+        "--var",
+        "prop=a rune-etched axe",
+        "--var",
+        "setting=a frozen fen under aurora light",
+        "--dry-run",
+    )
+
+    sent = payload["arguments"]["prompt"]
+    assert payload["template"] == "box-art"
+    assert "chroma" not in sent
+    assert "1024x1536" in sent
+    assert "Painterly" in sent
+
+
+def test_the_direction_template_names_only_the_direction_and_keeps_the_rest(
+    space: Path, api: FakeClient, keyed: None
+) -> None:
+    """West and North are generated from the approved anchor, and the whole risk is drift:
+    a frame that is a slightly different character reads as one character flickering.
+
+    So the template spends its words on preservation and leaves the direction itself to the
+    caller's prompt — `docs/wiki/anchor-and-directions.md` is explicit that naming only the
+    direction is what works.
+    """
+    written = png_at(space, "south.png")
+    _, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "the approved South anchor, turned",
+        "--template",
+        "direction",
+        "--var",
+        "name=Kael",
+        "--var",
+        "direction=West, seen from the character's left",
+        "--var",
+        "silhouette=the axe head reads against the body, not across it",
+        "--ref",
+        str(written),
+        "--dry-run",
+    )
+    sent = payload["arguments"]["prompt"]
+    assert payload["template"] == "direction"
+    assert "facing West" in sent
+    assert "read as one character rather than two" in sent
+    # The prop rule, which is the one the wiki says gets learned the hard way.
+    assert "wrong side of the body" in sent
+
+
+def test_the_correction_template_preserves_identity_and_strips_the_effect(
+    space: Path, api: FakeClient, keyed: None
+) -> None:
+    """The remedy for an anchor that came back holding something.
+
+    The wiki's rule is that an object in the anchor becomes attached to the body in every
+    frame derived from it. When a model puts one there anyway, the fix is a second pass that
+    changes exactly one thing — so the template spends most of its words on what must *not*
+    change, which is the opposite of every other template here.
+    """
+    written = png_at(space, "bad-anchor.png")
+    _, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--template",
+        "neutral-pose",
+        "--var",
+        "name=Kael",
+        "--var",
+        "remove=the fireball charged in the right hand",
+        "--ref",
+        str(written),
+        "--dry-run",
+    )
+    sent = payload["arguments"]["prompt"]
+    assert payload["template"] == "neutral-pose"
+    assert "identity to preserve" in sent
+    assert "every single frame derived from this one" in sent
+    assert "Do not redesign the character" in sent
+
+
+# R2.8 — the named slots, and the refusal that keeps `{name}` out of a paid prompt.
+
+
+HERO = (
+    "--var",
+    "name=Kael",
+    "--var",
+    "archetype=frost warden",
+    "--var",
+    "costume=rime-blue plate",
+    "--var",
+    "prop=a rune-etched axe",
+    "--var",
+    "silhouette=a heavy pauldron on the left shoulder",
+)
+
+
+def test_a_template_fills_its_named_slots_from_var(space: Path, api: FakeClient) -> None:
+    """The structured half. What recurs across the character templates gets a name; anything
+    that does not is prose, and prose stays in `--prompt`."""
+    _, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "standing on cracked ice",
+        "--template",
+        "anchor",
+        *HERO,
+        "--dry-run",
+    )
+    sent = payload["arguments"]["prompt"]
+    assert "Kael" in sent and "frost warden" in sent
+    assert "rime-blue plate" in sent and "rune-etched axe" in sent
+    assert "heavy pauldron on the left shoulder" in sent
+    assert "standing on cracked ice" in sent  # the free text is still there
+    assert "{" not in sent.split("standing on cracked ice")[-1]
+
+
+def test_a_template_missing_a_slot_is_refused_before_the_money(
+    space: Path, api: FakeClient, keyed: None
+) -> None:
+    """The whole reason the vocabulary is closed and checked.
+
+    Substituting nothing would send the literal text `{name}` to the model inside a prompt
+    that is then billed, and the image that came back would be plausible enough that nobody
+    looked. The refusal names every slot still empty, so one run fixes all of them.
+    """
+    code, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--template",
+        "anchor",
+        "--var",
+        "name=Kael",
+    )
+    assert code == 2
+    assert payload["error"]["code"] == "missing-variable"
+    for slot in ("archetype", "costume", "prop", "silhouette"):
+        assert slot in payload["error"]["message"]
+    assert api.submitted == []
+
+
+def test_a_slot_that_is_not_a_variable_is_refused(space: Path, api: FakeClient) -> None:
+    """A closed vocabulary is the point: an open one drifts into a second prompt language
+    nobody documents, and a typo would be silently substituted into nothing."""
+    code, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--var",
+        "biome=a frozen fen",
+        "--dry-run",
+    )
+    assert code == 2
+    assert payload["error"]["code"] == "unknown-variable"
+    assert "setting" in payload["error"]["fix"]
+
+
+def test_a_brace_in_the_callers_own_prompt_is_not_a_variable(space: Path, api: FakeClient) -> None:
+    """Substitution order, asserted. Somebody writing "a knight {holding a torch}" is
+    describing a knight — checking the finished string for leftover braces would refuse them
+    for punctuation."""
+    _, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight {holding a torch}",
+        "--dry-run",
+    )
+    assert "{holding a torch}" in payload["arguments"]["prompt"]
+
+
+def test_a_template_that_names_no_slot_needs_no_var(space: Path, api: FakeClient) -> None:
+    """Every asset template — icon, tile, ui, banner, map — names nothing, so none of this
+    reaches a caller who was not asking for it."""
+    CliRunner().invoke(main, ["asset", "new", "grass", "--kind", "tile"])
+    code, payload = run("gen", "image", "--asset", "tile/grass", "--prompt", "moss", "--dry-run")
+    assert code == 0
+    assert "moss" in payload["arguments"]["prompt"]
+
+
+def test_a_variable_the_template_does_not_use_is_not_an_error(space: Path, api: FakeClient) -> None:
+    """The asymmetry is deliberate: a missing slot is a broken prompt and a spare one is not.
+
+    One config driving several templates is the ordinary way to work — the same character
+    generated as an anchor, then a direction, then box art — and refusing the spares would
+    punish it for no gain.
+    """
+    code, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--template",
+        "neutral-pose",
+        "--var",
+        "name=Kael",
+        "--var",
+        "remove=the fireball in the right hand",
+        "--var",
+        "setting=a frozen fen",
+        "--dry-run",
+    )
+    assert code == 0
+    assert "Kael" in payload["arguments"]["prompt"]
+
+
+def test_one_slots_value_cannot_be_rewritten_by_another_slot(space: Path) -> None:
+    """Substitution is one pass, and this is why.
+
+    Slot-by-slot `str.replace` lets each replacement rewrite text an earlier one just
+    inserted: with `prop` supplied after `name`, a `name` value of `{prop}` came out holding
+    `prop`'s text. Order-dependent, undocumented, and reachable by ordinary use — both
+    reviews found it independently, from different directions.
+    """
+    filled = pipeline.prompt_for(
+        "anchor",
+        "a knight",
+        (64, 64),
+        {
+            "name": "Kael",
+            "archetype": "frost warden",
+            "costume": "rime-blue plate",
+            "prop": "a rune-etched axe",
+            "silhouette": "a heavy pauldron",
+        },
+    )
+    assert "Kael" in filled and "a rune-etched axe" in filled
+    assert "{" not in filled.replace("{prompt}", "")
+
+
+def test_a_value_that_is_itself_a_slot_is_refused(space: Path, api: FakeClient) -> None:
+    """The case the empty check could not see, and the expensive one.
+
+    `--var prop="a sword engraved with {name}"` is plausible flavour text rather than an
+    exotic payload, and it is not empty, so `missing-variable` passed it. One pass then
+    inserts it verbatim and the literal `{name}` reaches the model inside a billed prompt —
+    the exact outcome R2.8 exists to prevent, arriving by a different door.
+    """
+    code, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--template",
+        "anchor",
+        "--var",
+        "name=Kael",
+        "--var",
+        "prop=a sword engraved with {name}",
+        "--dry-run",
+    )
+    assert code == 2
+    assert payload["error"]["code"] == "invalid-variable"
+    assert "upstream" in payload["error"]["fix"]
+
+
+def test_the_order_slots_are_given_in_does_not_change_the_prompt(space: Path) -> None:
+    """The other face of the same non-atomicity: reversed, the old loop merged two slots
+    instead of leaving one literal. One pass makes the argument order irrelevant."""
+    values = {
+        "name": "Kael",
+        "archetype": "frost warden",
+        "costume": "rime-blue plate",
+        "prop": "a rune-etched axe",
+        "silhouette": "a heavy pauldron",
+    }
+    forwards = pipeline.prompt_for("anchor", "a knight", (64, 64), values)
+    backwards = pipeline.prompt_for("anchor", "a knight", (64, 64), dict(reversed(values.items())))
+    assert forwards == backwards
+
+
+def test_a_template_ssc_does_not_ship_is_refused_and_names_the_ones_it_does(
+    space: Path, api: FakeClient
+) -> None:
+    """The override is a free-text flag, so a typo is the ordinary case rather than the odd
+    one — and a typo that reached the model would be a billed call framed by nothing."""
+    code, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--template",
+        "anchour",
+        "--dry-run",
+    )
+    assert code == 2
+    assert payload["error"]["code"] == "unknown-template"
+    assert "anchor" in payload["error"]["fix"]
+
+
 def test_an_option_the_model_does_not_have_is_refused_before_the_money(
     space: Path, api: FakeClient, keyed: None
 ) -> None:

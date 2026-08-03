@@ -27,10 +27,10 @@ def asset_new(key: str, kind: str, *, dry_run: bool, workspace: Workspace) -> Re
     # size nobody chose.
     kinds.resolve(kind, workspace)
     # `asset_dir` validates the two names as strings; it cannot see that `assets/<kind>/`
-    # is a link pointing somewhere else on disk. This is the route that *creates* an asset,
+    # is a link pointing somewhere else on disk. This is a route that *creates* an asset,
     # so without the check a linked kind directory makes `mkdir` and `meta.json` land
     # outside the workspace — and every later command then reads an asset the workspace
-    # does not own. Reading is already guarded; creating was the one route that was not.
+    # does not own.
     directory = under_assets(workspace, workspace.asset_dir(kind, key))
 
     # Uniqueness is per kind, not global — see adr:0007-group-assets-by-kind-then-key for
@@ -47,6 +47,12 @@ def asset_new(key: str, kind: str, *, dry_run: bool, workspace: Workspace) -> Re
         return Result("asset new", f"would create {kind}/{key}", data, dry_run=True)
 
     directory.mkdir(parents=True, exist_ok=True)
+    # Again, now that the path exists. The first check ran against a `<kind>/` that may not
+    # have existed yet, and `resolve()` reads a missing component literally — so a link
+    # planted between the check and `mkdir` would have been invisible to it and followed by
+    # `mkdir(parents=True)`. Re-checking here costs nothing and moves what an attacker can
+    # win from a written `meta.json` to an empty directory.
+    under_assets(workspace, directory)
     meta.save(directory, meta.AssetMeta(key=key, kind=kind))
     return Result("asset new", f"created {kind}/{key}", data)
 

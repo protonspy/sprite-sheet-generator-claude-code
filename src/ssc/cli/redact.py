@@ -13,12 +13,17 @@ Two rules, because a credential arrives two ways:
   wherever it appears — in any format, whether it came through a URL, a header, a config
   dump or a `KeyError`. This is the one that catches the leak nobody predicted, because it
   matches the secret itself rather than the shape of the thing carrying it.
-- **By shape.** `token=…`, `api_key=…`, `Authorization: Bearer …`. This catches a
-  credential that never passed through the environment — typed on a command line, read out
-  of a provider's config file, or returned in an error the provider itself composed.
+- **By shape.** `token=…`, `api_key=…`, `Authorization: Bearer …`, and the password in a
+  `scheme://user:password@host` connection string. This catches a credential that never
+  passed through the environment — typed on a command line, read out of a provider's
+  config file, or returned in an error the provider itself composed.
 
 Neither rule is complete on its own and neither is complete together; the point is that
-the guard is at the boundary rather than at the one call site somebody remembered.
+the guard is at the boundary rather than at the one call site somebody remembered. What is
+knowingly out of reach: a secret transformed on the way — percent-encoded, base64'd, or
+line-wrapped — no longer matches the value it came from, so a leaf that reformats a
+credential-bearing string before returning it defeats the by-value rule. Nothing here does
+that today, and a leaf that needs to should scrub before it reformats.
 """
 
 from __future__ import annotations
@@ -45,7 +50,18 @@ CREDENTIAL_PAIR = re.compile(
 )
 
 # The other half of the same idea, for the scheme that carries the credential positionally.
-AUTH_SCHEME = re.compile(r"((?:bearer|basic)\s+)(\S+)", re.IGNORECASE)
+# `auth` has to precede it: on its own, `bearer` and `basic` are ordinary English, and a
+# guard that turns "a basic bounding box" into "a basic *** box" is a guard somebody
+# disables — which costs more than the narrower pattern does.
+AUTH_SCHEME = re.compile(
+    r"((?:proxy-)?authorizations?|auth)([\"']?\s*[=:]?\s*)((?:bearer|basic)\s+)(\S+)",
+    re.IGNORECASE,
+)
+
+# `scheme://user:password@host`. Neither rule above sees this one: there is no keyword in
+# front of the password, and a connection string is routinely held under a name like
+# `DATABASE_URL` that reads nothing like a credential.
+URL_USERINFO = re.compile(r"(://[^/\s:@]+:)([^/\s@]+)(@)")
 
 
 def environment_secrets() -> list[str]:
@@ -66,7 +82,10 @@ def scrub(text: str) -> str:
     for secret in environment_secrets():
         text = text.replace(secret, PLACEHOLDER)
     text = CREDENTIAL_PAIR.sub(lambda match: match.group(1) + PLACEHOLDER, text)
-    return AUTH_SCHEME.sub(lambda match: match.group(1) + PLACEHOLDER, text)
+    text = AUTH_SCHEME.sub(
+        lambda match: match.group(1) + match.group(2) + match.group(3) + PLACEHOLDER, text
+    )
+    return URL_USERINFO.sub(lambda match: match.group(1) + PLACEHOLDER + match.group(3), text)
 
 
 def scrubbed(value: Any) -> Any:

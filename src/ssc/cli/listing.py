@@ -126,12 +126,6 @@ def under_assets(workspace: Workspace, directory: Path) -> Path:
 
     `assets/` itself being a link is fine and deliberately allowed — it is the root both
     sides resolve against, so a workspace whose art lives on another disk keeps working.
-
-    The layout check rides along for the same reason the escape check is here rather than
-    at each call site: `meta.check_layout` states R2.5, and a requirement enforced on some
-    of the routes to an asset is a requirement nobody can rely on. It runs only where
-    there is a directory to look at, because `asset new` comes through here before it
-    creates one.
     """
     root = workspace.assets.resolve()
     resolved = directory.resolve()
@@ -141,6 +135,20 @@ def under_assets(workspace: Workspace, directory: Path) -> Path:
             f"{directory} resolves to {resolved}, which is outside {root}",
             fix=f"remove it from {workspace.assets}, or move the asset in for real",
         )
+    return directory
+
+
+def addressed(workspace: Workspace, directory: Path) -> Path:
+    """The asset a caller named, checked as a whole (R4.1, and R2.5).
+
+    Both checks belong to an asset somebody addressed by name and is about to read or
+    write. The escape check is cheap and applies to every route; the layout check is not
+    on `asset_dirs`' scan on purpose, because refusing to *list* a workspace over one
+    asset's stray directory takes down `list`, `clean` and every other asset with it —
+    the read paths in this module skip what they cannot use and report it, they do not
+    abort. Enforcement lands where it changes an outcome: the asset being opened.
+    """
+    under_assets(workspace, directory)
     if directory.is_dir():
         meta.check_layout(directory)
     return directory
@@ -191,7 +199,7 @@ def resolve(workspace: Workspace, address: str) -> tuple[Path, AssetMeta]:
         # where they actually landed. This branch never touches `asset_dirs`, so skipping
         # it here would leave `show <kind>/<key>` reading an asset directory that left the
         # workspace while `list` and `show <key>` both refused it.
-        directory = under_assets(workspace, workspace.asset_dir(parts[0], parts[1]))
+        directory = addressed(workspace, workspace.asset_dir(parts[0], parts[1]))
         if not meta.path_of(directory).is_file():
             raise UsageError(
                 "no-asset",
@@ -220,7 +228,7 @@ def resolve(workspace: Workspace, address: str) -> tuple[Path, AssetMeta]:
             f"{address!r} is an asset of more than one kind: {kinds}",
             fix=f"name the kind, for example {sorted(matches)[0].parent.name}/{address}",
         )
-    return matches[0], meta.load(matches[0])
+    return addressed(workspace, matches[0]), meta.load(matches[0])
 
 
 def lineage(record: AssetMeta, entry: FileRecord) -> list[FileRecord]:

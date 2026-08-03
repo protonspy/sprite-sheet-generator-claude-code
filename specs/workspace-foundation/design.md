@@ -66,10 +66,17 @@ same guard, because stderr is what a CI log keeps. Nothing here holds a secret t
 after the first key reaches somebody's log.
 
 **One gate, not one per route (R2.5, asset-listing R4.1).** An asset directory is validated
-where it is resolved, not where it is used: `under_assets` refuses one that resolved out of
-`assets/` through a link and rejects a subdirectory other than `frames/`. Every route
-passes through it — `list`, `show <kind>/<key>`, `recover`, and `asset new`, which is the
-one that *creates* — because guarding some of several routes is the same as guarding none.
+where it is resolved, not where it is used. `under_assets` refuses one that resolved out of
+`assets/` through a link, and every route passes through it — `list`, `show`, `recover`,
+and the two that *create*, `asset new` and `tool slice` — because guarding some of several
+routes is the same as guarding none. The creating routes check twice, before and after
+`mkdir`: the first check runs against a `<kind>/` that may not exist yet, and a missing
+component resolves to itself, so a link planted in between would otherwise be created
+through. `addressed` adds the layout check (no subdirectory but `frames/`) and is used
+where a caller *named* one asset and is about to read or write it. Deliberately not on the
+workspace scan: refusing to list a workspace over one asset's stray directory takes down
+`list`, `clean` and every unrelated asset with it, and the read paths here skip what they
+cannot use rather than aborting.
 
 **Nothing overwrites.** Every write goes through a helper that refuses an existing path
 (R3.5). Combined with "every command writes a new file", the recovery story for any mistake

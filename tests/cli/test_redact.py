@@ -64,6 +64,8 @@ def test_environment_secrets_reads_the_environment_at_call_time(
         ('{"password": "sk-live-9999", "user": "artist"}', '"user": "artist"'),
         ("Authorization: Bearer sk-live-9999", "Authorization: Bearer "),
         ("proxy auth Basic sk-live-9999", "proxy auth Basic "),
+        ("could not connect to postgres://svc:sk-live-9999@10.0.0.5:5432/prod", "postgres://svc:"),
+        ("amqp://guest:sk-live-9999@broker/", "@broker/"),
     ],
 )
 def test_a_credential_is_recognised_by_shape(text: str, kept: str) -> None:
@@ -72,12 +74,24 @@ def test_a_credential_is_recognised_by_shape(text: str, kept: str) -> None:
     assert kept in scrubbed
 
 
-def test_prose_that_merely_says_key_is_untouched() -> None:
-    """`fix` strings say things like "choose another key" all over this codebase, and a
-    guard that mangles every refusal is a guard somebody turns off."""
-    assert redact.scrub("choose another key, or work with the one that is there") == (
-        "choose another key, or work with the one that is there"
-    )
+@pytest.mark.parametrize(
+    "prose",
+    [
+        # `fix` strings say things like this all over this codebase.
+        "choose another key, or work with the one that is there",
+        # `bearer` and `basic` are ordinary English before they are authorization schemes,
+        # and a guard that mangles a doctor finding is a guard somebody turns off.
+        "a basic bounding box works",
+        "Bearer of good news: the seam closed",
+        "the basic cell is 32x32",
+    ],
+)
+def test_prose_is_left_exactly_as_written(prose: str) -> None:
+    assert redact.scrub(prose) == prose
+
+
+def test_a_url_with_no_credential_in_it_survives() -> None:
+    assert redact.scrub("fetched https://fal.run/models/x") == "fetched https://fal.run/models/x"
 
 
 # Over a whole payload, because a command reports more than an error message.

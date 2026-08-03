@@ -217,11 +217,17 @@ deliverable on its own: M1 already repairs a sheet you have today, with no API k
       `assets/<kind>/` makes it create a directory and write `meta.json` outside the
       workspace; `check_layout` is defined and called from nowhere. Both found while
       auditing `asset-listing`, both that leaf's to fix rather than this one's.
-      **Somewhere is `under_assets` itself** — it already carries the invariant that every
-      route to an asset directory passes through it, so the layout check placed there holds
-      for `list`, `show`, `recover` and `asset new` at once rather than at four call sites
-      where the fifth is forgotten. It runs only where a directory already exists, because
-      `asset new` comes through before it creates one
+      **The escape check goes on every route, the layout check only where a caller named
+      one asset.** Putting both in `under_assets` was the first attempt and the review
+      killed it: `asset_dirs` scans the whole workspace, so refusing there means one stray
+      directory in one asset stops `list`, `clean` and every unrelated asset — while the
+      read paths beside it skip what they cannot use rather than aborting. So `addressed`
+      carries the layout check for `show` and `recover`, and `under_assets` stays the
+      escape gate everywhere. The review also found a **third creating route**, `tool
+      slice`, with the same hole `asset new` had, and a **TOCTOU window** in both: the
+      first check runs before `mkdir`, against a `<kind>/` that may not exist yet, and a
+      missing component resolves to itself — so both re-check after `mkdir`, which moves
+      what a race can win from a written `meta.json` to an empty directory
 - [x] 0.10 (Unit) Decide what `cli/main.py` does with an exception that is not an `SscError`,
       as a delta against `workspace-foundation` — it catches `SscError` and nothing else, so
       anything unexpected leaves the command as a Python traceback rather than the one JSON

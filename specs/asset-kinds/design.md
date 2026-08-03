@@ -1,40 +1,42 @@
 # Asset kinds — design
 
-<!-- The design must fit the decision being made. Every heading below except
-     "What changes" is OPTIONAL: delete the ones this change does not decide.
-
-     A heading filled with "N/A", or with prose written to satisfy the heading, is
-     worse than an absent heading — the next session reads invented architecture as
-     a decision somebody made, and honors it. Filler becomes binding.
-
-     Delete this comment too. -->
-
 ## What changes
 
-Serves R1.1.
+Serves R1.1, R1.3, R1.4, R2.3, R3.1.
 
-<!-- Required. What changes, where, and why. For a change that decides nothing
-     structural, this section is the whole design and that is the correct outcome.
+One new module, `cli/kinds.py`, and one command group, `ssc kind`. It is in `cli/` and not
+`core/` because a profile comes off disk — `ssc.yaml` — and `core/` takes arrays and
+dataclasses, not files.
 
-     Keep the "Serves" line above and make it real: the design has to name the
-     requirements it answers, or the trace from what to how is unreadable — and
-     `scc spec validate` says so. -->
+The decision itself is `adr:0008-a-kind-is-a-profile-not-an-enum`, and the shape follows from
+it: profiles are **data**, built-ins are a dict in the package, a project's are a `kinds:`
+map in `ssc.yaml`, and resolution merges the two field by field.
 
-## Boundaries and contracts <!-- optional -->
+## Where each field came from
 
-<!-- Only if this change moves a boundary or an external contract, and only for the
-     parts that actually move. -->
+R2.3 asks for the *provenance* of each field, not just its value, and that is the part worth
+building rather than assuming. A project overriding one field of `character` and inheriting
+five is the ordinary case, and "why is my cell 32" is the question a person actually asks. So
+resolution returns the value **and** its source, and `kind show` prints both.
 
-## Data <!-- optional -->
+This is also what keeps built-ins honestly documented as defaults: a later `ssc` may ship a
+different built-in cell, and a project that inherited one can see that it did.
 
-<!-- Only if a data shape changes. -->
+## Reading, not branching
 
-## Alternatives considered <!-- optional -->
+R3.1 is the requirement this leaf exists to make enforceable. `if kind == "character"`
+anywhere in this codebase is the defect the ADR names, and it cannot be prevented by a type —
+so it is a review target and a grep, not a mechanism. What the design *can* do is make the
+right thing easy: `resolve(name)` returns a profile, every field is on it, and no consumer
+ever needs the name for anything but a lookup.
 
-<!-- Only where there were real alternatives with trade-offs. Say which won and why.
-     If the decision is hard to reverse, write an ADR under docs/adr/ and cite it
-     here instead of arguing it twice. -->
+## Alternatives considered
 
-## Risks <!-- optional -->
+**A `kinds.yaml` of its own, rather than a key in `ssc.yaml`.** Rejected: a workspace already
+has one file that says what this project is, and a second one is a second thing to find, to
+validate and to keep in step. `ssc.yaml` is almost empty today precisely so that leaves like
+this one can fill it.
 
-<!-- What could go wrong that the task list does not already cover. -->
+**Validating a profile lazily, when a command uses it.** Rejected in favour of validating on
+read (R1.5): a typo in `ssc.yaml` should be a refusal from `kind list`, not a wrong cell size
+surfacing three commands later as art that is subtly the wrong size.

@@ -17,7 +17,7 @@ first.
 
 ## R1 · What a profile is
 
-- **R1.1** (MODIFIED) The `ssc` CLI shall give every kind a cell size, an anchor mode, whether it animates, an atlas layout, the `doctor` checks that apply to it, a generation template, and whether its assets are layered — see `specs/parallax-layers/` for that last field.
+- **R1.1** (MODIFIED) The `ssc` CLI shall give every kind a cell size, an anchor mode, whether it animates, an atlas layout, the `doctor` checks that apply to it, a generation template, whether its assets are layered, and the model it generates each media with — see `specs/parallax-layers/` and `specs/model-registry/` for the last two.
 - **R1.2** (MODIFIED) The `ssc` CLI shall ship built-in profiles for `character`, `icon`, `tile`, `ui`, `banner`, `map` and `background`.
 - **R1.3** Where `ssc.yaml` declares a kind, the `ssc` CLI shall use that declaration.
 - **R1.4** Where a declared kind names a built-in, the `ssc` CLI shall use the declared value for each field it states and the built-in's for each it does not.

@@ -36,8 +36,13 @@ arithmetic. Against pip and a hand-managed venv, which is what uv exists to repl
 
 - No single binary, ever. Distribution is a Python package, and the install story is
   "have uv". That is the cost paid for the ecosystem.
-- The version floor is 3.11, so `X | Y` unions, `tomllib` and the exception groups are
-  available and nothing needs `typing_extensions`.
+- **The version floor is 3.12, and the ecosystem set it rather than this project.** 3.11
+  was the intent — `X | Y` unions, `tomllib`, exception groups, nothing needing
+  `typing_extensions`. Building `specs/workspace-foundation/` found it unworkable: numpy's
+  own type stubs use `type` statements, so `mypy --python-version 3.11` cannot parse them,
+  and the project's most-used dependency becomes untypeable at exactly the layer where the
+  types matter. Pinning numpy backwards to keep a floor nobody had asked for was the worse
+  trade.
 - CI runs on Linux and Windows against one Python rather than one OS against three
   Pythons: what breaks per-platform in this project is paths, line endings and the
   `wasmtime` runtime, not language versions.

@@ -6,8 +6,8 @@ hold the reasoning behind it.
 
 ## Start here
 
-- [[game-ready-defects]] — the eight defects this tool exists to measure and repair.
-  Every other page assumes this vocabulary.
+- [[game-ready-defects]] — the defects this tool exists to measure and repair, and which
+  of them `doctor` checks. Every other page assumes this vocabulary.
 
 ## Producing the art
 

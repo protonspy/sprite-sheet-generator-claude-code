@@ -36,10 +36,9 @@ and not listed here is an undecided dependency.
 
 - **`[cv]`: onnxruntime, rembg / BiRefNet** — model-based background removal that runs
   locally and costs nothing per call.
-- **`[cv-gpu]`: onnxruntime-gpu** — a separate distribution rather than a runtime flag,
-  which is why the extras split instead of taking a switch.
-- **mediapipe** — pose tracking through an animation cycle. Not yet adopted; listed here
-  as the expected choice so the decision is visible before it is made.
+- **`[cv-gpu]`: onnxruntime-gpu, rembg** — the same models against a different runtime
+  distribution rather than a runtime flag, which is why the extras split instead of taking
+  a switch. `rembg` is in both extras because it is the model layer, not the runtime.
 
 ## Development
 
@@ -66,3 +65,14 @@ and not listed here is an undecided dependency.
 - **spritefusion-pixel-snapper** (MIT, Hugo Duprez) — compiled to `wasm32-wasip1` and
   committed as `vendor/pixel-snapper.wasm` with its `LICENSE`. Adopted for its dithering
   preservation; see `docs/wiki/prior-art.md`.
+
+## Not adopted
+
+Everything above this line is installed and decided. Nothing below it is either — it is
+recorded so the next session knows the question was seen, not so it can be treated as
+settled.
+
+- **mediapipe** — the expected answer for pose tracking through an animation cycle, which
+  `specs/cv-motion-consistency/` needs. Not installed, not in any manifest, and not
+  decided: it is a heavy dependency for one M6 leaf, so it earns an ADR when that leaf is
+  built rather than a line here that reads like adoption.

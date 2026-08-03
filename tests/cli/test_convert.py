@@ -425,3 +425,175 @@ def test_a_board_never_overwrites(tmp_path: Path) -> None:
     )
     assert code == 1
     assert payload["error"]["code"] == "file-exists"
+
+
+# specs/background-removal — `ssc tool bgremove`.
+
+
+def green_scene(path: Path) -> Path:
+    """A green backdrop, a subject, and a green gem the subject encloses."""
+    import numpy as np
+
+    from ssc.core.bgremove import PRESETS
+
+    image = np.zeros((10, 10, 4), dtype=np.uint8)
+    image[..., :3] = PRESETS["green"]
+    image[..., 3] = 255
+    image[2:8, 2:8, :3] = (220, 180, 150)
+    image[4:6, 4:6, :3] = PRESETS["green"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(image, mode="RGBA").save(path)
+    return path
+
+
+def test_bgremove_defaults_to_flood_so_the_gem_survives(tmp_path: Path) -> None:
+    import numpy as np
+
+    source = green_scene(tmp_path / "hero.png")
+    code, payload = run(
+        "tool", "bgremove", "--tol", "10", "--in", str(source), "--out", str(tmp_path / "out.png")
+    )
+    assert code == 0
+    assert payload["mode"] == "flood"
+
+    written = np.array(Image.open(tmp_path / "out.png").convert("RGBA"))
+    assert written[0, 0, 3] == 0
+    assert written[4, 4, 3] == 255
+
+
+def test_global_mode_takes_the_gem(tmp_path: Path) -> None:
+    import numpy as np
+
+    source = green_scene(tmp_path / "hero.png")
+    run(
+        "tool",
+        "bgremove",
+        "--mode",
+        "global",
+        "--tol",
+        "10",
+        "--in",
+        str(source),
+        "--out",
+        str(tmp_path / "out.png"),
+    )
+    written = np.array(Image.open(tmp_path / "out.png").convert("RGBA"))
+    assert written[4, 4, 3] == 0
+
+
+def test_the_written_frame_has_no_semi_transparent_pixel(tmp_path: Path) -> None:
+    """The output has to pass this project's own `halo` check, which is the defect that
+    names this command as its fix."""
+    import numpy as np
+
+    from ssc.core.doctor import check_halo
+
+    source = green_scene(tmp_path / "hero.png")
+    run(
+        "tool",
+        "bgremove",
+        "--tol",
+        "90",
+        "--edge-pass",
+        "--in",
+        str(source),
+        "--out",
+        str(tmp_path / "out.png"),
+    )
+    written = np.array(Image.open(tmp_path / "out.png").convert("RGBA"))
+    assert check_halo(written).clean
+
+
+def test_a_magenta_preset_is_named_not_remembered(tmp_path: Path) -> None:
+    import numpy as np
+
+    from ssc.core.bgremove import PRESETS
+
+    image = np.zeros((6, 6, 4), dtype=np.uint8)
+    image[..., :3] = PRESETS["magenta"]
+    image[..., 3] = 255
+    image[2:4, 2:4, :3] = (10, 20, 30)
+    source = tmp_path / "hero.png"
+    Image.fromarray(image, mode="RGBA").save(source)
+
+    code, payload = run(
+        "tool",
+        "bgremove",
+        "--chroma",
+        "magenta",
+        "--tol",
+        "10",
+        "--in",
+        str(source),
+        "--out",
+        str(tmp_path / "out.png"),
+    )
+    assert code == 0
+    assert payload["opaque_px"] == 4
+
+
+def test_a_hex_key_works_too(tmp_path: Path) -> None:
+    source = green_scene(tmp_path / "hero.png")
+    code, _ = run(
+        "tool",
+        "bgremove",
+        "--chroma",
+        "00b140",
+        "--tol",
+        "10",
+        "--in",
+        str(source),
+        "--out",
+        str(tmp_path / "out.png"),
+    )
+    assert code == 0
+
+
+def test_a_key_that_is_neither_is_a_usage_error(tmp_path: Path) -> None:
+    source = green_scene(tmp_path / "hero.png")
+    code, payload = run(
+        "tool",
+        "bgremove",
+        "--chroma",
+        "chartreuse",
+        "--in",
+        str(source),
+        "--out",
+        str(tmp_path / "out.png"),
+    )
+    assert code == 2
+    assert payload["error"]["code"] == "invalid-chroma"
+    assert not (tmp_path / "out.png").exists()
+
+
+@pytest.mark.parametrize(
+    ("flag", "value", "code"),
+    [
+        ("--tol", "-1", "invalid-tolerance"),
+        ("--tol", "9999", "invalid-tolerance"),
+        ("--edge-trim", "-1", "invalid-amount"),
+        ("--despeckle", "-2", "invalid-amount"),
+    ],
+)
+def test_a_parameter_outside_its_range_is_refused(
+    tmp_path: Path, flag: str, value: str, code: str
+) -> None:
+    source = green_scene(tmp_path / "hero.png")
+    exit_code, payload = run(
+        "tool", "bgremove", flag, value, "--in", str(source), "--out", str(tmp_path / "out.png")
+    )
+    assert exit_code == 2
+    assert payload["error"]["code"] == code
+
+
+def test_a_set_is_keyed_frame_by_frame_and_counted_across_them(tmp_path: Path) -> None:
+    source = tmp_path / "frames"
+    green_scene(source / "001_a.png")
+    green_scene(source / "002_b.png")
+    code, payload = run(
+        "tool", "bgremove", "--tol", "10", "--in", str(source), "--out", str(tmp_path / "out")
+    )
+    assert code == 0
+    assert payload["frames"] == 2
+    assert payload["transparent_px"] + payload["opaque_px"] == 2 * 100
+    assert sorted(path.name for path in (tmp_path / "out").iterdir()) == ["001_a.png", "002_b.png"]

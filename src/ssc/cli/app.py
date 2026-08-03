@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from ssc.cli.commands.asset import asset
 from ssc.cli.commands.clean import clean
-from ssc.cli.commands.convert import board, pixelart, snap
+from ssc.cli.commands.convert import bgremove, board, pixelart, snap
 from ssc.cli.commands.doctor import doctor
 from ssc.cli.commands.init import init
 from ssc.cli.commands.media import image, video
@@ -24,5 +24,6 @@ tool.add_command(doctor)
 tool.add_command(snap)
 tool.add_command(pixelart)
 tool.add_command(board)
+tool.add_command(bgremove)
 
 __all__ = ["main"]

@@ -19,6 +19,7 @@ from ssc.cli.main import ssc_command
 from ssc.cli.output import Result
 from ssc.cli.snap import SnapParams, snap_frames
 from ssc.cli.snapper import Snapper
+from ssc.core.bgremove import PRESETS, BgRemoveParams, remove
 from ssc.core.board import checkerboard, pose_board
 from ssc.core.pixelart import (
     PaletteParams,
@@ -40,6 +41,10 @@ MAX_PIXEL_SIZE = 256.0
 #: `frames.MAX_PIXELS` for the same reason: `--cell 100000 --grid 9x9` is one argument away
 #: from allocating everything the machine has.
 MAX_BOARD_SIDE = 8192
+
+#: The distance from black to white in RGB. A tolerance at it keys every pixel of every
+#: frame, which is not a background removal but an erasure, so it is the ceiling.
+MAX_TOLERANCE = 442
 
 
 def parse_hex(value: str) -> tuple[int, int, int]:
@@ -268,3 +273,100 @@ def board_poses(out: Path, shape: str, cell: int, *, dry_run: bool) -> Result:
 
 board.add_command(board_checker)
 board.add_command(board_poses)
+
+
+def parse_key(value: str) -> tuple[int, int, int]:
+    """A preset name or a hex colour (R1.1, R1.4).
+
+    Presets are named rather than remembered: nobody should have to recall that green
+    screen is `00b140` in order to take a background out.
+    """
+    if value.lower() in PRESETS:
+        return PRESETS[value.lower()]
+    try:
+        return parse_hex(value)
+    except UsageError as refused:
+        raise UsageError(
+            "invalid-chroma",
+            f"{value!r} is neither a preset nor a 6-digit hex colour",
+            fix=f"use one of {', '.join(sorted(PRESETS))}, or write it as rrggbb",
+        ) from refused
+
+
+@ssc_command("bgremove", help="Take the background out by chroma key.")
+@click.option("--despeckle", type=int, default=0, help="Drop opaque groups below this many px.")
+@click.option("--edge-trim", type=int, default=0, help="Shrink the opaque region by this many px.")
+@click.option("--edge-pass", is_flag=True, help="Take the key's cast out of the border pixels.")
+@click.option(
+    "--mode",
+    type=click.Choice(["flood", "global"]),
+    default="flood",
+    help="flood keys only what the border reaches; global keys every match.",
+)
+@click.option("--tol", type=int, default=60, help="How far from the key still counts as key.")
+@click.option("--chroma", default="green", help="Key colour: a preset, or rrggbb.")
+@click.option("--out", required=True, type=click.Path(path_type=Path), help="File or directory.")
+@click.option(
+    "--in",
+    "source",
+    required=True,
+    type=click.Path(path_type=Path),
+    help="An image, or a directory of frames.",
+)
+def bgremove(
+    source: Path,
+    out: Path,
+    chroma: str,
+    tol: int,
+    mode: str,
+    edge_pass: bool,
+    edge_trim: int,
+    despeckle: int,
+    *,
+    dry_run: bool,
+) -> Result:
+    if not 0 <= tol <= MAX_TOLERANCE:
+        raise UsageError(
+            "invalid-tolerance",
+            f"--tol {tol} is outside 0..{MAX_TOLERANCE}",
+            fix=f"{MAX_TOLERANCE} is the distance between black and white; anything at it "
+            "keys the whole frame",
+        )
+    for name, value in (("--edge-trim", edge_trim), ("--despeckle", despeckle)):
+        if value < 0:
+            raise UsageError(
+                "invalid-amount", f"{name} {value} is negative", fix=f"pass {name} 0 or more"
+            )
+
+    params = BgRemoveParams(
+        key=parse_key(chroma),
+        tolerance=tol,
+        mode=mode,  # type: ignore[arg-type]
+        edge_pass=edge_pass,
+        edge_trim=edge_trim,
+        despeckle=despeckle,
+    )
+
+    frames = read_frames(source)
+    keyed: list[Frame] = []
+    transparent = opaque = 0
+    for frame in frames:
+        image, measured = remove(frame.image, params)
+        transparent += measured["transparent_px"]
+        opaque += measured["opaque_px"]
+        keyed.append(Frame(frame.name, image))
+
+    written = write_frames(source, out, keyed, dry_run=dry_run)
+    return Result(
+        "tool bgremove",
+        f"{len(keyed)} frame{'' if len(keyed) == 1 else 's'}: "
+        f"{transparent:,} px transparent, {opaque:,} px kept",
+        {
+            "frames": len(keyed),
+            "transparent_px": transparent,
+            "opaque_px": opaque,
+            "mode": mode,
+            "written": [str(path) for path in written],
+        },
+        dry_run=dry_run,
+    )

@@ -9,39 +9,14 @@ asymmetry is the whole of this command, and it reads one field to honour it.
 from __future__ import annotations
 
 import shutil
-from pathlib import Path
 
 from ssc.cli import meta
-from ssc.cli.errors import SscError
-from ssc.cli.listing import asset_dirs
+from ssc.cli.listing import asset_dirs, inside
 from ssc.cli.main import ssc_command
 from ssc.cli.output import Result
 from ssc.cli.workspace import Workspace
 
-
-def inside(directory: Path, relative: str) -> Path:
-    """Resolve `relative` against `directory` and refuse anything that leaves it.
-
-    `meta.py` already rejects an escaping path when the record is built or loaded. This
-    is the second check, at the moment of deleting, because one validation gap is all
-    that would otherwise stand between a bad record and `shutil.rmtree` on somebody's
-    home directory — and a symlink can move the target after validation.
-    """
-    target = (directory / relative).resolve()
-    root = directory.resolve()
-    if target != root and root not in target.parents:
-        raise SscError(
-            "path-escapes-asset",
-            f"{relative!r} resolves to {target}, which is outside {root}",
-            fix=f"remove that record from {meta.META_NAME}",
-        )
-    if target == root:
-        raise SscError(
-            "path-escapes-asset",
-            f"{relative!r} is the asset directory itself, which clean never deletes",
-            fix=f"remove that record from {meta.META_NAME}",
-        )
-    return target
+__all__ = ["clean", "inside"]
 
 
 @ssc_command(

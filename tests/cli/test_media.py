@@ -8,6 +8,7 @@ reports, and the shape of its JSON — are asserted against each of them rather 
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -263,6 +264,22 @@ def test_json_is_one_object_and_nothing_else(workspace: Path, argv: tuple[str, .
     payload = json.loads(result.output)
     assert payload["ok"] is True
     assert payload["command"] == f"{argv[0]} {argv[1]}"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="creating a symlink needs a privilege")
+def test_show_refuses_a_recorded_file_that_symlinks_out_of_the_workspace(
+    workspace: Path,
+) -> None:
+    """R4.2 end to end: the gate has to be in the command's path, not only in the library."""
+    victim = workspace.parent / "victim.png"
+    write_png(victim)
+    target = workspace / "assets/character/hero/002_hero.snap.png"
+    target.unlink()
+    target.symlink_to(victim)
+
+    code, payload = run("image", "show", "hero")
+    assert code == 1
+    assert payload["error"]["code"] == "path-escapes-asset"
 
 
 def test_without_json_a_human_gets_one_line(workspace: Path) -> None:

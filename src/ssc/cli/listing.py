@@ -62,7 +62,8 @@ class Entry:
 
     @property
     def file(self) -> Path:
-        return self.directory / self.record.path
+        """The file on disk, re-resolved and refused if it leaves the asset (R4.2)."""
+        return inside(self.directory, self.record.path)
 
     def as_dict(self) -> dict[str, Any]:
         """`derived_from` travels raw as well as resolved: a parent path naming no record
@@ -84,16 +85,59 @@ class Entry:
         }
 
 
+def inside(directory: Path, relative: str) -> Path:
+    """Resolve `relative` against `directory` and refuse anything that leaves it.
+
+    `meta.py` already rejects an escaping path when the record is built or loaded, but it
+    validates a *string*: it cannot see that a segment is a symlink pointing somewhere
+    else on disk. So every command that reaches a recorded path re-resolves it here first
+    — `clean` before deleting, and `show` before opening. One validation gap should not be
+    all that stands between a hand-edited `meta.json` and either `shutil.rmtree` on a home
+    directory or a `doctor` report on a file outside the workspace.
+    """
+    target = (directory / relative).resolve()
+    root = directory.resolve()
+    if target != root and root not in target.parents:
+        raise SscError(
+            "path-escapes-asset",
+            f"{relative!r} resolves to {target}, which is outside {root}",
+            fix=f"remove that record from {meta.META_NAME}",
+        )
+    if target == root:
+        raise SscError(
+            "path-escapes-asset",
+            f"{relative!r} is the asset directory itself, which is not a file in it",
+            fix=f"remove that record from {meta.META_NAME}",
+        )
+    return target
+
+
 def asset_dirs(workspace: Workspace) -> list[Path]:
     """Every directory holding a `meta.json`, ordered by kind then key (R2.6).
 
     The glob is two levels deep and not recursive, because `assets/<kind>/<key>/` is the
     layout — see `adr:0007-group-assets-by-kind-then-key`. A `meta.json` deeper than that
     is not an asset and is not treated as one.
+
+    Each hit is checked for having stayed under `assets/` (R4.1). `inside` guards a path
+    recorded in a file; this guards the directory the glob walked into, which is the other
+    half: a symlinked `<kind>/` or `<key>/` would otherwise put another tree's assets in
+    this workspace's listing without anything saying so. `assets/` itself being a symlink
+    is fine and deliberately allowed — it is the root both sides resolve against, so a
+    workspace whose art lives on another disk keeps working.
     """
     if not workspace.assets.is_dir():
         return []
-    return sorted(path.parent for path in workspace.assets.glob(f"*/*/{meta.META_NAME}"))
+    root = workspace.assets.resolve()
+    found = sorted(path.parent for path in workspace.assets.glob(f"*/*/{meta.META_NAME}"))
+    for directory in found:
+        if root not in directory.resolve().parents:
+            raise SscError(
+                "asset-escapes-workspace",
+                f"{directory} resolves to {directory.resolve()}, which is outside {root}",
+                fix=f"remove it from {workspace.assets}, or move the asset in for real",
+            )
+    return found
 
 
 def chain_order(record: FileRecord) -> tuple[bool, int, str]:

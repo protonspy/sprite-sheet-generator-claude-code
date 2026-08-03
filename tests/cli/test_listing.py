@@ -1,7 +1,8 @@
-"""Reading the workspace back — specs/asset-listing R1, R2.6, R3.2, R3.3, R3.6, R3.7."""
+"""Reading the workspace back — specs/asset-listing R1, R2.6, R3.2, R3.3, R3.6, R3.7, R4."""
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -225,3 +226,50 @@ def test_a_file_deriving_from_itself_is_a_cycle() -> None:
     with pytest.raises(SscError) as refused:
         listing.lineage(record, record.stage("hero"))
     assert refused.value.code == "lineage-cycle"
+
+
+# R4.1, R4.2 — a validated string is not a validated target, because a symlink moves.
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="creating a symlink needs a privilege")
+def test_an_asset_directory_reached_through_a_symlink_is_refused(tmp_path: Path) -> None:
+    workspace.create(tmp_path)
+    elsewhere = tmp_path / "outside" / "hero"
+    elsewhere.mkdir(parents=True)
+    meta.save(elsewhere, meta.AssetMeta(key="hero", kind="character"))
+    (tmp_path / "assets" / "character").mkdir(parents=True)
+    (tmp_path / "assets" / "character" / "hero").symlink_to(elsewhere, target_is_directory=True)
+
+    with pytest.raises(SscError) as refused:
+        listing.entries(workspace.Workspace(root=tmp_path))
+    assert refused.value.code == "asset-escapes-workspace"
+    assert refused.value.exit_code == 1
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="creating a symlink needs a privilege")
+def test_a_recorded_file_that_is_a_symlink_out_is_refused_before_it_is_opened(
+    tmp_path: Path,
+) -> None:
+    workspace.create(tmp_path)
+    victim = tmp_path / "paid-for.png"
+    victim.write_bytes(b"not reproducible")
+    directory = make_asset(tmp_path, "character", "hero")
+    (directory / "001_hero.png").symlink_to(victim)
+    add(directory, "001_hero.png", "anchor")
+
+    entry = listing.entries(workspace.Workspace(root=tmp_path))[0]
+    with pytest.raises(SscError) as refused:
+        _ = entry.file
+    assert refused.value.code == "path-escapes-asset"
+    assert victim.read_bytes() == b"not reproducible"
+
+
+def test_an_asset_directory_that_stays_inside_is_allowed(tmp_path: Path) -> None:
+    """The other half of R4.1: the check must not refuse an ordinary workspace, including
+    one whose `assets/` is itself somewhere else — that is the root both sides resolve
+    against, not an escape from it."""
+    workspace.create(tmp_path)
+    make_asset(tmp_path, "character", "hero")
+    assert [directory.name for directory in listing.asset_dirs(workspace.Workspace(tmp_path))] == [
+        "hero"
+    ]

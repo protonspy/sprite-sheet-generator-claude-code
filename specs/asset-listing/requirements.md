@@ -46,6 +46,11 @@ atlas is an image.
 - **R3.9** If the reported file is not an image, then the `ssc` CLI shall report no `doctor` and shall say why.
 - **R3.10** Where `--no-doctor` is given, the `ssc` CLI shall report the file without measuring it.
 
+## R4 · Staying inside the workspace
+
+- **R4.1** If an asset directory resolves outside the workspace's `assets/` directory, then the `ssc` CLI shall report nothing from it and exit `1`.
+- **R4.2** If a recorded file resolves outside the asset that records it, then the `ssc` CLI shall not open it and shall exit `1`.
+
 ## Out of scope
 
 - **What a kind means.** A kind filters a listing as a name and nothing more. The profile

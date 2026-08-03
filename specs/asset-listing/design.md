@@ -34,12 +34,16 @@ the same exposure.
 
 ## Data
 
-Nothing is written. `list` emits `files`, an array of
-`{kind, key, stage, class, path, media}` objects, plus `unclassified` naming any recorded
-file whose extension placed it in neither medium (R1.2). `show` emits `file` in that same
-shape extended with `produced_by` and `sha256`, plus `lineage` — the same objects, ordered
-root-first — and `doctor`, which is `sheet-doctor`'s report or `null` with a `doctor_skipped`
-reason beside it (R3.9). A recorded file that is not on disk takes that same path rather
+Nothing is written. One shape describes a recorded file everywhere it appears —
+`{kind, key, stage, class, path, media, sha256, derived_from, produced_by}` — and both
+commands emit it: `list` as `files` plus `unclassified`, naming any recorded file whose
+extension placed it in neither medium (R1.2); `show` as `file`, as each element of
+`lineage` ordered root-first, and alongside `doctor`, which is `sheet-doctor`'s report or
+`null` with a `doctor_skipped` reason beside it (R3.9).
+
+One shape rather than a narrower one for `list`: a caller that has to re-fetch a file
+through `show` to learn its `sha256` is a caller making two calls where the first already
+held the answer, and a second shape is a second thing to keep in step. A recorded file that is not on disk takes that same path rather
 than failing the command: the record is the only thing that explains where the file went,
 so refusing to print it is refusing to answer the question that was asked.
 
@@ -70,6 +74,16 @@ worse than either. So: resolve when unambiguous, refuse and name the candidates 
 `fix` the caller can run.
 
 ## Risks
+
+**A symlink moves the target after the string was validated.** `check_relative_path`
+validates a recorded path as text — relative, forward-slashed, no `..` — which cannot see
+that a segment is a symlink pointing elsewhere on disk. `clean` already carries the second
+gate for this, `inside`, which re-resolves at the moment of deleting; this leaf makes it
+shared rather than writing a second one, and puts it on `Entry.file` so every read goes
+through it (R4.2). `asset_dirs` needs the other half (R4.1): the glob itself can walk into
+a symlinked `<kind>/` or `<key>/` and put another tree's assets in this workspace's
+listing. Both refuse rather than skipping silently — an asset that is quietly not there is
+the failure mode this leaf exists to remove.
 
 **A lineage cycle is reachable through a hand-edited `meta.json`.** `derived_from` is a
 list of paths validated for escape, not for acyclicity, so `a → b → a` survives being

@@ -18,15 +18,15 @@ covers the record both bindings write. All were run green before this work start
 
 - [x] 2.1 (TDD) Detect columns, rows, cell, margin and spacing from the projection profiles — R1.2, R2.1, R2.2, R2.3
 - [x] 2.3 (Unit) Refuse a layout that is not regular — R2.4
-- [ ] 2.2 (Unit) Refuse rather than guess when no grid is there — R1.3
+- [x] 2.2 (Unit) Refuse rather than guess when no grid is there — R1.3
 
 ## 3 · The two bindings
 
-- [ ] 3.1 (Unit) Build `ssc tool cut`: the pieces as the frames of one animation — R3.1, R3.5
-- [ ] 3.2 (Unit) Build `ssc tool slice`: each piece its own asset with its own key — R3.2
-- [ ] 3.3 (Unit) Record provenance inside a workspace, and write plain files outside one — R3.3, R3.4
+- [x] 3.1 (Unit) Build `ssc tool cut`: the pieces as the frames of one animation — R3.1, R3.5
+- [x] 3.2 (Unit) Build `ssc tool slice`: each piece its own asset with its own key — R3.2
+- [x] 3.3 (Unit) Record into the named asset, write plain files to a named path, and require exactly one of the two — R3.3, R3.4, R3.6
 
 ## 4 · Curating
 
 - [x] 4.1 (Unit) Measure how far a frame is from the one before it, keeping the first always — R4.2, R4.4
-- [ ] 4.2 (Unit) Build `ssc tool curate`: report the redundant frames, and drop them when asked — R4.1, R4.3
+- [x] 4.2 (Unit) Build `ssc tool curate`: report the redundant frames, and drop them when asked — R4.1, R4.3

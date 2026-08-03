@@ -65,11 +65,22 @@ sheet, and calling them one would cut somebody's illustration into thirds.
 
 ## Writing into a workspace, or not
 
-R3.3 and R3.4 are one decision: these commands are useful both ways, and which one applies
-is discovered rather than flagged. Inside a workspace they record provenance the way every
-other writer does; outside one they write plain files, exactly as `snap` and `pixelart`
-already do. A `--no-record` flag would be a second way to say something the filesystem
-already says.
+R3.3 and R3.4 are one decision, and it is carried by **which destination was named**, not
+by a mode flag: `--asset <kind>/<key>` records the way every other writer does, `--out
+<path>` writes plain files exactly as `snap` and `pixelart` do, and exactly one of the two
+is required (R3.6).
+
+The first draft of this said the choice was discovered from whether a workspace was found.
+That does not survive contact: a command standing in a workspace still has to be told *which
+asset* to record into, so the workspace's presence answers only half the question and the
+flag would have had to exist anyway. Naming the destination once is honest; discovering half
+of it and flagging the other half is not.
+
+A `cut` into an asset records **one** file entry whose path is `frames/` — the only
+subdirectory `workspace-foundation` permits inside an asset — rather than one entry per
+frame, because a stage is unique per asset and N frames are one stage. That is also why
+`asset-listing` reports such a record as `unclassified`: it has no extension, which is the
+seam that leaf named and left visible rather than hiding.
 
 ## Risks
 

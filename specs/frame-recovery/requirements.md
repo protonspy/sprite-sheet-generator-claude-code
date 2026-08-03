@@ -42,8 +42,9 @@ deferred.
 
 - **R3.1** When `ssc tool cut` runs, the `ssc` CLI shall write the pieces as the numbered frames of one animation.
 - **R3.2** When `ssc tool slice` runs, the `ssc` CLI shall write each piece as its own asset, each carrying its own key.
-- **R3.3** While it runs inside a workspace, the `ssc` CLI shall record each piece's provenance, its stage and its class.
-- **R3.4** Where it runs outside a workspace, the `ssc` CLI shall write the pieces as plain files and record nothing.
+- **R3.3** Where the destination is an asset, the `ssc` CLI shall record each piece's provenance, its stage and its class.
+- **R3.4** Where the destination is a plain path, the `ssc` CLI shall write the pieces as files and record nothing.
+- **R3.6** If neither destination is given, or both are, then the `ssc` CLI shall write nothing and exit `2`.
 - **R3.5** When it writes pieces, the `ssc` CLI shall report how many it found and where each went.
 
 ## R4 · Curating

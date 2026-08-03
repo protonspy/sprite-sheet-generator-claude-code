@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -228,22 +229,58 @@ def test_a_file_deriving_from_itself_is_a_cycle() -> None:
     assert refused.value.code == "lineage-cycle"
 
 
-# R4.1, R4.2 — a validated string is not a validated target, because a symlink moves.
+# R4.1, R4.2 — a validated string is not a validated target, because a link moves.
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="creating a symlink needs a privilege")
-def test_an_asset_directory_reached_through_a_symlink_is_refused(tmp_path: Path) -> None:
+def test_an_asset_directory_reached_through_a_link_is_refused(
+    tmp_path: Path, link_dir: Callable[[Path, Path], None]
+) -> None:
     workspace.create(tmp_path)
     elsewhere = tmp_path / "outside" / "hero"
     elsewhere.mkdir(parents=True)
     meta.save(elsewhere, meta.AssetMeta(key="hero", kind="character"))
     (tmp_path / "assets" / "character").mkdir(parents=True)
-    (tmp_path / "assets" / "character" / "hero").symlink_to(elsewhere, target_is_directory=True)
+    link_dir(tmp_path / "assets" / "character" / "hero", elsewhere)
 
     with pytest.raises(SscError) as refused:
         listing.entries(workspace.Workspace(root=tmp_path))
     assert refused.value.code == "asset-escapes-workspace"
     assert refused.value.exit_code == 1
+
+
+def test_resolving_by_kind_and_key_refuses_a_linked_asset_directory(
+    tmp_path: Path, link_dir: Callable[[Path, Path], None]
+) -> None:
+    """The branch that never touches `asset_dirs`, and so needs the check of its own."""
+    workspace.create(tmp_path)
+    elsewhere = tmp_path / "outside" / "hero"
+    elsewhere.mkdir(parents=True)
+    meta.save(elsewhere, meta.AssetMeta(key="hero", kind="character"))
+    (tmp_path / "assets" / "character").mkdir(parents=True)
+    link_dir(tmp_path / "assets" / "character" / "hero", elsewhere)
+
+    with pytest.raises(SscError) as refused:
+        listing.resolve(workspace.Workspace(root=tmp_path), "character/hero")
+    assert refused.value.code == "asset-escapes-workspace"
+
+
+def test_a_file_reached_through_a_linked_subdirectory_is_refused(
+    tmp_path: Path, link_dir: Callable[[Path, Path], None]
+) -> None:
+    """`frames/` is a legitimate recorded segment, which is what makes it worth linking."""
+    workspace.create(tmp_path)
+    elsewhere = tmp_path / "outside"
+    elsewhere.mkdir()
+    (elsewhere / "paid-for.png").write_bytes(b"not reproducible")
+    directory = make_asset(tmp_path, "character", "hero")
+    link_dir(directory / "frames", elsewhere)
+    add(directory, "frames/paid-for.png", "frames")
+
+    entry = listing.entries(workspace.Workspace(root=tmp_path))[0]
+    with pytest.raises(SscError) as refused:
+        _ = entry.file
+    assert refused.value.code == "path-escapes-asset"
+    assert (elsewhere / "paid-for.png").read_bytes() == b"not reproducible"
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="creating a symlink needs a privilege")

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -280,6 +281,31 @@ def test_show_refuses_a_recorded_file_that_symlinks_out_of_the_workspace(
     code, payload = run("image", "show", "hero")
     assert code == 1
     assert payload["error"]["code"] == "path-escapes-asset"
+
+
+@pytest.mark.parametrize("address", ["hero", "character/hero"])
+def test_show_refuses_a_linked_asset_directory_by_either_address(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    link_dir: Callable[[Path, Path], None],
+    address: str,
+) -> None:
+    """R4.1 end to end, through both branches of the address. Reported through the CLI
+    because the two branches reach the asset directory by different routes, and the
+    library test alone would not have caught one of them being unguarded."""
+    monkeypatch.chdir(tmp_path)
+    CliRunner().invoke(main, ["init"], catch_exceptions=False)
+    elsewhere = tmp_path / "outside" / "hero"
+    elsewhere.mkdir(parents=True)
+    meta.save(elsewhere, meta.AssetMeta(key="hero", kind="character"))
+    write_png(elsewhere / "001_secret.png")
+    add(elsewhere, "001_secret.png", "anchor", "source", [])
+    (tmp_path / "assets" / "character").mkdir(parents=True)
+    link_dir(tmp_path / "assets" / "character" / "hero", elsewhere)
+
+    code, payload = run("image", "show", address)
+    assert code == 1
+    assert payload["error"]["code"] == "asset-escapes-workspace"
 
 
 def test_without_json_a_human_gets_one_line(workspace: Path) -> None:

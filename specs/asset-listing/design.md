@@ -80,10 +80,18 @@ validates a recorded path as text — relative, forward-slashed, no `..` — whi
 that a segment is a symlink pointing elsewhere on disk. `clean` already carries the second
 gate for this, `inside`, which re-resolves at the moment of deleting; this leaf makes it
 shared rather than writing a second one, and puts it on `Entry.file` so every read goes
-through it (R4.2). `asset_dirs` needs the other half (R4.1): the glob itself can walk into
-a symlinked `<kind>/` or `<key>/` and put another tree's assets in this workspace's
-listing. Both refuse rather than skipping silently — an asset that is quietly not there is
-the failure mode this leaf exists to remove.
+through it (R4.2).
+
+`under_assets` is the other half (R4.1), and it has to sit on **both** routes to an asset
+directory — the glob in `asset_dirs`, and the `<kind>/<key>` branch of `resolve`, which
+never touches that glob. Guarding one of the two is the same as guarding neither: the
+first attempt here guarded only the glob, and `ssc image show character/hero` still read
+an asset directory that had left the workspace. The link does not even need a privilege —
+a Windows directory junction is unprivileged, which is why the tests make one rather than
+skipping the platform this project is developed on.
+
+Both refuse rather than skipping silently: an asset that is quietly not there is the
+failure mode this leaf exists to remove.
 
 **A lineage cycle is reachable through a hand-edited `meta.json`.** `derived_from` is a
 list of paths validated for escape, not for acyclicity, so `a → b → a` survives being

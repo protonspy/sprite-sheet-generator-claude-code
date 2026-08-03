@@ -112,31 +112,44 @@ def inside(directory: Path, relative: str) -> Path:
     return target
 
 
+def under_assets(workspace: Workspace, directory: Path) -> Path:
+    """Refuse an asset directory that resolved out of `assets/` (R4.1).
+
+    `inside` guards a path recorded *in* a file; this guards the directory that file was
+    found in, which is the other half. A linked `<kind>/` or `<key>/` — a symlink, or a
+    junction, which Windows lets an unprivileged user create — would otherwise put another
+    tree's assets in this workspace under this workspace's name, and `inside` could not
+    tell: it only knows the file stayed inside the directory it was given.
+
+    Every route to an asset directory passes through here, because there are two and
+    guarding one of them is the same as guarding neither.
+
+    `assets/` itself being a link is fine and deliberately allowed — it is the root both
+    sides resolve against, so a workspace whose art lives on another disk keeps working.
+    """
+    root = workspace.assets.resolve()
+    resolved = directory.resolve()
+    if root not in resolved.parents:
+        raise SscError(
+            "asset-escapes-workspace",
+            f"{directory} resolves to {resolved}, which is outside {root}",
+            fix=f"remove it from {workspace.assets}, or move the asset in for real",
+        )
+    return directory
+
+
 def asset_dirs(workspace: Workspace) -> list[Path]:
     """Every directory holding a `meta.json`, ordered by kind then key (R2.6).
 
     The glob is two levels deep and not recursive, because `assets/<kind>/<key>/` is the
     layout — see `adr:0007-group-assets-by-kind-then-key`. A `meta.json` deeper than that
     is not an asset and is not treated as one.
-
-    Each hit is checked for having stayed under `assets/` (R4.1). `inside` guards a path
-    recorded in a file; this guards the directory the glob walked into, which is the other
-    half: a symlinked `<kind>/` or `<key>/` would otherwise put another tree's assets in
-    this workspace's listing without anything saying so. `assets/` itself being a symlink
-    is fine and deliberately allowed — it is the root both sides resolve against, so a
-    workspace whose art lives on another disk keeps working.
     """
     if not workspace.assets.is_dir():
         return []
-    root = workspace.assets.resolve()
     found = sorted(path.parent for path in workspace.assets.glob(f"*/*/{meta.META_NAME}"))
     for directory in found:
-        if root not in directory.resolve().parents:
-            raise SscError(
-                "asset-escapes-workspace",
-                f"{directory} resolves to {directory.resolve()}, which is outside {root}",
-                fix=f"remove it from {workspace.assets}, or move the asset in for real",
-            )
+        under_assets(workspace, directory)
     return found
 
 
@@ -166,7 +179,11 @@ def resolve(workspace: Workspace, address: str) -> tuple[Path, AssetMeta]:
     """
     parts = address.split("/")
     if len(parts) == 2:
-        directory = workspace.asset_dir(parts[0], parts[1])
+        # `asset_dir` validates the two names as strings; `under_assets` is what checks
+        # where they actually landed. This branch never touches `asset_dirs`, so skipping
+        # it here would leave `show <kind>/<key>` reading an asset directory that left the
+        # workspace while `list` and `show <key>` both refused it.
+        directory = under_assets(workspace, workspace.asset_dir(parts[0], parts[1]))
         if not meta.path_of(directory).is_file():
             raise UsageError(
                 "no-asset",

@@ -155,14 +155,19 @@ def measure_or_say_why(
         return None, "--no-doctor was given"
     if entry.media != "image":
         return None, f"doctor measures images, and {entry.record.path} is not one"
-    if not entry.file.exists():
+
+    # Resolved once and reused: `entry.file` re-runs the containment check on every
+    # access, so testing one `Path` and opening another would let a link retargeted in
+    # between be checked and then not read.
+    target = entry.file
+    if not target.exists():
         return None, f"{entry.record.path} is recorded but not on disk"
 
     # Imported here rather than at module scope: `doctor` pulls in numpy and Pillow, and
     # `list` — the command an agent runs most — has no use for either.
     from ssc.cli.commands.doctor import load_input, measure
 
-    return measure(load_input(entry.file)).as_dict(), None
+    return measure(load_input(target)).as_dict(), None
 
 
 image = build("image")

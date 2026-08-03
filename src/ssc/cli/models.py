@@ -35,7 +35,7 @@ SCHEMA_URL = "https://fal.ai/api/openapi/queue/openapi.json?endpoint_id={endpoin
 MAX_SCHEMA_BYTES = 4 * 1024 * 1024
 
 #: Per socket operation, not wall clock: a server trickling a byte every nine seconds keeps
-#: every `recv` under this and never finishes. `load` bounds the whole fetch instead.
+#: every `recv` under this and never finishes. `MAX_FETCH_SECONDS` is what bounds that.
 SOCKET_TIMEOUT = 10.0
 
 #: How long one fetch may take in total. This is the one that stops the trickle: the read is

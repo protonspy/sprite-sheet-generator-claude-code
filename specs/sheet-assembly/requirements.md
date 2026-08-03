@@ -44,7 +44,7 @@ command is what turns an invisible step into a recorded one.
 
 ## R4 · `pack`
 
-- **R4.1** When `ssc tool pack` runs, the `ssc` CLI shall write one image holding every frame in a grid of equal cells.
+- **R4.1** (MODIFIED) When `ssc tool pack` runs without `--atlas`, the `ssc` CLI shall write one image holding every frame in a grid of equal cells. `--atlas` packs by size instead, and `specs/atlas-packing/` owns that mode and everything it reports.
 - **R4.2** The `ssc` CLI shall size the cell to the largest frame unless `--cell <W>x<H>` is given.
 - **R4.3** If a frame does not fit the cell, then the `ssc` CLI shall write nothing and exit `2`.
 - **R4.4** When it packs, the `ssc` CLI shall report the cell, the columns, the rows and the anchor within the cell, measured from the frames.

@@ -17,7 +17,7 @@ from typing import Any
 import click
 import numpy as np
 
-from ssc.cli import listing, meta
+from ssc.cli import kinds, listing, meta
 from ssc.cli import workspace as ws
 from ssc.cli.commands.convert import MAX_BOARD_SIDE, parse_hex, parse_key, parse_size
 from ssc.cli.errors import SscError, UsageError
@@ -25,6 +25,7 @@ from ssc.cli.frames import Frame, encode, load_image, read_frames, write_frames,
 from ssc.cli.listing import under_assets
 from ssc.cli.main import ssc_command
 from ssc.cli.output import Result
+from ssc.core import atlas
 from ssc.core.assemble import (
     ANCHOR_MODES,
     CanvasTooLarge,
@@ -561,7 +562,110 @@ def align(source: Path, out: Path, mode: str, onion_out: Path | None, *, dry_run
     )
 
 
-@ssc_command("pack", help="Lay a set out as a sheet of equal cells.")
+def entry_ids(frames: list[Frame]) -> list[str]:
+    """One id per frame, from its filename's stem (R1.3, R1.4).
+
+    Not the index: an atlas' entries are addressed by name precisely so that removing one
+    does not renumber the rest. Two files differing only in extension resolve to one id, and
+    that is refused rather than resolved — packing `sword.png` over `sword.bmp` loses one of
+    them, and the caller finds out from the engine.
+    """
+    seen: dict[str, str] = {}
+    for frame in frames:
+        entry_id = Path(frame.name).stem
+        if entry_id in seen:
+            raise UsageError(
+                "duplicate-id",
+                f"{seen[entry_id]} and {frame.name} both pack as {entry_id!r}",
+                fix="rename one of them; an atlas addresses its entries by name",
+            )
+        seen[entry_id] = frame.name
+    return [Path(frame.name).stem for frame in frames]
+
+
+def atlas_layout_of(kind: str | None) -> str | None:
+    """The layout this kind declares, and R3.2's refusal.
+
+    Two of a profile's fields matter here and `cell` is deliberately not one of them: an
+    atlas has no cell, and taking one from the profile would produce a grid pack wearing an
+    atlas' name.
+    """
+    if kind is None:
+        return None
+    profile = kinds.resolve(kind, ws.require()).profile
+    if profile.animates:
+        raise UsageError(
+            "kind-animates",
+            f"{kind} animates, and an animation is addressed by cell index rather than by rect",
+            fix="ssc tool pack without --atlas",
+        )
+    return profile.atlas_layout
+
+
+def pack_atlas(
+    frames: list[Frame],
+    out: Path,
+    *,
+    padding: int,
+    extrude: int,
+    width: int,
+    mode: str,
+    dry_run: bool,
+) -> Result:
+    """`tool pack --atlas` — by size, addressed by name (R1.1, R1.2, R1.6, R2.3)."""
+    ids = entry_ids(frames)
+    images = {entry_id: frame.image for entry_id, frame in zip(ids, frames, strict=True)}
+    entries = [
+        atlas.Entry(id=entry_id, size=(frame.image.shape[1], frame.image.shape[0]))
+        for entry_id, frame in zip(ids, frames, strict=True)
+    ]
+    try:
+        placement = atlas.place(
+            entries,
+            width=width or None,
+            padding=padding,
+            extrude=extrude,
+            anchors=atlas.anchors_of(images, mode),
+        )
+        sheet = atlas.draw(placement, images)
+    except CanvasTooLarge as refused:
+        raise UsageError(
+            "canvas-too-large", str(refused), fix="use a narrower --width, or fewer entries"
+        ) from refused
+    except ValueError as refused:
+        # One code per refusal, because the fix differs: an entry too wide is answered by a
+        # wider atlas, an over-wide extrusion by more padding. A caller acting on the wrong
+        # `fix` is sent in the wrong direction.
+        message = str(refused)
+        if "extrude" in message:
+            raise UsageError(
+                "extrude-past-padding", message, fix="raise --padding, or lower --extrude"
+            ) from refused
+        raise UsageError(
+            "entry-does-not-fit", message, fix="raise --width, or pack that entry separately"
+        ) from refused
+
+    written = write_one(out, sheet, dry_run=dry_run)
+    return Result(
+        "tool pack",
+        f"{len(entries)} entr{'y' if len(entries) == 1 else 'ies'} as "
+        f"a {placement.width}x{placement.height} atlas",
+        {
+            **placement.as_dict(),
+            "layout": "bin",
+            "anchor_mode": mode,
+            "written": [str(path) for path in written],
+        },
+        dry_run=dry_run,
+    )
+
+
+@ssc_command("pack", help="Lay a set out as a sheet of equal cells, or as an atlas.")
+@click.option("--kind", default=None, help="Take the layout from this kind's profile.")
+@click.option("--width", "atlas_width", type=int, default=0, help="Atlas width. Default: chosen.")
+@click.option("--extrude", type=int, default=0, help="Repeat each entry's border outwards.")
+@click.option("--padding", type=int, default=0, help="Pixels between entries and at the edge.")
+@click.option("--atlas", "as_atlas", is_flag=True, help="Pack by size, a rect per entry.")
 @click.option(
     "--anchor",
     "mode",
@@ -574,9 +678,41 @@ def align(source: Path, out: Path, mode: str, onion_out: Path | None, *, dry_run
 @click.option("--out", required=True, type=click.Path(path_type=Path))
 @click.option("--in", "source", required=True, type=click.Path(path_type=Path))
 def pack_sheet(
-    source: Path, out: Path, columns: int, cell: str | None, mode: str, *, dry_run: bool
+    source: Path,
+    out: Path,
+    columns: int,
+    cell: str | None,
+    mode: str,
+    as_atlas: bool,
+    padding: int,
+    extrude: int,
+    atlas_width: int,
+    kind: str | None,
+    *,
+    dry_run: bool,
 ) -> Result:
     frames = read_frames(source)
+    declared = atlas_layout_of(kind)
+    # The flag and the profile answer one question, so either may ask for an atlas — but a
+    # kind declaring `grid` must not be silently overridden into one, or the profile stops
+    # being where a project decides this (R3.1).
+    if as_atlas and declared == "grid":
+        raise UsageError(
+            "layout-is-grid",
+            f"{kind} declares atlas_layout: grid, which is the sheet of equal cells",
+            fix=f"drop --atlas, or declare atlas_layout: bin for {kind} in ssc.yaml",
+        )
+    if as_atlas or declared == "bin":
+        return pack_atlas(
+            frames,
+            out,
+            padding=padding,
+            extrude=extrude,
+            width=atlas_width,
+            mode=mode,
+            dry_run=dry_run,
+        )
+
     if columns < 0 or columns > MAX_CELLS:
         raise UsageError("invalid-cols", f"--cols {columns} is out of range", fix="use 1 or more")
     try:

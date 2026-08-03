@@ -78,6 +78,50 @@ workspace scan: refusing to list a workspace over one asset's stray directory ta
 `list`, `clean` and every unrelated asset with it, and the read paths here skip what they
 cannot use rather than aborting.
 
+**A check on a path is not a check on the directory that gets written (R3.7).** Checking
+twice around `mkdir` closed the window the first check could not see, and left a smaller
+one: the write still resolved `assets/<kind>/<key>/` from the path, several statements
+later, and a component swapped in between is followed. So the checked directory is *held* —
+`listing.bound` opens it, then runs `under_assets`, then confirms that the path which
+passed names the directory it is holding. Open-then-check rather than check-then-open,
+because the other order leaves exactly the gap it is closing.
+
+`atomic.Directory` is what is held, and every write into an asset goes through it — the
+PNGs, the `frames/` subdirectory, and `meta.json`. `meta.save` takes that object rather
+than a path, which is the load-bearing part: a leaf cannot express "check it, then save by
+path" any more, so the next twenty leaves inherit the guarantee from the type instead of
+from remembering.
+
+**And the deletes, which is where it matters most.** `clean` was the route that nearly kept
+the old shape, on the reasoning that R3.7 was about writing. It is the only command in `ssc`
+that removes anything, and one of the things a record names is `frames/` — a directory. A
+path re-resolved through a link turns `shutil.rmtree` on a derived frame set into
+`shutil.rmtree` somewhere nobody asked for, which is a worse outcome than the stray file a
+swapped write produces. So `clean` holds the directory for the whole asset and deletes
+through it. A recorded path may have segments, and each one is a way out: on POSIX every
+intermediate segment is opened `O_NOFOLLOW`, so a linked `frames/` fails instead of being
+followed, and the last segment is never followed either because `unlink` removes a link and
+`rmtree` refuses one. `inside`'s string check stays in front of it — that is what catches a
+hand-edited `meta.json`, which needs no race at all.
+
+Two platforms, one requirement, honestly different mechanisms. On POSIX a descriptor names
+an inode and `dir_fd=` resolves against it, so the binding is literal and a swap after the
+open simply cannot reach the write. Windows has no `dir_fd` at all — `os.supports_dir_fd`
+is empty and `os.open` refuses a directory — so there the directory's `(st_dev, st_ino)` is
+read at open and checked again immediately before each write. That is less: it does not
+prevent the swap, it narrows the window to the two statements around one `os.open` and
+turns a lost race into a refusal (R3.8). Both satisfy R3.7's actual promise, which is that
+nothing is written outside the directory that was checked.
+
+**A conditional branch nobody runs is a branch that does not work.** The first version of
+this gated on `os.replace in os.supports_dir_fd`, which is false on every platform — that
+set is built by name and CPython registers `"rename"`, never `"replace"`, though
+`os.replace` honours `src_dir_fd` perfectly well. The result was not a crash: every
+platform quietly took the Windows path, and the machine the work was done on is the one
+where that is correct, so the whole suite stayed green over a hardening that was not
+running. The test that guards it asserts `_DIR_FD` on POSIX rather than asserting an
+outcome, because the outcome is identical either way until somebody races it.
+
 **Nothing overwrites.** Every write goes through a helper that refuses an existing path
 (R3.5). Combined with "every command writes a new file", the recovery story for any mistake
 is `git checkout`, and there is no state to unwind.

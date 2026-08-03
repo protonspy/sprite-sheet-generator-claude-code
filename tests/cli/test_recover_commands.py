@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 import pytest
 from click.testing import CliRunner
+from conftest import save_meta
 from PIL import Image
 
 from ssc.cli import meta
@@ -285,7 +286,7 @@ def test_an_asset_reached_through_a_link_is_refused(
     CliRunner().invoke(main, ["init"], catch_exceptions=False)
     elsewhere = tmp_path / "outside" / "hero"
     elsewhere.mkdir(parents=True)
-    meta.save(elsewhere, meta.AssetMeta(key="hero", kind="character"))
+    save_meta(elsewhere, meta.AssetMeta(key="hero", kind="character"))
     (tmp_path / "assets" / "character").mkdir(parents=True)
     link_dir(tmp_path / "assets" / "character" / "hero", elsewhere)
 

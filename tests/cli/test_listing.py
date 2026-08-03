@@ -7,6 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from conftest import save_meta
 
 from ssc.cli import listing, meta, workspace
 from ssc.cli.errors import SscError, UsageError
@@ -15,7 +16,7 @@ from ssc.cli.errors import SscError, UsageError
 def make_asset(root: Path, kind: str, key: str) -> Path:
     directory = root / "assets" / kind / key
     directory.mkdir(parents=True)
-    meta.save(directory, meta.AssetMeta(key=key, kind=kind))
+    save_meta(directory, meta.AssetMeta(key=key, kind=kind))
     return directory
 
 
@@ -30,7 +31,7 @@ def add(directory: Path, path: str, stage: str, *, parents: list[str] | None = N
         produced_by=meta.Provenance(command="tool snap"),
         derived_from=parents or [],
     )
-    meta.save(directory, record)
+    save_meta(directory, record)
 
 
 # R1.1, R1.2 — the medium comes from the extension, and "neither" is an answer.
@@ -238,7 +239,7 @@ def test_an_asset_directory_reached_through_a_link_is_refused(
     workspace.create(tmp_path)
     elsewhere = tmp_path / "outside" / "hero"
     elsewhere.mkdir(parents=True)
-    meta.save(elsewhere, meta.AssetMeta(key="hero", kind="character"))
+    save_meta(elsewhere, meta.AssetMeta(key="hero", kind="character"))
     (tmp_path / "assets" / "character").mkdir(parents=True)
     link_dir(tmp_path / "assets" / "character" / "hero", elsewhere)
 
@@ -255,7 +256,7 @@ def test_resolving_by_kind_and_key_refuses_a_linked_asset_directory(
     workspace.create(tmp_path)
     elsewhere = tmp_path / "outside" / "hero"
     elsewhere.mkdir(parents=True)
-    meta.save(elsewhere, meta.AssetMeta(key="hero", kind="character"))
+    save_meta(elsewhere, meta.AssetMeta(key="hero", kind="character"))
     (tmp_path / "assets" / "character").mkdir(parents=True)
     link_dir(tmp_path / "assets" / "character" / "hero", elsewhere)
 
@@ -354,3 +355,48 @@ def test_an_asset_directory_that_stays_inside_is_allowed(tmp_path: Path) -> None
     assert [directory.name for directory in listing.asset_dirs(workspace.Workspace(tmp_path))] == [
         "hero"
     ]
+
+
+# workspace-foundation R3.7 — `bound` is `under_assets` for a caller about to write: the
+# same refusal, and something to write through that the refusal actually covers.
+
+
+def test_bound_hands_back_a_directory_to_write_through(tmp_path: Path) -> None:
+    workspace.create(tmp_path)
+    directory = make_asset(tmp_path, "character", "hero")
+
+    with listing.bound(workspace.Workspace(root=tmp_path), directory) as held:
+        held.write_new("001_hero.png", b"pixels")
+
+    assert (directory / "001_hero.png").read_bytes() == b"pixels"
+
+
+def test_bound_refuses_a_linked_asset_directory(
+    tmp_path: Path, link_dir: Callable[[Path, Path], None]
+) -> None:
+    """The writing route's version of the same refusal, and the one that matters most:
+    this is the branch where a followed link means a file written outside the workspace
+    rather than one read from outside it."""
+    workspace.create(tmp_path)
+    elsewhere = tmp_path / "outside" / "hero"
+    elsewhere.mkdir(parents=True)
+    (tmp_path / "assets" / "character").mkdir(parents=True)
+    link_dir(tmp_path / "assets" / "character" / "hero", elsewhere)
+
+    with pytest.raises(SscError) as refused:
+        listing.bound(workspace.Workspace(root=tmp_path), tmp_path / "assets/character/hero")
+    assert refused.value.code == "asset-escapes-workspace"
+    assert list(elsewhere.iterdir()) == []
+
+
+def test_bound_does_not_refuse_a_stray_subdirectory(tmp_path: Path) -> None:
+    """Deliberately not `addressed`: `clean` writes a record back for every asset, so the
+    layout check here would let one stray directory abort a sweep over the others."""
+    workspace.create(tmp_path)
+    directory = make_asset(tmp_path, "character", "hero")
+    (directory / "notes").mkdir()
+
+    with listing.bound(workspace.Workspace(root=tmp_path), directory) as held:
+        held.write_new("001_hero.png", b"pixels")
+
+    assert (directory / "001_hero.png").exists()

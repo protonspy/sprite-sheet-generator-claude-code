@@ -39,6 +39,8 @@ much, for an agent driving `ssc` with no eyes on the directory.
 - **R3.4** If two files in one asset would carry the same stage, then the `ssc` CLI shall refuse the write and exit `2`.
 - **R3.5** If a command would write over a file that already exists, then the `ssc` CLI shall refuse the write and exit `1`.
 - **R3.6** The `ssc` CLI shall write `meta.json` atomically, leaving either the previous record or the new one after an interrupted command.
+- **R3.7** (ADDED) When it writes a file into an asset or deletes one from it, the `ssc` CLI shall act through the directory it checked rather than through that directory's path.
+- **R3.8** (ADDED) If the directory that was checked is no longer the one its path names, then the `ssc` CLI shall change nothing in that asset and exit `1`.
 
 ## R4 · The CLI contract
 

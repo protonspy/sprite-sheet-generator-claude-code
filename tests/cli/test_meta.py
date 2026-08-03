@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from conftest import save_meta
 
 from ssc.cli import meta
 from ssc.cli.app import main
@@ -144,7 +145,7 @@ def test_a_class_outside_the_three_is_rejected() -> None:
 def test_the_record_round_trips_through_disk(tmp_path: Path) -> None:
     record = asset()
     add(record, "001_anchor.png", "anchor", "source")
-    meta.save(tmp_path, record)
+    save_meta(tmp_path, record)
     assert meta.load(tmp_path) == record
 
 
@@ -153,7 +154,7 @@ def test_the_written_json_uses_the_field_names_the_contract_promises(tmp_path: P
     public interface, and a harness reads it, not the Python."""
     record = asset()
     add(record, "001_anchor.png", "anchor", "source")
-    meta.save(tmp_path, record)
+    save_meta(tmp_path, record)
     payload = json.loads((tmp_path / meta.META_NAME).read_text())
     assert payload["schema"] == meta.SCHEMA
     assert payload["files"][0]["class"] == "source"

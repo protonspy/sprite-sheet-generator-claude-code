@@ -18,7 +18,7 @@ for an agent that cannot look at four copies of it and judge.
 
 - **R1.1** When `ssc tool tile` runs, the `ssc` CLI shall write an image whose opposite edges meet without a discontinuity, by copying pixels and never by blending them.
 - **R1.2** Where `--mode mirror` is given, the `ssc` CLI shall make the tile symmetric about both axes instead of copying its edges.
-- **R1.3** The `ssc` CLI shall report which edges it changed and how many pixels it wrote.
+- **R1.3** The `ssc` CLI shall report which edges it changed and how many pixels that changed.
 - **R1.4** If the input is smaller than two pixels on a side, then the `ssc` CLI shall refuse it, because there an edge and its opposite are the same pixel.
 - **R1.5** Where `--in` names a set, the `ssc` CLI shall close each image's wrap independently.
 

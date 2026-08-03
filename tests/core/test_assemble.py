@@ -175,3 +175,69 @@ def test_pack_keeps_each_frames_pixels_in_its_own_cell() -> None:
 
     assert alpha_mask(sheet[:, :4]).sum() == 8
     assert alpha_mask(sheet[:, 4:]).sum() == 8
+
+
+# The two blockers the review found, each with the case that exposes it.
+
+
+def test_frames_of_differing_body_parity_land_on_one_anchor_pixel() -> None:
+    """The first fix decided the margins and then copied each frame verbatim, so a body two
+    pixels wide (anchored at x.5) and one three wide (anchored at x.0) stayed exactly as far
+    apart as they began. A 2px body and a 3px body cannot share a sub-pixel centre however
+    they are moved — so what has to coincide is the *pixel*, and every frame's anchor is
+    rounded to one before anything is placed.
+    """
+    from ssc.core.assemble import anchor_pixel
+
+    frames = [figure(20, 20, 5, 10, 2, 4), figure(20, 20, 5, 10, 3, 4)]
+    placed = plan_alignment(frames, "feet")
+
+    pixels = {anchor_pixel(frame, "feet") for frame in placed.frames}
+    assert len(pixels) == 1, f"anchors landed on different pixels: {pixels}"
+
+
+def test_a_set_of_mixed_parities_and_sizes_still_agrees() -> None:
+    from ssc.core.assemble import anchor_pixel
+
+    frames = [
+        figure(20, 20, 3, 8, 2, 6),
+        figure(24, 18, 9, 4, 5, 9),
+        figure(16, 22, 1, 12, 3, 5),
+        figure(20, 20, 7, 2, 4, 11),
+    ]
+    placed = plan_alignment(frames, "feet")
+    assert len({anchor_pixel(frame, "feet") for frame in placed.frames}) == 1
+
+
+def test_pack_reports_where_align_actually_put_the_anchor() -> None:
+    """The second blocker: `pack` guessed bottom-centre, which disagreed with `align` by six
+    pixels vertically on this very fixture — an aligned canvas keeps whatever transparent
+    padding sat below the anchor row. These two commands are used in sequence and nothing
+    composed them until now.
+    """
+    frames = [figure(12, 12, 1, 2), figure(12, 12, 7, 5)]
+    placed = plan_alignment(frames, "feet")
+    _, layout = pack(placed.frames, columns=2)
+
+    assert layout.anchor == placed.anchor
+    assert layout.aligned is True
+
+
+def test_packing_a_set_that_was_never_aligned_says_so() -> None:
+    """Reported rather than quietly averaged: an engine believing a wrong anchor is the
+    failure this field exists to prevent."""
+    frames = [figure(12, 12, 1, 2), figure(12, 12, 7, 5)]
+    _, layout = pack(frames, columns=2)
+    assert layout.aligned is False
+
+
+def test_onion_layers_the_opaque_pixels_over_each_other() -> None:
+    from ssc.core.assemble import onion
+
+    first = figure(8, 8, 0, 0, 2, 2)
+    second = figure(8, 8, 4, 4, 2, 2)
+    stacked = onion([first, second])
+
+    assert alpha_mask(stacked)[0, 0]
+    assert alpha_mask(stacked)[4, 4]
+    assert int(alpha_mask(stacked).sum()) == 8

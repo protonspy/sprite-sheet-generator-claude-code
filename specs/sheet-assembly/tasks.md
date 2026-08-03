@@ -20,8 +20,11 @@ covers the module these commands join. All were run green before this work start
 ## 3 · The sheet
 
 - [x] 3.1 (Unit) Lay a set out in equal cells, refusing a frame that does not fit — R4.1, R4.2, R4.3
+- [x] 3.3 (Unit) Measure the anchor a packed set shares rather than assuming it, and say when it shares none — R4.4, R4.6
 
 ## 4 · The commands
+
+- [x] 3.2 (Unit) Bound every canvas these build, on the result rather than on the flag — R1.6, R3.6, R4.5
 
 - [x] 4.1 (Unit) Build `ssc tool expand` and `ssc tool mirror` — R1.1, R1.5, R2.2
 - [x] 4.2 (Unit) Build `ssc tool align`, with the onion skin — R3.1, R3.5

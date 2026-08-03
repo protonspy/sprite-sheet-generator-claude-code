@@ -15,6 +15,18 @@ from ssc.core.doctor.masks import alpha_mask, anchor
 
 Place = str
 
+#: The largest canvas any of these will build. Same number the board generator holds itself
+#: to, for the same reason: every operation here allocates `width x height x 4` bytes, and
+#: three of the four take a value that multiplies into that — `--cols` times the cell, `--by`
+#: twice over, and the spread between a set's anchors. A ceiling on the *result* is the only
+#: one that bounds them, because bounding the input value alone misses the multiplication.
+MAX_CANVAS = 8192
+
+
+def check_canvas(width: int, height: int, what: str) -> None:
+    if width > MAX_CANVAS or height > MAX_CANVAS:
+        raise ValueError(f"{what} would be {width}x{height}, past {MAX_CANVAS} on a side")
+
 
 @dataclass(frozen=True)
 class Aligned:
@@ -34,12 +46,18 @@ class Layout:
     cell: tuple[int, int]
     anchor: tuple[int, int]
 
+    #: Whether every frame really shared that anchor. `False` says the set was not aligned
+    #: first, so the anchor is one frame's rather than the set's — reported instead of
+    #: quietly averaged, because an engine believing a wrong anchor is the failure.
+    aligned: bool = True
+
     def as_dict(self) -> dict[str, object]:
         return {
             "columns": self.columns,
             "rows": self.rows,
             "cell": {"width": self.cell[0], "height": self.cell[1]},
             "anchor": {"x": self.anchor[0], "y": self.anchor[1]},
+            "aligned": self.aligned,
         }
 
 
@@ -66,6 +84,9 @@ def expand(
     target = to if to is not None else (width + 2 * by, height + 2 * by)
     if target[0] < width or target[1] < height:
         raise ValueError(f"{target[0]}x{target[1]} is smaller than the frame's {width}x{height}")
+    # `--by` is doubled by the time it gets here, so bounding the flag alone leaves the
+    # canvas at twice the ceiling every sibling command is held to.
+    check_canvas(target[0], target[1], "the canvas")
 
     canvas = np.zeros((target[1], target[0], 4), dtype=np.uint8)
     if fill is not None:
@@ -99,6 +120,26 @@ def anchor_of(frame: np.ndarray, mode: Place) -> tuple[float, float] | None:
     return float((rows[0] + rows[-1]) / 2.0), middle
 
 
+def anchor_pixel(frame: np.ndarray, mode: Place) -> tuple[int, int] | None:
+    """The *pixel* a frame is anchored on, or `None` if it holds nothing.
+
+    Rounded half-up, and this is the whole of the fix the first attempt got wrong. An
+    anchor's column is fractional — the centre of the body in its bottom row — and its
+    fraction is decided by the body's parity: two pixels wide anchors at x.5, three at x.0.
+    Two such frames cannot share a sub-pixel centre no matter how they are moved, so the
+    thing that has to coincide is the pixel, not the real number.
+
+    The first attempt floored, which only decided the margins: each frame's content was then
+    copied verbatim and kept its own fraction, so frames of differing parity stayed exactly
+    as far apart as they had started. Half-up here, on each frame's own anchor, is what makes
+    the targets equal before anything is placed.
+    """
+    found = anchor_of(frame, mode)
+    if found is None:
+        return None
+    return int(np.floor(found[0] + 0.5)), int(np.floor(found[1] + 0.5))
+
+
 def plan_alignment(frames: list[np.ndarray], mode: Place = "feet") -> Aligned:
     """Move every frame so that its anchor lands on one pixel (R3.2, R3.3).
 
@@ -110,7 +151,7 @@ def plan_alignment(frames: list[np.ndarray], mode: Place = "feet") -> Aligned:
     So the common anchor sits at the furthest any frame reaches from its own anchor, in each
     of the four directions, and the canvas is exactly big enough for that.
     """
-    anchors = [anchor_of(frame, mode) for frame in frames]
+    anchors = [anchor_pixel(frame, mode) for frame in frames]
     empty = [index for index, found in enumerate(anchors) if found is None]
     real = [
         (frame, found) for frame, found in zip(frames, anchors, strict=True) if found is not None
@@ -135,20 +176,25 @@ def plan_alignment(frames: list[np.ndarray], mode: Place = "feet") -> Aligned:
     #
     # Flooring keeps the fraction intact, and an integer shift preserves it, so frames whose
     # anchors agree fractionally land exactly together.
-    above = max(int(found[0]) for _, found in real)
-    below = max(frame.shape[0] - 1 - int(found[0]) for frame, found in real)
-    left = max(int(found[1]) for _, found in real)
-    right = max(frame.shape[1] - 1 - int(found[1]) for frame, found in real)
+    above = max(found[0] for _, found in real)
+    below = max(frame.shape[0] - 1 - found[0] for frame, found in real)
+    left = max(found[1] for _, found in real)
+    right = max(frame.shape[1] - 1 - found[1] for frame, found in real)
 
     height, width = above + below + 1, left + right + 1
+    # Sized from the *content*, not from a flag: a set with two frames anchored near
+    # opposite corners needs a canvas covering both, and every frame gets one. Two 8000px
+    # frames inside the read ceilings already ask for a gigabyte each, all resident at once.
+    check_canvas(width, height, "aligning these frames")
+
     placed: list[np.ndarray] = []
     for frame, found in zip(frames, anchors, strict=True):
         canvas = np.zeros((height, width, 4), dtype=np.uint8)
         if found is None:
             placed.append(canvas)
             continue
-        top = above - int(found[0])
-        start = left - int(found[1])
+        top = above - found[0]
+        start = left - found[1]
         canvas[top : top + frame.shape[0], start : start + frame.shape[1]] = frame
         placed.append(canvas)
 
@@ -170,12 +216,30 @@ def onion(frames: list[np.ndarray]) -> np.ndarray:
     return stacked
 
 
+def common_anchor(frames: list[np.ndarray], mode: Place) -> tuple[tuple[int, int] | None, bool]:
+    """The anchor pixel every frame shares, and whether they actually share one.
+
+    `pack` measures this rather than assuming bottom-centre. The first version guessed
+    `(cell_width // 2, cell_height - 1)`, which disagreed with where `align` had really put
+    the anchor — by six pixels vertically on the tests' own fixture — because an aligned
+    canvas keeps whatever transparent padding sat below the anchor row. A sheet whose
+    recorded anchor is wrong makes the engine re-centre the sprite, which is the runtime
+    drift `align` exists to remove, arriving by another door.
+    """
+    found = [anchor_pixel(frame, mode) for frame in frames]
+    real = [item for item in found if item is not None]
+    if not real:
+        return None, False
+    return (real[0][1], real[0][0]), len(set(real)) == 1
+
+
 def pack(
     frames: list[np.ndarray],
     *,
     columns: int,
     cell: tuple[int, int] | None = None,
     anchor_at: tuple[int, int] | None = None,
+    mode: Place = "feet",
 ) -> tuple[np.ndarray, Layout]:
     """Lay a set out in equal cells (R4.1-R4.4).
 
@@ -196,15 +260,20 @@ def pack(
         raise ValueError(f"a {size[0]}x{size[1]} cell does not fit a {widest}x{tallest} frame")
 
     rows = -(-len(frames) // columns)
+    # `columns` widens the sheet whether or not there are frames to fill it: one ordinary
+    # 256px frame at the documented maximum of columns is a gigabyte of empty cells.
+    check_canvas(columns * size[0], rows * size[1], "the sheet")
     sheet = np.zeros((rows * size[1], columns * size[0], 4), dtype=np.uint8)
     for index, frame in enumerate(frames):
         row, column = divmod(index, columns)
         y, x = row * size[1], column * size[0]
         sheet[y : y + frame.shape[0], x : x + frame.shape[1]] = frame
 
+    measured, agreed = common_anchor(frames, mode)
     return sheet, Layout(
         columns=columns,
         rows=rows,
         cell=size,
-        anchor=anchor_at or (size[0] // 2, size[1] - 1),
+        anchor=anchor_at or measured or (size[0] // 2, size[1] - 1),
+        aligned=agreed,
     )

@@ -513,7 +513,14 @@ def mirror(source: Path, out: Path, *, dry_run: bool) -> Result:
 @click.option("--in", "source", required=True, type=click.Path(path_type=Path))
 def align(source: Path, out: Path, mode: str, onion_out: Path | None, *, dry_run: bool) -> Result:
     frames = read_frames(source)
-    placed = plan_alignment([frame.image for frame in frames], mode)
+    try:
+        placed = plan_alignment([frame.image for frame in frames], mode)
+    except ValueError as refused:
+        raise UsageError(
+            "canvas-too-large",
+            str(refused),
+            fix="crop or expand the frames so their anchors are not at opposite corners",
+        ) from refused
     moved = [Frame(frame.name, image) for frame, image in zip(frames, placed.frames, strict=True)]
     written = write_frames(source, out, moved, dry_run=dry_run)
     if onion_out is not None:

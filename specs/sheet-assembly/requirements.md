@@ -26,6 +26,7 @@ command is what turns an invisible step into a recorded one.
 - **R1.3** Where `--fill` names a colour, the `ssc` CLI shall fill the added area with it; otherwise the added area shall be transparent.
 - **R1.4** The `ssc` CLI shall centre the original content on the new canvas, and shall place it on the bottom edge where the anchor is `bottom` or `feet`.
 - **R1.5** If the target is smaller than the frame on either side, then the `ssc` CLI shall write nothing and exit `2`.
+- **R1.6** If a canvas would be larger than the canvas ceiling on either side, then the `ssc` CLI shall write nothing and exit `2`.
 
 ## R2 · `mirror`
 
@@ -35,17 +36,20 @@ command is what turns an invisible step into a recorded one.
 ## R3 · `align`
 
 - **R3.1** The `ssc` CLI shall accept the anchor as `feet`, `bottom` or `centre`.
-- **R3.2** When `ssc tool align` runs, the `ssc` CLI shall move each frame so that every frame's anchor lands on the same pixel.
+- **R3.2** When `ssc tool align` runs, the `ssc` CLI shall move each frame so that every frame's anchor lands on the same pixel of the canvas.
 - **R3.3** The `ssc` CLI shall place that common anchor where no frame's content leaves the canvas.
 - **R3.4** If a frame holds nothing opaque, then the `ssc` CLI shall leave it where it is and report it.
 - **R3.5** Where `--onion` is given, the `ssc` CLI shall also write one image with every aligned frame drawn over the others.
+- **R3.6** If aligning a set would need a canvas past the ceiling, then the `ssc` CLI shall write nothing and exit `2`.
 
 ## R4 · `pack`
 
 - **R4.1** When `ssc tool pack` runs, the `ssc` CLI shall write one image holding every frame in a grid of equal cells.
 - **R4.2** The `ssc` CLI shall size the cell to the largest frame unless `--cell <W>x<H>` is given.
 - **R4.3** If a frame does not fit the cell, then the `ssc` CLI shall write nothing and exit `2`.
-- **R4.4** When it packs, the `ssc` CLI shall report the cell, the columns, the rows and the anchor within the cell.
+- **R4.4** When it packs, the `ssc` CLI shall report the cell, the columns, the rows and the anchor within the cell, measured from the frames.
+- **R4.6** If the frames do not share one anchor, then the `ssc` CLI shall report that they do not.
+- **R4.5** If a sheet would be larger than the canvas ceiling on either side, then the `ssc` CLI shall write nothing and exit `2`.
 
 ## Out of scope
 

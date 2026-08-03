@@ -165,7 +165,8 @@ def measure_or_say_why(
 
     # Imported here rather than at module scope: `doctor` pulls in numpy and Pillow, and
     # `list` — the command an agent runs most — has no use for either.
-    from ssc.cli.commands.doctor import load_input, measure
+    from ssc.cli.commands.doctor import measure
+    from ssc.cli.frames import load_input
 
     return measure(load_input(target)).as_dict(), None
 

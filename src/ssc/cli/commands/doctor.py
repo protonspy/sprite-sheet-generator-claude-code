@@ -9,9 +9,9 @@ from pathlib import Path
 
 import click
 import numpy as np
-from PIL import Image
 
 from ssc.cli.errors import SscError
+from ssc.cli.frames import load_input
 from ssc.cli.main import ssc_command
 from ssc.cli.output import Result
 from ssc.core.doctor import (
@@ -30,64 +30,11 @@ from ssc.core.doctor import (
 )
 from ssc.core.doctor.finding import skipped
 
-IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
-
-#: A ceiling on what will be decoded. `doctor` reads art a model produced or somebody
-#: downloaded, so the input is attacker-influenced: a fine checkerboard that is tiny on
-#: disk decodes to hundreds of megabytes and gives every detector tens of millions of
-#: cells to chew through. Pillow's own bomb threshold is both higher and raised as an
-#: exception type this project does not otherwise handle, so the limit is stated here.
-MAX_PIXELS = 64_000_000
-
-#: The same reasoning for `--cell`: the silhouette mask is built at the target size, so an
-#: unbounded cell allocates and labels an unbounded array from an 8x8 input.
+#: `--cell` needs a ceiling of its own: the silhouette mask is built at the target size, so
+#: an unbounded cell allocates and labels an unbounded array from an 8x8 input. The ceiling
+#: on what gets *decoded* is `frames.MAX_PIXELS`, shared with every other reader in the
+#: project rather than restated here.
 MAX_CELL = 4096
-
-
-def load_image(path: Path) -> np.ndarray:
-    try:
-        with Image.open(path) as handle:
-            width, height = handle.size
-            if width * height > MAX_PIXELS:
-                raise SscError(
-                    "image-too-large",
-                    f"{path} is {width}x{height}, over the {MAX_PIXELS:,}-pixel ceiling",
-                    fix="scale it down first, or measure a smaller region",
-                )
-            return np.array(handle.convert("RGBA"))
-    except (OSError, Image.DecompressionBombError, Image.DecompressionBombWarning) as unreadable:
-        # DecompressionBombError is a bare Exception, not an OSError, so it would otherwise
-        # leave the command as a traceback rather than as this project's error contract.
-        raise SscError(
-            "unreadable-image",
-            f"{path} could not be read as an image: {unreadable}",
-            fix="check the file, or point --in at a PNG",
-        ) from unreadable
-
-
-def load_input(path: Path) -> list[np.ndarray]:
-    """One image, or a directory read as a frame set sorted by filename.
-
-    Sorted by filename because that is the order the frames were written in and the only
-    ordering that survives being copied around; `drift` and `flicker` both depend on
-    adjacency meaning something.
-    """
-    if path.is_file():
-        return [load_image(path)]
-    if path.is_dir():
-        frames = sorted(child for child in path.iterdir() if child.suffix.lower() in IMAGE_SUFFIXES)
-        if not frames:
-            raise SscError(
-                "no-images",
-                f"{path} holds no images",
-                fix="point --in at a file, or at a directory of frames",
-            )
-        return [load_image(frame) for frame in frames]
-    raise SscError(
-        "no-input",
-        f"{path} is neither a file nor a directory",
-        fix="point --in at an image or at a directory of frames",
-    )
 
 
 def measure(

@@ -128,16 +128,19 @@ def test_an_image_over_the_pixel_ceiling_is_refused_before_it_is_decoded(tmp_pat
     small on disk decodes to hundreds of megabytes, and every detector then walks it."""
     from PIL import Image
 
-    from ssc.cli.commands import doctor as command
+    # The ceiling moved to `cli.frames` when `snap` and `pixelart` gained the same
+    # exposure; one reader, one limit. This still asserts what it always did — the
+    # command refuses before decoding — through the module that now owns the number.
+    from ssc.cli import frames
 
     huge = tmp_path / "huge.png"
     Image.new("RGBA", (64, 64)).save(huge)
-    original = command.MAX_PIXELS
+    original = frames.MAX_PIXELS
     try:
-        command.MAX_PIXELS = 100
+        frames.MAX_PIXELS = 100
         code, payload = run("--in", str(huge))
     finally:
-        command.MAX_PIXELS = original
+        frames.MAX_PIXELS = original
     assert code == 1
     assert payload["error"]["code"] == "image-too-large"  # type: ignore[index]
 

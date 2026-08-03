@@ -13,7 +13,8 @@ from typing import Any
 
 import pytest
 
-from ssc.cli.commands.doctor import load_input, measure
+from ssc.cli.commands.doctor import measure
+from ssc.cli.frames import load_input
 from ssc.core.doctor import Check, Status
 
 FIXTURES = Path(__file__).resolve().parent.parent.parent / "fixtures/doctor"

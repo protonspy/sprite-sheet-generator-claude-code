@@ -23,6 +23,12 @@ here.
   class `ssc clean` may delete.
 - **output** — the deliverable a pipeline ends at and an engine reads: a packed sheet, an
   atlas, `dist/index.json`.
+- **lineage** — the files one file was derived from, transitively, back to the source the
+  chain started at. `meta.json` records a single step per file in `derived_from`; walking
+  that back is what answers "where did this come from".
+- **medium** — which of the two modalities a file is, image or video, decided by its
+  extension. Everything `ssc` writes is one or the other, which is why `image` and `video`
+  are the two nouns a caller observes a workspace through.
 
 ## Geometry
 

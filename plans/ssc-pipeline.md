@@ -1,6 +1,8 @@
 ---
 autonomy: auto
 ci: wait
+worktree: per-group
+merge: auto
 ---
 
 # ssc — the 2D sprite pipeline
@@ -209,6 +211,12 @@ deliverable on its own: M1 already repairs a sheet you have today, with no API k
 - [x] 0.8 (Unit) Stand up CI — `pyproject.toml`, the package skeleton, and a GitHub
       Actions workflow running ruff, ruff format, mypy, pytest on Linux and Windows plus
       `scc validate` on the artifacts
+- [ ] 0.9 (Unit) Put `asset new` behind `listing.under_assets` and call `meta.check_layout`
+      from somewhere, as a delta against `workspace-foundation` — `asset new` builds its
+      directory with `workspace.asset_dir` and never re-resolves it, so a linked
+      `assets/<kind>/` makes it create a directory and write `meta.json` outside the
+      workspace; `check_layout` is defined and called from nowhere. Both found while
+      auditing `asset-listing`, both that leaf's to fix rather than this one's
 
 ## Notes
 

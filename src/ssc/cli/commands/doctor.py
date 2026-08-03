@@ -10,6 +10,8 @@ from pathlib import Path
 import click
 import numpy as np
 
+from ssc.cli import kinds
+from ssc.cli import workspace as ws
 from ssc.cli.errors import SscError
 from ssc.cli.frames import load_input
 from ssc.cli.main import ssc_command
@@ -26,6 +28,7 @@ from ssc.core.doctor import (
     check_halo,
     check_palette,
     check_pixel_grid,
+    check_seam,
     check_silhouette,
 )
 from ssc.core.doctor.finding import skipped
@@ -45,12 +48,18 @@ def measure(
     colour_limit: int | None = None,
     grid: tuple[int, int] | None = None,
     chroma: tuple[int, int, int] | None = None,
+    seam: bool = False,
 ) -> Report:
     """Every check, in a stable order, on whatever was given.
 
     A check that does not apply reports `skipped` with its reason rather than being left
     out: a report that omits what it did not run is indistinguishable from one where
     nothing was wrong.
+
+    `seam` is the one check that has to be *asked for* (tile-assets R2.4). The seven are
+    meaningful on any asset; `seam` is meaningful only on something meant to tile, and run
+    by default it would report every character frame as broken for the unremarkable fact
+    that its left edge is not its right edge.
     """
     first = frames[0]
     palette_params = PaletteParams(limit=colour_limit, allowed=palette)
@@ -68,6 +77,9 @@ def measure(
             check_palette(first, palette_params),
             check_flicker(frames),
             check_silhouette(first, silhouette_params),
+            check_seam(first)
+            if seam
+            else skipped(Check.SEAM, "seam applies to tiles; ask for it with --check seam"),
         ]
     )
 
@@ -84,6 +96,14 @@ def parse_hex(value: str) -> tuple[int, int, int]:
 
 
 @ssc_command("doctor", help="Measure an asset's defects and name the fix for each.")
+@click.option("--kind", default=None, help="Run the checks this kind's profile declares.")
+@click.option(
+    "--check",
+    "asked_for",
+    multiple=True,
+    type=click.Choice([str(Check.SEAM)]),
+    help="Run a check that is not one of the seven. Repeatable.",
+)
 @click.option("--chroma", default=None, help="Key colour for bleed when there is no alpha.")
 @click.option("--palette", default=None, help="Comma-separated hex colours the art may use.")
 @click.option("--colors", "colour_limit", type=int, default=None, help="Colour budget.")
@@ -105,10 +125,18 @@ def doctor(
     colour_limit: int | None,
     palette: str | None,
     chroma: str | None,
+    asked_for: tuple[str, ...],
+    kind: str | None,
     *,
     dry_run: bool,
 ) -> Result:
     frames = load_input(source)
+    # Two ways to ask for the same check, because there are two callers. A person types
+    # `--check seam`; a harness names the asset's kind and gets whatever that profile
+    # declares, which is where a project decides what its tiles are measured against.
+    wanted = set(asked_for)
+    if kind is not None:
+        wanted |= set(kinds.resolve(kind, ws.require()).profile.checks)
 
     target_cell: tuple[int, int] | None = None
     if cell:
@@ -133,6 +161,7 @@ def doctor(
         colour_limit=colour_limit,
         grid=grid,
         chroma=parse_hex(chroma) if chroma else None,
+        seam=str(Check.SEAM) in wanted,
     )
 
     if grid is None and (cols is not None or rows is not None):

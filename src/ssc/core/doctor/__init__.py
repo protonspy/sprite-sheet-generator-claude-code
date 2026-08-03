@@ -10,6 +10,7 @@ from ssc.core.doctor.checks import (
     HaloParams,
     PaletteParams,
     PixelGridParams,
+    SeamParams,
     SilhouetteParams,
     check_bleed,
     check_drift,
@@ -17,6 +18,7 @@ from ssc.core.doctor.checks import (
     check_halo,
     check_palette,
     check_pixel_grid,
+    check_seam,
     check_silhouette,
     detect_pixel_size,
 )
@@ -32,6 +34,7 @@ __all__ = [
     "PaletteParams",
     "PixelGridParams",
     "Report",
+    "SeamParams",
     "SilhouetteParams",
     "Status",
     "check_bleed",
@@ -40,6 +43,7 @@ __all__ = [
     "check_halo",
     "check_palette",
     "check_pixel_grid",
+    "check_seam",
     "check_silhouette",
     "detect_pixel_size",
 ]

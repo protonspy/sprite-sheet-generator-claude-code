@@ -229,7 +229,18 @@ def test_an_asset_with_no_file_of_that_medium_exits_two(workspace: Path) -> None
 def test_showing_an_image_measures_it(workspace: Path) -> None:
     _, payload = run("image", "show", "hero")
     checks = {finding["check"] for finding in payload["doctor"]["checks"]}
-    assert checks == {"pixel_grid", "bleed", "drift", "halo", "palette", "flicker", "silhouette"}
+    # `seam` rides along skipped: `show` does not know whether this asset is meant to tile,
+    # and a report that leaves a check out is indistinguishable from one where it was clean.
+    assert checks == {
+        "pixel_grid",
+        "bleed",
+        "drift",
+        "halo",
+        "palette",
+        "flicker",
+        "silhouette",
+        "seam",
+    }
     assert payload["doctor_skipped"] is None
 
 

@@ -32,6 +32,8 @@ from ssc.core.pixelart import (
     map_to_palette,
     outline,
 )
+from ssc.core.tile import MODES as TILE_MODES
+from ssc.core.tile import close as close_wrap
 
 #: A colour budget outside this is not a budget. The floor is 2 because one colour is not
 #: an image, and the ceiling is the largest indexed palette a PNG can carry.
@@ -385,6 +387,56 @@ def bgremove(
             "transparent_px": transparent,
             "opaque_px": opaque,
             "mode": mode,
+            "written": [str(path) for path in written],
+        },
+        dry_run=dry_run,
+    )
+
+
+@ssc_command("tile", help="Close a tile's wrap so it meets itself on every side.")
+@click.option(
+    "--mode",
+    type=click.Choice(list(TILE_MODES)),
+    default="edge",
+    help="edge copies the opposite edge; mirror makes the tile symmetric.",
+)
+@click.option("--out", required=True, type=click.Path(path_type=Path), help="File or directory.")
+@click.option(
+    "--in",
+    "source",
+    required=True,
+    type=click.Path(path_type=Path),
+    help="An image, or a directory of tiles.",
+)
+def tile_wrap(source: Path, out: Path, mode: str, *, dry_run: bool) -> Result:
+    """R1.1, R1.3, R1.5 — one new file per input, and never a blend."""
+    frames = read_frames(source)
+    closed: list[Frame] = []
+    moved = 0
+    for frame in frames:
+        try:
+            image, report = close_wrap(frame.image, mode=mode)
+        except ValueError as refused:
+            raise UsageError(
+                "not-tileable",
+                f"{frame.name}: {refused}",
+                fix="a tile needs at least two pixels on each side",
+            ) from refused
+        moved += int(report["pixels_changed"])
+        closed.append(Frame(frame.name, image))
+
+    written = write_frames(source, out, closed, dry_run=dry_run)
+    return Result(
+        "tool tile",
+        f"{len(closed)} tile{'' if len(closed) == 1 else 's'} closed by {mode}",
+        {
+            "mode": mode,
+            "edges": ["right", "bottom"],
+            "tiles": len(closed),
+            # What actually moved, not what was written: a tile that already wrapped is
+            # reported as the no-op it was, which is the honest answer to "did this do
+            # anything" and what makes re-running visibly idempotent.
+            "pixels_changed": moved,
             "written": [str(path) for path in written],
         },
         dry_run=dry_run,

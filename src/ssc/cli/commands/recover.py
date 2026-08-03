@@ -583,6 +583,25 @@ def entry_ids(frames: list[Frame]) -> list[str]:
     return [Path(frame.name).stem for frame in frames]
 
 
+def tileset_entries(frames: list[Frame]) -> list[str]:
+    """One id per tile, and the refusal that keeps a tileset a tileset (R3.1, R3.2).
+
+    `pack` sizes its cell to the largest frame and pads the rest, which is right for an
+    animation — a frame is whatever size it ended up. For a tileset it is wrong: a tile that
+    is not the tile size is a defect, and padding it produces a set whose ids all resolve to
+    cells with the art in a different place inside them.
+    """
+    sizes = {(frame.image.shape[1], frame.image.shape[0]) for frame in frames}
+    if len(sizes) > 1:
+        found = ", ".join(f"{width}x{height}" for width, height in sorted(sizes))
+        raise UsageError(
+            "tiles-differ",
+            f"a tileset is one size and this set has {len(sizes)}: {found}",
+            fix="ssc tool expand to a common size, or pack them as an atlas",
+        )
+    return entry_ids(frames)
+
+
 def profile_of(kind: str | None) -> kinds.Profile | None:
     """The kind's profile, or nothing when no kind was named.
 
@@ -723,6 +742,8 @@ def pack_sheet(
             dry_run=dry_run,
         )
 
+    tiles = tileset_entries(frames) if declared == "grid" else None
+
     if columns < 0 or columns > MAX_CELLS:
         raise UsageError("invalid-cols", f"--cols {columns} is out of range", fix="use 1 or more")
     try:
@@ -740,10 +761,24 @@ def pack_sheet(
         raise UsageError("invalid-cell", str(refused), fix="use a cell that fits") from refused
 
     written = write_one(out, sheet, dry_run=dry_run)
+    payload: dict[str, Any] = {
+        **layout.as_dict(),
+        "frames": len(frames),
+        "written": [str(p) for p in written],
+    }
+    if tiles is not None:
+        # A tileset is the cell grid *plus* the ids — the engine addresses a tile by name
+        # and finds it by column and row, which is the same cell the grid already put it in.
+        payload["layout"] = "grid"
+        payload["tile"] = {"width": layout.cell[0], "height": layout.cell[1]}
+        payload["tiles"] = [
+            {"id": entry, "column": index % layout.columns, "row": index // layout.columns}
+            for index, entry in enumerate(tiles)
+        ]
     return Result(
         "tool pack",
         f"{len(frames)} frame{'' if len(frames) == 1 else 's'} as "
         f"{layout.columns}x{layout.rows} of {layout.cell[0]}x{layout.cell[1]}",
-        {**layout.as_dict(), "frames": len(frames), "written": [str(p) for p in written]},
+        payload,
         dry_run=dry_run,
     )

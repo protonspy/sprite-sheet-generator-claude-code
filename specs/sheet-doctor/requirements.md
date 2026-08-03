@@ -15,7 +15,7 @@ about whether something "looks right" is not.
 
 ## R1 · What doctor measures
 
-- **R1.1** The `ssc` CLI shall measure `pixel_grid`, `bleed`, `drift`, `halo`, `palette`, `flicker` and `silhouette`.
+- **R1.1** (MODIFIED) The `ssc` CLI shall measure `pixel_grid`, `bleed`, `drift`, `halo`, `palette`, `flicker` and `silhouette` on every input, and `seam` where it was asked for — see `specs/tile-assets/`, which owns that check.
 - **R1.2** The `ssc` CLI shall report every check as a number rather than as a judgement.
 - **R1.3** Where a check does not apply to the input it was given, the `ssc` CLI shall report that check as skipped, with the reason.
 - **R1.4** The `ssc` CLI shall name, on every defect it reports, the command that repairs it.
@@ -30,6 +30,7 @@ about whether something "looks right" is not.
 - **R2.5** The `ssc` CLI shall measure `palette` as the count of distinct opaque colours, the count of pixels outside a given palette, and whether that count exceeds a given colour budget.
 - **R2.6** The `ssc` CLI shall measure `flicker` as the count of pixels changing colour between adjacent frames by no more than a stated distance while their alpha is unchanged.
 - **R2.7** The `ssc` CLI shall measure `silhouette` on the alpha mask reduced to the target cell, as the count of enclosed background regions and the count of separate opaque regions.
+- **R2.8** (ADDED) The `ssc` CLI shall measure `seam` as the difference across each wrap boundary against the same difference between the image's own neighbouring lines, per axis.
 
 ## R3 · Running it
 

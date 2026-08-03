@@ -22,6 +22,7 @@ from ssc.cli import workspace as ws
 from ssc.cli.commands.convert import parse_key
 from ssc.cli.errors import SscError, UsageError
 from ssc.cli.frames import Frame, encode, load_image, read_frames, write_frames, write_one
+from ssc.cli.listing import under_assets
 from ssc.cli.main import ssc_command
 from ssc.cli.output import Result
 from ssc.core.curate import differences
@@ -39,6 +40,12 @@ from ssc.core.recover import (
 FRAMES_STAGE = "frames"
 
 
+#: A sheet is not a million cells. `--grid` is typed rather than read off the image, but an
+#: agent may well derive it from something the image suggested — and `columns * rows` is a
+#: file each. Same ceiling as the detector's, for the same reason.
+MAX_CELLS = 4096
+
+
 def parse_grid(value: str) -> tuple[int, int]:
     parts = value.lower().split("x")
     if len(parts) != 2 or not all(part.strip().isdigit() for part in parts):
@@ -46,6 +53,12 @@ def parse_grid(value: str) -> tuple[int, int]:
     columns, rows = int(parts[0]), int(parts[1])
     if columns < 1 or rows < 1:
         raise UsageError("invalid-grid", f"{value!r} has no cells", fix="use COLSxROWS, both ≥ 1")
+    if columns * rows > MAX_CELLS:
+        raise UsageError(
+            "invalid-grid",
+            f"{value!r} is {columns * rows} cells, past {MAX_CELLS}",
+            fix=f"a sheet is not that many pieces; cut it in batches under {MAX_CELLS}",
+        )
     return columns, rows
 
 
@@ -74,11 +87,7 @@ def find_pieces(
             raise UsageError("invalid-grid", str(refused), fix="use a grid that fits") from refused
         return rects, {"mode": "grid", "grid": {"columns": columns, "rows": rows}}
 
-    if mode == "chroma":
-        rects = chroma_rects(image, parse_key(chroma), tol)
-    elif mode == "islands":
-        rects = island_rects(image)
-    else:
+    if mode is None:
         # R1.2 — nobody said, so read it off the sheet.
         found = detect_grid(image)
         if found is None:
@@ -88,14 +97,22 @@ def find_pieces(
                 fix="give the layout with --grid COLSxROWS, or pick --mode chroma|islands",
             )
         rects = grid_rects(
-            width,
-            height,
-            found.columns,
-            found.rows,
-            margin=found.margin,
-            spacing=found.spacing,
+            width, height, found.columns, found.rows, margin=found.margin, spacing=found.spacing
         )
         return rects, {"mode": "detected", "grid": found.as_dict()}
+
+    try:
+        rects = (
+            chroma_rects(image, parse_key(chroma), tol) if mode == "chroma" else island_rects(image)
+        )
+    except ValueError as refused:
+        # The detector's own ceiling, which is about the image rather than about a flag —
+        # a mask with a component per pixel is what any dithered alpha produces.
+        raise SscError(
+            "too-many-pieces",
+            str(refused),
+            fix="give the layout with --grid COLSxROWS, or clean the alpha up first",
+        ) from refused
 
     return keep(rects, min_size=min_size, max_aspect=max_aspect), {"mode": mode}
 
@@ -123,7 +140,11 @@ def asset_dir_for(address: str) -> tuple[Path, meta.AssetMeta]:
             "invalid-address", f"{address!r} is not an asset", fix="write it as <kind>/<key>"
         )
     workspace = ws.require()
-    directory = workspace.asset_dir(parts[0], parts[1])
+    # The third route to an asset directory, and the first that resolves an address to an
+    # asset that already exists *and then writes into it*. `listing` states the invariant
+    # this would otherwise break: every route passes through here, because guarding one of
+    # several is the same as guarding none.
+    directory = under_assets(workspace, workspace.asset_dir(parts[0], parts[1]))
     if not meta.path_of(directory).is_file():
         raise UsageError(
             "no-asset",

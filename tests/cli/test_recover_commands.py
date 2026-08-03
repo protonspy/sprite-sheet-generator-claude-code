@@ -234,3 +234,62 @@ def test_a_threshold_outside_zero_to_one_is_refused(tmp_path: Path, value: str) 
     code, payload = run("tool", "curate", "--threshold", value, "--in", str(frames_dir(tmp_path)))
     assert code == 2
     assert payload["error"]["code"] == "invalid-threshold"
+
+
+# R1.10, R3.7 — the two ceilings, and the third route to an asset.
+
+
+def test_a_grid_past_the_cell_ceiling_is_refused(tmp_path: Path) -> None:
+    """`--grid` is typed, but an agent may derive it from what the image suggested, and
+    columns times rows is a file each."""
+    code, payload = run(
+        "tool",
+        "cut",
+        "--grid",
+        "999x999",
+        "--in",
+        str(sheet(tmp_path)),
+        "--out",
+        str(tmp_path / "o"),
+    )
+    assert code == 2
+    assert payload["error"]["code"] == "invalid-grid"
+    assert not (tmp_path / "o").exists()
+
+
+def test_an_alpha_with_a_component_per_pixel_is_refused_not_ground(tmp_path: Path) -> None:
+    dithered = np.zeros((200, 200, 4), dtype=np.uint8)
+    dithered[::2, ::2] = (200, 30, 30, 255)
+    code, payload = run(
+        "tool",
+        "cut",
+        "--mode",
+        "islands",
+        "--in",
+        str(save(tmp_path / "noise.png", dithered)),
+        "--out",
+        str(tmp_path / "o"),
+    )
+    assert code == 1
+    assert payload["error"]["code"] == "too-many-pieces"
+    assert "--grid" in payload["error"]["fix"]
+
+
+def test_an_asset_reached_through_a_link_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, link_dir: Any
+) -> None:
+    """The third route to an asset directory, and the first that resolves an existing one
+    and then writes into it. `listing` states the invariant: guarding one route of several
+    is the same as guarding none."""
+    monkeypatch.chdir(tmp_path)
+    CliRunner().invoke(main, ["init"], catch_exceptions=False)
+    elsewhere = tmp_path / "outside" / "hero"
+    elsewhere.mkdir(parents=True)
+    meta.save(elsewhere, meta.AssetMeta(key="hero", kind="character"))
+    (tmp_path / "assets" / "character").mkdir(parents=True)
+    link_dir(tmp_path / "assets" / "character" / "hero", elsewhere)
+
+    code, payload = run("tool", "cut", "--in", str(sheet(tmp_path)), "--asset", "character/hero")
+    assert code == 1
+    assert payload["error"]["code"] == "asset-escapes-workspace"
+    assert not (elsewhere / "frames").exists()

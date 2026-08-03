@@ -30,6 +30,8 @@ deferred.
 - **R1.6** Where `--min-size` is given, the `ssc` CLI shall discard a piece smaller than it on either side.
 - **R1.7** Where `--max-aspect` is given, the `ssc` CLI shall discard a piece whose longer side exceeds its shorter side by more than that ratio.
 - **R1.8** The `ssc` CLI shall order the pieces top to bottom, then left to right.
+- **R1.9** If an image yields more separate regions than the piece ceiling, then the `ssc` CLI shall find no pieces in it and exit `1`.
+- **R1.10** If a stated grid is more cells than the cell ceiling, then the `ssc` CLI shall cut nothing and exit `2`.
 
 ## R2 · Detecting a grid
 
@@ -45,6 +47,7 @@ deferred.
 - **R3.3** Where the destination is an asset, the `ssc` CLI shall record each piece's provenance, its stage and its class.
 - **R3.4** Where the destination is a plain path, the `ssc` CLI shall write the pieces as files and record nothing.
 - **R3.6** If neither destination is given, or both are, then the `ssc` CLI shall write nothing and exit `2`.
+- **R3.7** If the named asset resolves outside the workspace's `assets/` directory, then the `ssc` CLI shall write nothing and exit `1`.
 - **R3.5** When it writes pieces, the `ssc` CLI shall report how many it found and where each went.
 
 ## R4 · Curating

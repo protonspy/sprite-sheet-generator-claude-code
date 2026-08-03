@@ -8,6 +8,7 @@ import pytest
 from ssc.core.bgremove import PRESETS
 from ssc.core.recover import (
     Rect,
+    bounds_of,
     chroma_rects,
     crop,
     grid_rects,
@@ -163,3 +164,28 @@ def test_crop_takes_exactly_the_rectangle() -> None:
     piece = crop(image, Rect(2, 3, 4, 5))
     assert piece.shape == (5, 4, 4)
     assert (piece[..., 3] == 255).all()
+
+
+# R1.9 — a mask with a component per pixel is not a sheet.
+
+
+def test_bounds_are_taken_in_one_pass_not_one_per_label() -> None:
+    """A per-label `np.nonzero` scan is O(pixels x components), and a dithered alpha gives
+    one component per pixel — which `bgremove`'s own edge can produce. `region_areas` one
+    file over already solved this shape with a single pass; so does this."""
+    mask = np.zeros((100, 100), dtype=bool)
+    mask[::2, ::2] = True
+    found = bounds_of(mask)
+    assert len(found) == 2500
+    assert all(rect.width == 1 and rect.height == 1 for rect in found)
+
+
+def test_a_mask_past_the_piece_ceiling_is_refused() -> None:
+    mask = np.zeros((200, 200), dtype=bool)
+    mask[::2, ::2] = True
+    with pytest.raises(ValueError, match="does not look like a sheet"):
+        bounds_of(mask)
+
+
+def test_bounds_of_nothing_is_nothing() -> None:
+    assert bounds_of(np.zeros((8, 8), dtype=bool)) == []

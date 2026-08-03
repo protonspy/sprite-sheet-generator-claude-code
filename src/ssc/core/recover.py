@@ -180,23 +180,53 @@ def grid_rects(
     ]
 
 
+#: A ceiling on how many regions will be turned into rectangles. A mask with one component
+#: per pixel is not a rare hostile construction — it is what any dithered or antialiased
+#: alpha channel produces under 4-connectivity, including `bgremove`'s own edge — and a
+#: sheet is not a million pieces. Refusing names a flag; grinding does not.
+MAX_PIECES = 4096
+
+
 def bounds_of(mask: np.ndarray) -> list[Rect]:
-    """One rectangle per connected `True` region."""
+    """One rectangle per connected `True` region, in one pass over the image.
+
+    The obvious implementation asks `np.nonzero(labels == label)` once per label, which is
+    `O(pixels x components)`. That is not a theoretical concern: an alpha channel with any
+    dithering gives one component per pixel, and a 400x400 image of those took nine seconds
+    against a per-image ceiling of 64 million pixels. `region_areas` one file over already
+    solved the same shape with a single `bincount`, and this is the same trick — scatter the
+    minima and maxima per label in one vectorised pass.
+    """
     labels, count = label_regions(mask)
-    found: list[Rect] = []
-    for label in range(1, count + 1):
-        rows, columns = np.nonzero(labels == label)
-        if rows.size == 0:
-            continue
-        found.append(
-            Rect(
-                x=int(columns.min()),
-                y=int(rows.min()),
-                width=int(columns.max() - columns.min()) + 1,
-                height=int(rows.max() - rows.min()) + 1,
-            )
+    if count == 0:
+        return []
+    if count > MAX_PIECES:
+        raise ValueError(
+            f"{count} separate regions is past {MAX_PIECES}; this does not look like a sheet"
         )
-    return found
+
+    rows, columns = np.nonzero(labels)
+    identifiers = labels[rows, columns]
+
+    left = np.full(count + 1, mask.shape[1], dtype=np.int64)
+    right = np.full(count + 1, -1, dtype=np.int64)
+    top = np.full(count + 1, mask.shape[0], dtype=np.int64)
+    bottom = np.full(count + 1, -1, dtype=np.int64)
+    np.minimum.at(left, identifiers, columns)
+    np.maximum.at(right, identifiers, columns)
+    np.minimum.at(top, identifiers, rows)
+    np.maximum.at(bottom, identifiers, rows)
+
+    return [
+        Rect(
+            x=int(left[label]),
+            y=int(top[label]),
+            width=int(right[label] - left[label]) + 1,
+            height=int(bottom[label] - top[label]) + 1,
+        )
+        for label in range(1, count + 1)
+        if right[label] >= 0
+    ]
 
 
 def chroma_rects(image: np.ndarray, key: tuple[int, int, int], tolerance: int) -> list[Rect]:

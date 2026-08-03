@@ -13,6 +13,7 @@ covers the record both bindings write. All were run green before this work start
 - [x] 1.1 (Unit) Cut a given grid into rectangles, ordered top to bottom then left to right — R1.1, R1.8
 - [x] 1.2 (Unit) Take pieces by chroma bounding box and by connected island — R1.4, R1.5
 - [x] 1.3 (Unit) Discard a piece below `--min-size` or past `--max-aspect` — R1.6, R1.7
+- [x] 1.4 (Unit) Bound the pieces a mask and a grid may produce, and take the bounding boxes in one pass — R1.9, R1.10
 
 ## 2 · Detecting a grid
 
@@ -25,6 +26,7 @@ covers the record both bindings write. All were run green before this work start
 - [x] 3.1 (Unit) Build `ssc tool cut`: the pieces as the frames of one animation — R3.1, R3.5
 - [x] 3.2 (Unit) Build `ssc tool slice`: each piece its own asset with its own key — R3.2
 - [x] 3.3 (Unit) Record into the named asset, write plain files to a named path, and require exactly one of the two — R3.3, R3.4, R3.6
+- [x] 3.4 (Unit) Put the third route to an asset directory behind the same containment guard as the other two — R3.7
 
 ## 4 · Curating
 

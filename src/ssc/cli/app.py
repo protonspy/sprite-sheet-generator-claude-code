@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from ssc.cli.commands.asset import asset
 from ssc.cli.commands.clean import clean
+from ssc.cli.commands.convert import board, pixelart, snap
 from ssc.cli.commands.doctor import doctor
 from ssc.cli.commands.init import init
 from ssc.cli.commands.media import image, video
@@ -20,5 +21,8 @@ main.add_command(image)
 main.add_command(video)
 main.add_command(tool)
 tool.add_command(doctor)
+tool.add_command(snap)
+tool.add_command(pixelart)
+tool.add_command(board)
 
 __all__ = ["main"]

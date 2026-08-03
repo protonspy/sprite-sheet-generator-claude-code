@@ -130,9 +130,7 @@ def test_one_existing_target_writes_none_of_the_set(tmp_path: Path) -> None:
     write_png(tmp_path / "out" / "002_b.png")
 
     with pytest.raises(SscError) as refused:
-        frames.write_frames(
-            source, tmp_path / "out", [a_frame("001_a.png"), a_frame("002_b.png")]
-        )
+        frames.write_frames(source, tmp_path / "out", [a_frame("001_a.png"), a_frame("002_b.png")])
     assert refused.value.code == "file-exists"
     assert not (tmp_path / "out" / "001_a.png").exists()
 
@@ -140,9 +138,7 @@ def test_one_existing_target_writes_none_of_the_set(tmp_path: Path) -> None:
 def test_dry_run_reports_the_targets_and_writes_nothing(tmp_path: Path) -> None:
     source = tmp_path / "set"
     write_png(source / "001_a.png")
-    written = frames.write_frames(
-        source, tmp_path / "out", [a_frame("001_a.png")], dry_run=True
-    )
+    written = frames.write_frames(source, tmp_path / "out", [a_frame("001_a.png")], dry_run=True)
     assert written == [tmp_path / "out" / "001_a.png"]
     assert not (tmp_path / "out").exists()
 

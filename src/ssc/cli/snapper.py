@@ -111,9 +111,9 @@ class Snapper:
                 "ssc_snap", in_ptr, len(png), colors, pixel_size, pal_ptr, len(encoded)
             )
             if code != 0:
-                message = self._read(
-                    self.call("ssc_error_ptr"), self.call("ssc_error_len")
-                ).decode(errors="replace")
+                message = self._read(self.call("ssc_error_ptr"), self.call("ssc_error_len")).decode(
+                    errors="replace"
+                )
                 raise SscError(
                     "snap-failed",
                     f"the snapper refused this frame: {message}",

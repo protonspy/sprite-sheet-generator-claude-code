@@ -112,6 +112,27 @@ def targets(source: Path, out: Path, frames: list[Frame]) -> list[Path]:
     return [out / frame.name for frame in frames]
 
 
+def write_one(path: Path, image: np.ndarray, *, dry_run: bool = False) -> list[Path]:
+    """Write one generated image at exactly `path`.
+
+    Separate from `write_frames` because that one takes the shape of its output from the
+    shape of its input — a file in, a file out; a directory in, a directory out — and a
+    generated image has no input to take a shape from. Passing the destination as both
+    made `--out board.png` a *directory* called `board.png`, which is the kind of thing
+    that only shows up when something later tries to open it.
+    """
+    if path.exists():
+        raise SscError(
+            "file-exists",
+            f"{path} already exists, and nothing in ssc overwrites a file",
+            fix=f"delete it, or write to another path: rm {path}",
+        )
+    if dry_run:
+        return [path]
+    write_new(path, encode(image))
+    return [path]
+
+
 def write_frames(
     source: Path, out: Path, frames: list[Frame], *, dry_run: bool = False
 ) -> list[Path]:

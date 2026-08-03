@@ -1,0 +1,85 @@
+"""`ssc model list|show` — specs/model-registry R1.1, R1.2, R1.3, R1.5, R1.6."""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+import pytest
+from click.testing import CliRunner
+
+from ssc.cli import models
+from ssc.cli.app import main
+
+NANO = "fal-ai/nano-banana-2"
+
+
+@pytest.fixture(autouse=True)
+def offline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test reaches the network. The shipped copy is a real schema, so the fallback path
+    is both what the tests exercise and what matters when Fal is down."""
+    monkeypatch.setattr(models, "fetch_from_provider", lambda endpoint: None)
+
+
+def run(*argv: str) -> tuple[int, dict[str, Any]]:
+    result = CliRunner().invoke(main, [*argv, "--json"], catch_exceptions=False)
+    return result.exit_code, json.loads(result.stdout)
+
+
+def test_every_model_is_listed_with_its_media(offline: None) -> None:
+    code, payload = run("model", "list")
+
+    assert code == 0
+    assert payload["count"] == 6
+    assert {entry["media"] for entry in payload["models"]} == {"image", "video"}
+
+
+def test_a_media_narrows_the_listing(offline: None) -> None:
+    _, payload = run("model", "list", "--media", "video")
+
+    assert [entry["id"] for entry in payload["models"]] == ["xai/grok-imagine-video/image-to-video"]
+
+
+def test_show_reports_the_options_with_their_types_and_ranges(offline: None) -> None:
+    code, payload = run("model", "show", NANO)
+
+    assert code == 0
+    by_name = {option["name"]: option for option in payload["options"]}
+    assert by_name["resolution"]["allowed"] == ["0.5K", "1K", "2K", "4K"]
+    assert by_name["num_images"]["maximum"] == 4
+    assert by_name["prompt"]["required"] is True
+
+
+def test_show_says_where_the_schema_came_from(offline: None) -> None:
+    """A caller debugging a rejected option needs to know whether it was checked against
+    today's schema or last release's."""
+    _, payload = run("model", "show", NANO)
+
+    assert payload["source"] == "package"
+
+
+def test_show_carries_the_core_mapping_beside_the_schema(offline: None) -> None:
+    """It answers what the schema cannot: which field is this project's `--seed`, and which
+    concepts this model simply does not have."""
+    _, nano = run("model", "show", NANO)
+    _, gpt = run("model", "show", "fal-ai/gpt-image-1.5")
+
+    assert nano["core"]["seed"] == "seed"
+    assert gpt["core"]["seed"] is None
+    assert gpt["core"]["size"] == {"kind": "enum", "field": "image_size"}
+
+
+def test_a_model_nobody_has_exits_two_naming_the_ones_there_are(offline: None) -> None:
+    code, payload = run("model", "show", "fal-ai/imaginary")
+
+    assert code == 2
+    assert payload["error"]["code"] == "no-model"
+    assert NANO in payload["error"]["fix"]
+
+
+def test_no_command_here_spends_anything(offline: None) -> None:
+    """`model` is a noun under `main`, not under `gen`: everything below it observes."""
+    result = CliRunner().invoke(main, ["model", "--help"], catch_exceptions=False)
+
+    assert "list" in result.output
+    assert "show" in result.output

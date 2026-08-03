@@ -78,6 +78,8 @@ class Profile:
     template: str = "generic"
     normal_map: bool = False
     layered: bool = False
+    image_model: str = ""
+    video_model: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -90,6 +92,8 @@ class Profile:
             "template": self.template,
             "normal_map": self.normal_map,
             "layered": self.layered,
+            "image_model": self.image_model,
+            "video_model": self.video_model,
         }
 
 

@@ -24,6 +24,7 @@ from ssc.cli.commands.init import init
 from ssc.cli.commands.job import job
 from ssc.cli.commands.kind import kind
 from ssc.cli.commands.media import image, video
+from ssc.cli.commands.model import model
 from ssc.cli.commands.recover import (
     align,
     curate,
@@ -40,6 +41,7 @@ main.add_command(asset)
 main.add_command(clean)
 main.add_command(kind)
 main.add_command(job)
+main.add_command(model)
 main.add_command(image)
 main.add_command(video)
 main.add_command(tool)

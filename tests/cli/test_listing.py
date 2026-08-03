@@ -7,7 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import save_meta
+from conftest import load_meta, save_meta
 
 from ssc.cli import listing, meta, workspace
 from ssc.cli.errors import SscError, UsageError
@@ -21,7 +21,7 @@ def make_asset(root: Path, kind: str, key: str) -> Path:
 
 
 def add(directory: Path, path: str, stage: str, *, parents: list[str] | None = None) -> None:
-    record = meta.load(directory)
+    record = load_meta(directory)
     meta.record(
         record,
         path=path,
@@ -102,9 +102,10 @@ def test_an_asset_resolves_from_kind_and_key(tmp_path: Path) -> None:
     make_asset(tmp_path, "character", "hero")
     make_asset(tmp_path, "tile", "hero")
 
-    directory, record = listing.resolve(space, "tile/hero")
-    assert (record.kind, record.key) == ("tile", "hero")
-    assert directory == tmp_path / "assets" / "tile" / "hero"
+    held, record = listing.resolve(space, "tile/hero")
+    with held:
+        assert (record.kind, record.key) == ("tile", "hero")
+        assert held.path == tmp_path / "assets" / "tile" / "hero"
 
 
 def test_a_bare_key_resolves_when_only_one_kind_has_it(tmp_path: Path) -> None:
@@ -268,7 +269,11 @@ def test_resolving_by_kind_and_key_refuses_a_linked_asset_directory(
 def test_a_file_reached_through_a_linked_subdirectory_is_refused(
     tmp_path: Path, link_dir: Callable[[Path, Path], None]
 ) -> None:
-    """`frames/` is a legitimate recorded segment, which is what makes it worth linking."""
+    """`frames/` is a legitimate recorded segment, which is what makes it worth linking.
+
+    Read through the binding, because that is where R4.2 is enforced now: the containment
+    is part of the read rather than a resolved path checked next to one.
+    """
     workspace.create(tmp_path)
     elsewhere = tmp_path / "outside"
     elsewhere.mkdir()
@@ -277,9 +282,11 @@ def test_a_file_reached_through_a_linked_subdirectory_is_refused(
     link_dir(directory / "frames", elsewhere)
     add(directory, "frames/paid-for.png", "frames")
 
-    entry = listing.entries(workspace.Workspace(root=tmp_path))[0]
-    with pytest.raises(SscError) as refused:
-        _ = entry.file
+    with (
+        pytest.raises(SscError) as refused,
+        listing.bound(workspace.Workspace(root=tmp_path), directory) as held,
+    ):
+        held.read("frames/paid-for.png")
     assert refused.value.code == "path-escapes-asset"
     assert (elsewhere / "paid-for.png").read_bytes() == b"not reproducible"
 
@@ -295,9 +302,11 @@ def test_a_recorded_file_that_is_a_symlink_out_is_refused_before_it_is_opened(
     (directory / "001_hero.png").symlink_to(victim)
     add(directory, "001_hero.png", "anchor")
 
-    entry = listing.entries(workspace.Workspace(root=tmp_path))[0]
-    with pytest.raises(SscError) as refused:
-        _ = entry.file
+    with (
+        pytest.raises(SscError) as refused,
+        listing.bound(workspace.Workspace(root=tmp_path), directory) as held,
+    ):
+        held.read("001_hero.png")
     assert refused.value.code == "path-escapes-asset"
     assert victim.read_bytes() == b"not reproducible"
 
@@ -333,7 +342,9 @@ def test_one_malformed_asset_does_not_take_the_listing_down_with_it(tmp_path: Pa
 
     assert listed == ["hero", "grass"]
     # And the healthy one is still reachable by name while the other is not.
-    assert listing.resolve(workspace.Workspace(tmp_path), "character/hero")[1].key == "hero"
+    held, record = listing.resolve(workspace.Workspace(tmp_path), "character/hero")
+    with held:
+        assert record.key == "hero"
 
 
 def test_frames_is_the_one_subdirectory_that_belongs(tmp_path: Path) -> None:
@@ -343,7 +354,8 @@ def test_frames_is_the_one_subdirectory_that_belongs(tmp_path: Path) -> None:
     directory = make_asset(tmp_path, "character", "hero")
     (directory / "frames").mkdir()
 
-    assert listing.addressed(workspace.Workspace(root=tmp_path), directory) == directory
+    with listing.addressed(workspace.Workspace(root=tmp_path), directory) as held:
+        assert held.path == directory
 
 
 def test_an_asset_directory_that_stays_inside_is_allowed(tmp_path: Path) -> None:
@@ -357,8 +369,8 @@ def test_an_asset_directory_that_stays_inside_is_allowed(tmp_path: Path) -> None
     ]
 
 
-# workspace-foundation R3.7 — `bound` is `under_assets` for a caller about to write: the
-# same refusal, and something to write through that the refusal actually covers.
+# workspace-foundation R3.7 — `bound` is `placed` for a caller about to read or write: the
+# same refusal, and something to act through that the refusal actually covers.
 
 
 def test_bound_hands_back_a_directory_to_write_through(tmp_path: Path) -> None:
@@ -400,3 +412,112 @@ def test_bound_does_not_refuse_a_stray_subdirectory(tmp_path: Path) -> None:
         held.write_new("001_hero.png", b"pixels")
 
     assert (directory / "001_hero.png").exists()
+
+
+# R4.1, the half the escape check left open — a link that never leaves `assets/` still
+# makes one asset answer to another asset's address.
+
+
+def test_an_asset_aliased_onto_another_asset_is_refused(
+    tmp_path: Path, link_dir: Callable[[Path, Path], None]
+) -> None:
+    """The finding the escape check could not see: `assets/character/hero` linked to
+    `assets/icon/coin` resolves *under* `assets/`, so every check there was passed, and
+    `show character/hero` reported `icon/coin`'s record under the name that was asked for.
+
+    Nothing here leaves the workspace, which is what makes it worth a test of its own: the
+    old check was not weakly written, it was checking a different property.
+    """
+    workspace.create(tmp_path)
+    real = make_asset(tmp_path, "icon", "coin")
+    (tmp_path / "assets" / "character").mkdir(parents=True)
+    link_dir(tmp_path / "assets" / "character" / "hero", real)
+
+    with pytest.raises(SscError) as refused:
+        listing.placed(
+            workspace.Workspace(root=tmp_path), tmp_path / "assets" / "character" / "hero"
+        )
+    assert refused.value.code == "asset-displaced"
+    assert refused.value.fix is not None
+
+
+def test_a_kind_directory_aliased_onto_another_kind_is_refused(
+    tmp_path: Path, link_dir: Callable[[Path, Path], None]
+) -> None:
+    """The same alias one level up. `<kind>/` is the component a caller never types
+    literally when it scans, so a link there aliases every asset under it at once."""
+    workspace.create(tmp_path)
+    make_asset(tmp_path, "icon", "coin")
+    link_dir(tmp_path / "assets" / "character", tmp_path / "assets" / "icon")
+
+    with pytest.raises(SscError) as refused:
+        listing.placed(
+            workspace.Workspace(root=tmp_path), tmp_path / "assets" / "character" / "coin"
+        )
+    assert refused.value.code == "asset-displaced"
+
+
+def test_an_asset_where_its_address_says_it_is_passes(tmp_path: Path) -> None:
+    """The other half: the tightened check must not refuse an ordinary asset, and must not
+    refuse one in a workspace whose `assets/` is itself somewhere else — that is the root
+    both sides resolve against, and it stays deliberately allowed."""
+    workspace.create(tmp_path)
+    directory = make_asset(tmp_path, "character", "hero")
+    assert listing.placed(workspace.Workspace(root=tmp_path), directory) == directory
+
+
+def test_show_refuses_an_asset_aliased_onto_another(
+    tmp_path: Path, link_dir: Callable[[Path, Path], None]
+) -> None:
+    """End to end, because the refusal is only worth anything on the route a caller takes:
+    the record that comes back must never be a different asset's under the asked-for name.
+    """
+    workspace.create(tmp_path)
+    real = make_asset(tmp_path, "icon", "coin")
+    (tmp_path / "assets" / "character").mkdir(parents=True)
+    link_dir(tmp_path / "assets" / "character" / "hero", real)
+
+    with pytest.raises(SscError) as refused:
+        listing.resolve(workspace.Workspace(root=tmp_path), "character/hero")
+    assert refused.value.code == "asset-displaced"
+
+
+# R3.7 — the reads go through the binding too, and R3.9 — a binding that cannot prove
+# itself is a refusal rather than a guard nobody can see is inert.
+
+
+def test_a_listed_record_comes_out_of_the_bound_directory(tmp_path: Path) -> None:
+    workspace.create(tmp_path)
+    directory = make_asset(tmp_path, "character", "hero")
+    record = meta.AssetMeta(key="hero", kind="character")
+    meta.record(
+        record,
+        path="001_anchor.png",
+        stage="anchor",
+        file_class="source",
+        data=b"pixels",
+        produced_by=meta.Provenance(command="test"),
+    )
+    save_meta(directory, record)
+
+    listed = listing.entries(workspace.Workspace(root=tmp_path))
+
+    assert [(entry.kind, entry.key, entry.record.stage) for entry in listed] == [
+        ("character", "hero", "anchor")
+    ]
+
+
+def test_bound_refuses_a_directory_whose_identity_it_cannot_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R3.9. `bindable` is measured per volume, and a `False` has to stop the command
+    rather than let it act under a guard that always says yes — which is the shape of
+    failure this whole line of work has now found twice."""
+    workspace.create(tmp_path)
+    directory = make_asset(tmp_path, "character", "hero")
+    monkeypatch.setattr(listing.Directory, "bindable", property(lambda self: False))
+
+    with pytest.raises(SscError) as refused:
+        listing.bound(workspace.Workspace(root=tmp_path), directory)
+    assert refused.value.code == "no-file-identity"
+    assert refused.value.fix is not None

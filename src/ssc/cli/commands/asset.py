@@ -6,7 +6,7 @@ import click
 
 from ssc.cli import kinds, meta
 from ssc.cli.errors import UsageError
-from ssc.cli.listing import bound, under_assets
+from ssc.cli.listing import bound, placed
 from ssc.cli.main import ssc_command
 from ssc.cli.output import Result
 from ssc.cli.workspace import Workspace
@@ -31,7 +31,7 @@ def asset_new(key: str, kind: str, *, dry_run: bool, workspace: Workspace) -> Re
     # so without the check a linked kind directory makes `mkdir` and `meta.json` land
     # outside the workspace — and every later command then reads an asset the workspace
     # does not own.
-    directory = under_assets(workspace, workspace.asset_dir(kind, key))
+    directory = placed(workspace, workspace.asset_dir(kind, key))
 
     # Uniqueness is per kind, not global — see adr:0007-group-assets-by-kind-then-key for
     # why two kinds are allowed to share a key.

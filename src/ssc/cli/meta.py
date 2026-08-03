@@ -138,16 +138,26 @@ def path_of(asset_dir: Path) -> Path:
     return asset_dir / META_NAME
 
 
-def load(asset_dir: Path) -> AssetMeta:
-    target = path_of(asset_dir)
-    if not target.is_file():
+def load(asset_dir: Directory) -> AssetMeta:
+    """The asset's record, read through the directory that was checked (R3.7).
+
+    It takes the held directory rather than a path for the reason `save` does, arrived at
+    one task later: binding the writes and leaving the reads by path closes the window in
+    which a swap corrupts an asset and leaves open the one in which a swap *substitutes*
+    it — the command reports a foreign record under the name the caller asked for. That is
+    quieter than a bad write and reaches further, because almost every command loads one.
+    """
+    target = path_of(asset_dir.path)
+    try:
+        raw = asset_dir.read(META_NAME)
+    except FileNotFoundError:
         raise UsageError(
             "no-asset",
-            f"{asset_dir} holds no {META_NAME}",
+            f"{asset_dir.path} holds no {META_NAME}",
             fix="ssc asset new <key> --kind <kind>",
-        )
+        ) from None
     try:
-        return AssetMeta.model_validate_json(target.read_bytes())
+        return AssetMeta.model_validate_json(raw)
     except ValidationError as invalid:
         # A record ssc will not act on beats a record it half-believes: `clean` deletes
         # what this file names, so a malformed one stops the command rather than being
@@ -220,15 +230,18 @@ def record(
     return entry
 
 
-def check_layout(asset_dir: Path) -> None:
-    """`frames/` and nothing else (R2.5)."""
-    unexpected = sorted(
-        child.name for child in asset_dir.iterdir() if child.is_dir() and child.name != FRAMES_DIR
-    )
+def check_layout(asset_dir: Directory) -> None:
+    """`frames/` and nothing else (R2.5), listed through the held directory (R3.7).
+
+    Through the binding because a check is only worth what it is taken against: reading one
+    directory's children and then acting on whatever the path resolves to a statement later
+    is a check of something that is no longer the subject.
+    """
+    unexpected = [name for name in asset_dir.subdirectories() if name != FRAMES_DIR]
     if unexpected:
         raise SscError(
             "unexpected-subdirectory",
-            f"{asset_dir} holds {', '.join(unexpected)}; "
+            f"{asset_dir.path} holds {', '.join(unexpected)}; "
             f"only {FRAMES_DIR}/ belongs inside an asset",
             fix=f"move it out, or put its files in {FRAMES_DIR}/",
         )

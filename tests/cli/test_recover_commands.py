@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 import pytest
 from click.testing import CliRunner
-from conftest import save_meta
+from conftest import load_meta, save_meta
 from PIL import Image
 
 from ssc.cli import meta
@@ -104,7 +104,7 @@ def test_cut_into_an_asset_records_one_stage_for_the_frame_set(
     assert code == 0
     assert payload["frames"] == 6
 
-    record = meta.load(tmp_path / "assets/character/hero")
+    record = load_meta(tmp_path / "assets/character/hero")
     assert [entry.stage for entry in record.files] == ["frames"]
     assert record.files[0].file_class == "derived"
     assert record.files[0].produced_by.command == "tool cut"
@@ -148,7 +148,7 @@ def test_slice_writes_one_asset_per_piece(tmp_path: Path, monkeypatch: pytest.Mo
     assert payload["assets"] == 2
     assert payload["written"] == ["icon/coin-01", "icon/coin-02"]
 
-    record = meta.load(tmp_path / "assets/icon/coin-01")
+    record = load_meta(tmp_path / "assets/icon/coin-01")
     assert record.key == "coin-01"
     assert [entry.stage for entry in record.files] == ["cut"]
 

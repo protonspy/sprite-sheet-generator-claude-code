@@ -77,20 +77,42 @@ worse than either. So: resolve when unambiguous, refuse and name the candidates 
 
 **A symlink moves the target after the string was validated.** `check_relative_path`
 validates a recorded path as text — relative, forward-slashed, no `..` — which cannot see
-that a segment is a symlink pointing elsewhere on disk. `clean` already carries the second
-gate for this, `inside`, which re-resolves at the moment of deleting; this leaf makes it
-shared rather than writing a second one, and puts it on `Entry.file` so every read goes
-through it (R4.2).
+that a segment is a symlink pointing elsewhere on disk. So R4.2 needs a second gate that
+resolves at the moment of acting, and the place it belongs moved once.
 
-`under_assets` is the other half (R4.1), and it has to sit on **both** routes to an asset
-directory — the glob in `asset_dirs`, and the `<kind>/<key>` branch of `resolve`, which
-never touches that glob. Guarding one of the two is the same as guarding neither: the
-first attempt here guarded only the glob, and `ssc image show character/hero` still read
-an asset directory that had left the workspace. The link does not even need a privilege —
-a Windows directory junction is unprivileged, which is why the tests make one rather than
-skipping the platform this project is developed on.
+It began as `inside`, shared with `clean` and hung on `Entry.file` so that every read went
+through it. That was a check standing *next to* a read rather than part of one: `show`
+tested a resolved path and opened it a statement later, which is the same window
+`workspace-foundation` R3.7 spent three tasks closing on the writes. The gate is now
+`Directory.read`, which descends through the held directory — `O_NOFOLLOW` per segment on
+POSIX, the resolved path against a just-re-identified directory on Windows — so
+containment and the read are one act and `Entry.file` is gone rather than left as a second
+way to reach the same file. `inside` stays for `clean`'s pre-flight, which is a *report* of
+what a sweep would remove and not the guard; `Directory.delete` is that.
 
-Both refuse rather than skipping silently: an asset that is quietly not there is the
+`placed` is the other half (R4.1), and it has to sit on **every** route to an asset
+directory — the glob in `asset_dirs`, the `<kind>/<key>` branch of `resolve`, which never
+touches that glob, and the three routes that create one. Guarding some of them is the same
+as guarding none: the first attempt here guarded only the glob, and `ssc image show
+character/hero` still read an asset directory that had left the workspace. The link does
+not even need a privilege — a Windows directory junction is unprivileged, which is why the
+tests make one rather than skipping the platform this project is developed on.
+
+**Escaping is not the only way to be the wrong directory**, and the function was named
+after the weaker half. `under_assets` proved a directory resolved somewhere *under*
+`assets/`, which admits `assets/character/hero` linked to `assets/icon/coin`: it never
+leaves the workspace, so every check passed, and `show character/hero` reported
+`icon/coin`'s record under the name that was asked for. The address is the caller's whole
+statement of which asset it means, so the check is that the directory resolves to exactly
+the `<kind>/<key>` place naming it. That subsumes the escape and costs nothing legitimate
+— a `<kind>/` link pointing off the disk already failed the weaker test — and the rename
+to `placed` is part of the fix rather than tidying: a name that describes half the check is
+how the other half went missing.
+
+`assets/` itself being a link stays deliberately allowed. It is the root both sides resolve
+against, so a workspace whose art lives on another disk keeps working.
+
+All of them refuse rather than skipping silently: an asset that is quietly not there is the
 failure mode this leaf exists to remove.
 
 **A lineage cycle is reachable through a hand-edited `meta.json`.** `derived_from` is a

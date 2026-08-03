@@ -7,10 +7,11 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
-from conftest import save_meta
+from conftest import load_meta, save_meta
 
 from ssc.cli import meta
 from ssc.cli.app import main
+from ssc.cli.atomic import Directory
 from ssc.cli.errors import SscError, UsageError
 
 
@@ -146,7 +147,7 @@ def test_the_record_round_trips_through_disk(tmp_path: Path) -> None:
     record = asset()
     add(record, "001_anchor.png", "anchor", "source")
     save_meta(tmp_path, record)
-    assert meta.load(tmp_path) == record
+    assert load_meta(tmp_path) == record
 
 
 def test_the_written_json_uses_the_field_names_the_contract_promises(tmp_path: Path) -> None:
@@ -164,19 +165,20 @@ def test_loading_from_a_directory_that_is_not_an_asset_says_how_to_make_one(
     tmp_path: Path,
 ) -> None:
     with pytest.raises(UsageError) as raised:
-        meta.load(tmp_path)
+        load_meta(tmp_path)
     assert raised.value.code == "no-asset"
     assert raised.value.fix is not None
 
 
 def test_frames_is_the_only_subdirectory(tmp_path: Path) -> None:
-    """R2.5."""
+    """R2.5, listed through the held directory per R3.7."""
     (tmp_path / meta.FRAMES_DIR).mkdir()
-    meta.check_layout(tmp_path)
+    with Directory.open(tmp_path) as held:
+        meta.check_layout(held)
 
-    (tmp_path / "sprites").mkdir()
-    with pytest.raises(SscError) as raised:
-        meta.check_layout(tmp_path)
+        (tmp_path / "sprites").mkdir()
+        with pytest.raises(SscError) as raised:
+            meta.check_layout(held)
     assert raised.value.code == "unexpected-subdirectory"
     assert "sprites" in raised.value.message
 
@@ -192,7 +194,7 @@ def test_asset_new_creates_the_directory_and_the_record(tmp_path: Path, monkeypa
     assert result.exit_code == 0
     directory = tmp_path / "assets/character/hero"
     assert json.loads(result.output)["path"] == str(directory)
-    assert meta.load(directory).kind == "character"
+    assert load_meta(directory).kind == "character"
 
 
 def test_asset_new_refuses_a_key_the_kind_already_has(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]

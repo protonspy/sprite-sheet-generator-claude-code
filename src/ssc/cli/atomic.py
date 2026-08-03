@@ -10,6 +10,12 @@ once, with every write made relative to what was opened rather than re-resolved 
 path (R3.7). The module-level pair are that same pair, bound to the parent of the path they
 were handed — which is the right binding for a `--out` somebody typed, and the wrong one
 for an asset directory a caller checked and then wrote into.
+
+It is also where an asset is *read*. `read` and `subdirectories` are the other half of
+R3.7, and they arrived a task later than the writes for a reason worth keeping: a swap
+under a read does not corrupt anything, it feeds the command a foreign record and lets it
+report that record as the asset the caller asked for. Lower stakes than a write, and much
+wider — almost every command loads a `meta.json`.
 """
 
 from __future__ import annotations
@@ -80,9 +86,9 @@ class Directory:
 
     Checking a path and writing to it are two acts on two different objects: between them a
     component can be replaced with a link — a symlink, or a junction, which Windows lets an
-    unprivileged user create — and the write follows it. `listing.under_assets` says the
-    directory is inside the workspace; without this, what is written a few statements later
-    is whatever the path resolves to *then*.
+    unprivileged user create — and the write follows it. `listing.placed` says the directory
+    is the `<kind>/<key>` one its address names; without this, what is written a few
+    statements later is whatever the path resolves to *then*.
 
     On POSIX the binding is literal. A descriptor names an inode, `dir_fd=` resolves
     against it, and nothing done to the path afterwards is visible to a write: swapping
@@ -96,6 +102,9 @@ class Directory:
     swap; it narrows the window from the length of the command to the two statements around
     one `os.open`, and it turns a lost race into a refusal rather than into a file written
     somewhere nobody asked for. That is the honest limit of what Python offers on Windows.
+
+    And that fallback rests on a number the volume has to supply — see `bindable`, which is
+    what stops it from resting on one the volume does not.
     """
 
     __slots__ = ("_fd", "_identity", "path")
@@ -122,6 +131,27 @@ class Directory:
             # flag nor a descriptor, so the check is explicit or it does not happen.
             raise NotADirectoryError(path)
         return cls(path, None, (status.st_dev, status.st_ino))
+
+    @property
+    def bindable(self) -> bool:
+        """Whether this handle can actually prove it still holds what it opened.
+
+        `True` on POSIX by construction: a descriptor names an inode, and nothing done to
+        the path can move it. On Windows the proof is `(st_dev, st_ino)` and that is a
+        *measurement of the volume*, not a property of the platform. NTFS reports both
+        honestly — `st_dev` is the volume serial and `st_ino` the 64-bit file index. FAT32,
+        exFAT and some SMB mounts have no file index at all and Windows returns `0` for it,
+        which makes every directory on such a volume identical to every other one and turns
+        `_guard` into a comparison that always succeeds.
+
+        That is the same shape of failure as the dead `_DIR_FD` branch: a hardening that
+        reports success while doing nothing. So it is measured and reported rather than
+        assumed, and `listing.bound` refuses instead of writing under a guard it knows is
+        inert. The refusal is conservative — a volume with no file index also has no
+        reparse points, so the swap being guarded against cannot be staged there — but a
+        guard that cannot say which case it is in has no business claiming either.
+        """
+        return self._fd is not None or 0 not in self._identity
 
     def confirm(self, path: Path) -> None:
         """Assert that `path` — just validated by whatever validates paths — names the
@@ -239,6 +269,70 @@ class Directory:
             for handle in held:
                 handle.close()
 
+    def read(self, relative: str, *, max_bytes: int | None = None) -> bytes:
+        """Read a recorded file relative to what is held (R3.7).
+
+        The read half of `delete`, segment for segment, and split by platform the same way.
+        On POSIX every intermediate component is opened `O_NOFOLLOW`, so a `frames/` that
+        somebody replaced with a link fails rather than being followed, and the last one is
+        refused if it is a link, because nothing in `ssc` ever writes one and `_remove`
+        refuses that shape for the same reason. On Windows there is no `O_NOFOLLOW` and no
+        descriptor, so the confinement is the resolved path checked against a directory
+        `_guard` has just re-identified — which refuses a link out and allows one that
+        stays inside.
+
+        `FileNotFoundError` is deliberately left to the caller. A missing `meta.json` is not
+        an escape, it is a directory that is not an asset, and `meta.load` is what turns it
+        into the usage error naming the command that creates one.
+
+        `max_bytes` refuses a file larger than the caller can afford, and it exists because
+        binding a read changes what a read costs. A path handed to `Image.open` is parsed
+        lazily, so the pixel ceiling in `frames` refuses an oversized image from its header
+        alone; bytes read through a binding are in memory before anything can inspect them.
+        The refusal is by reading one byte past the limit rather than by trusting a `stat`,
+        which both keeps the peak bounded and avoids asking a second time about a file the
+        first question was supposed to settle.
+        """
+        segments = [_segment(part) for part in relative.split("/")]
+        self._guard()
+        if self._fd is None:
+            data = self._read_confined(segments, max_bytes)
+        else:
+            held: list[Directory] = []
+            try:
+                here = self
+                for segment in segments[:-1]:
+                    here = here._descend(segment)
+                    held.append(here)
+                data = here._slurp(segments[-1], max_bytes)
+            finally:
+                for handle in held:
+                    handle.close()
+        if max_bytes is not None and len(data) > max_bytes:
+            raise SscError(
+                "file-too-large",
+                f"{self.path / Path(relative)} is over the {max_bytes:,}-byte ceiling",
+                fix="scale it down first, or remove that record from meta.json",
+            )
+        return data
+
+    def subdirectories(self) -> list[str]:
+        """The names of this directory's children that are directories (R3.7).
+
+        `meta.check_layout` is the caller, and its rule is `frames/` and nothing else. Read
+        through what is held for the same reason as everything else here: the check exists
+        to refuse a directory that does not belong, and running it against a re-resolved
+        path checks one directory's children and then acts on another's.
+
+        Links are followed, as `Path.is_dir` follows them, so a link *to* a directory is
+        still an unexpected subdirectory rather than an invisible one.
+        """
+        self._guard()
+        if self._fd is None:
+            return sorted(child.name for child in self.path.iterdir() if child.is_dir())
+        # `os.listdir` on a descriptor dups it internally, so the handle stays usable.
+        return sorted(name for name in os.listdir(self._fd) if self._child_is_dir(name))
+
     def close(self) -> None:
         if self._fd is not None:
             os.close(self._fd)
@@ -306,7 +400,75 @@ class Directory:
         else:
             os.unlink(name, dir_fd=self._fd)
 
-    def _delete_by_path(self, segments: list[str]) -> None:
+    def _slurp(self, name: str, max_bytes: int | None) -> bytes:
+        """Read the last segment, refusing to follow it anywhere."""
+        nofollow = getattr(os, "O_NOFOLLOW", 0)
+        assert self._fd is not None
+        try:
+            descriptor = os.open(name, os.O_RDONLY | _BINARY | nofollow, dir_fd=self._fd)
+        except FileNotFoundError:
+            # Not an escape, and `read` says why this one goes back to the caller intact.
+            raise
+        except OSError as refused:
+            raise self._unreadable(self.path / name, refused) from refused
+        # A directory opens fine under `O_RDONLY` on POSIX — the refusal comes a step later,
+        # at `fdopen`, which is not where the `ELOOP` for a link arrives. Translating only
+        # around `os.open` left a recorded name that is a directory reaching the user as an
+        # `IsADirectoryError` traceback here while Windows named it, which is the platform
+        # split this whole class of guard keeps producing. `fdopen` does not close a
+        # descriptor it did not open, so a failure there is this function's to clean up.
+        try:
+            handle = os.fdopen(descriptor, "rb")
+        except OSError as refused:
+            os.close(descriptor)
+            raise self._unreadable(self.path / name, refused) from refused
+        with handle:
+            try:
+                return handle.read() if max_bytes is None else handle.read(max_bytes + 1)
+            except OSError as refused:
+                raise self._unreadable(self.path / name, refused) from refused
+
+    def _read_confined(self, segments: list[str], max_bytes: int | None) -> bytes:
+        """Windows: the same read, with the confinement `_confined` provides instead.
+
+        The `OSError` translation is here rather than only on the POSIX branch because the
+        two have to answer alike. A recorded name that is a directory on disk raises
+        `IsADirectoryError` there and `PermissionError` here, and leaving this one bare made
+        the identical corrupt record report `path-escapes-asset` on one platform and an
+        `internal-error` traceback on the other.
+        """
+        target = self._confined(segments)
+        try:
+            with target.open("rb") as handle:
+                return handle.read() if max_bytes is None else handle.read(max_bytes + 1)
+        except FileNotFoundError:
+            raise
+        except OSError as refused:
+            raise self._unreadable(target, refused) from refused
+
+    @staticmethod
+    def _unreadable(target: Path, refused: OSError) -> SscError:
+        """What is on disk is not the file the record names.
+
+        ELOOP from `O_NOFOLLOW` on a link, EISDIR or EACCES from a recorded path that turned
+        out to be a directory. They arrive as a plain `OSError` and they all mean this.
+        """
+        return SscError(
+            "path-escapes-asset",
+            f"{target} is not a file ssc can read: {refused}",
+            fix="remove that record from meta.json, or move the real file back",
+        )
+
+    def _child_is_dir(self, name: str) -> bool:
+        assert self._fd is not None
+        try:
+            return stat.S_ISDIR(os.stat(name, dir_fd=self._fd).st_mode)
+        except OSError:
+            # Gone between the listing and the stat, or a link to nothing. Neither is a
+            # subdirectory, and neither is this method's business to report.
+            return False
+
+    def _confined(self, segments: list[str]) -> Path:
         """Windows: no descriptor to descend through, so the confinement is the resolved
         path, taken against a directory `_guard` has just re-identified."""
         root = self.path.resolve()
@@ -318,6 +480,10 @@ class Directory:
                 f"{'/'.join(segments)!r} resolves to {resolved}, which is outside {root}",
                 fix="remove that record from meta.json",
             )
+        return target
+
+    def _delete_by_path(self, segments: list[str]) -> None:
+        target = self._confined(segments)
         if target.is_dir() and not target.is_symlink():
             shutil.rmtree(target)
         else:

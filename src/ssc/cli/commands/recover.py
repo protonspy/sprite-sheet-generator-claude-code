@@ -23,7 +23,7 @@ from ssc.cli.atomic import Directory
 from ssc.cli.commands.convert import MAX_BOARD_SIDE, parse_hex, parse_key, parse_size
 from ssc.cli.errors import SscError, UsageError
 from ssc.cli.frames import Frame, encode, load_image, read_frames, write_frames, write_one
-from ssc.cli.listing import under_assets
+from ssc.cli.listing import placed
 from ssc.cli.main import ssc_command
 from ssc.cli.output import Result
 from ssc.core import atlas
@@ -177,13 +177,12 @@ def asset_dir_for(address: str) -> tuple[Directory, meta.AssetMeta]:
             f"no asset {address} in this workspace",
             fix=f"ssc asset new {parts[1]} --kind {parts[0]}",
         )
-    held = listing.bound(workspace, path)
+    # `addressed` is `bound` plus the layout check, which belongs to a caller that named one
+    # asset — which is what this is. Splitting the two is what keeps `clean`'s sweep from
+    # aborting over an asset it was not asked about.
+    held = listing.addressed(workspace, path)
     try:
-        # `bound` is the escape gate; the layout check is `addressed`'s and belongs to a
-        # caller that named one asset, which is what this is. Splitting them is what keeps
-        # `clean`'s sweep from aborting over an asset it was not asked about.
-        meta.check_layout(path)
-        return held, meta.load(path)
+        return held, meta.load(held)
     except BaseException:
         held.close()
         raise
@@ -375,7 +374,7 @@ def slice_sheet(
             # `asset new` first missed: `slice` writes a `meta.json` and a PNG per piece,
             # so a linked `assets/<kind>/` puts both outside the workspace exactly as it
             # did there. Guarding some of the creating routes is the same as guarding none.
-            directory = under_assets(workspace, workspace.asset_dir(kind, name))
+            directory = placed(workspace, workspace.asset_dir(kind, name))
             if meta.path_of(directory).exists():
                 raise UsageError(
                     "asset-exists",

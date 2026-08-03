@@ -126,8 +126,9 @@ def test_an_extrude_wider_than_the_padding_is_refused(icons: Path, tmp_path: Pat
     )
 
     assert code == 2
-    assert payload["error"]["code"] == "extrude-past-padding"
+    assert payload["error"]["code"] == "invalid-gap"
     assert "--padding" in payload["error"]["fix"]
+    assert "wider than the padding" in payload["error"]["message"]
 
 
 def test_the_padding_and_extrude_are_reported_back(icons: Path, tmp_path: Path) -> None:
@@ -233,3 +234,51 @@ def test_the_cell_sheet_is_untouched_by_any_of_this(icons: Path, tmp_path: Path)
     assert code == 0
     assert payload["columns"] == 3
     assert "entries" not in payload
+
+
+def test_naming_an_animating_kind_still_packs_an_ordinary_sheet(
+    icons: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R3.2 refuses the *atlas*, not the kind. Checking `animates` while merely reading the
+    profile refused `--kind character --cols 3` — a plain sheet of the commonest animating
+    kind — with a fix naming a flag the caller never passed."""
+    monkeypatch.chdir(tmp_path)
+    CliRunner().invoke(main, ["init"], catch_exceptions=False)
+
+    code, payload = run(
+        "tool",
+        "pack",
+        "--kind",
+        "character",
+        "--cols",
+        "3",
+        "--in",
+        str(icons),
+        "--out",
+        str(tmp_path / "s.png"),
+    )
+
+    assert code == 0
+    assert payload["columns"] == 3
+    assert "entries" not in payload
+
+
+@pytest.mark.parametrize(
+    ("argv", "code"),
+    [
+        (["--padding", "100"], "invalid-gap"),
+        (["--padding", "1", "--extrude", "4"], "invalid-gap"),
+    ],
+)
+def test_an_out_of_range_gap_is_told_apart_from_an_extrude_past_its_padding(
+    argv: list[str], code: str, icons: Path, tmp_path: Path
+) -> None:
+    """Routing by message rather than by type sent "padding and extrude are capped at 64"
+    to the extrusion's refusal, whose fix says to raise the padding that is already too
+    large."""
+    exit_code, payload = run(
+        "tool", "pack", "--atlas", *argv, "--in", str(icons), "--out", str(tmp_path / "a.png")
+    )
+
+    assert exit_code == 2
+    assert payload["error"]["code"] == code

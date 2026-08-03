@@ -25,6 +25,25 @@ from ssc.core.assemble import Place, check_canvas, common_anchor
 #: allocation — the same argument `MAX_CANVAS` makes about a cell.
 MAX_GAP = 64
 
+#: An atlas is not a million entries. The same ceiling `recover.py` puts on a sheet's cells,
+#: for a reason of this module's own: `default_width` searches by doubling, and every step of
+#: that search sorts and places the whole set. Without a bound here the cost of the *search*
+#: scales with however many files a caller can point `--in` at, which is not the caller's
+#: intent even when it is not an attack.
+MAX_ENTRIES = 4096
+
+
+class EntryDoesNotFit(ValueError):
+    """An entry that no atlas of this width can hold (R1.6).
+
+    Its own type, because `place` raises three different refusals and the fix differs by
+    which: a wider atlas answers this one and says nothing useful about a gap.
+    """
+
+
+class GapTooWide(ValueError):
+    """A padding or an extrude that is out of range, or an extrude past its padding (R2.3)."""
+
 
 @dataclass(frozen=True)
 class Rect:
@@ -108,11 +127,21 @@ def default_width(entries: list[Entry], padding: int) -> int:
     return width
 
 
+def in_shelf_order(entries: list[Entry]) -> list[Entry]:
+    """By height descending, then by id (R1.5).
+
+    Sorted once by `place` and handed to every `shelve` call, rather than inside `shelve`
+    where the doubling search would repeat it at each step.
+    """
+    return sorted(entries, key=lambda entry: (-entry.size[1], entry.id))
+
+
 def shelve(entries: list[Entry], width: int, padding: int) -> tuple[list[Placed], int]:
     """Lay the entries out left to right on shelves, and say how tall that got.
 
-    Sorted by height descending so a shelf's height is set by its first entry, then by id so
-    that two entries of one height cannot swap between runs (R1.5).
+    Takes them already in shelf order — height descending, so a shelf's height is set by its
+    first entry — because `default_width` calls this repeatedly and the sort does not change
+    between those calls.
 
     The pen starts at `padding` and each entry advances it by its own width *plus* padding —
     one gap between neighbours, not one each. Growing every entry by padding on all four
@@ -120,15 +149,14 @@ def shelve(entries: list[Entry], width: int, padding: int) -> tuple[list[Placed]
     which wastes most of a densely packed atlas while satisfying every "is there a gap"
     check written to catch its absence.
     """
-    ordered = sorted(entries, key=lambda entry: (-entry.size[1], entry.id))
     placed: list[Placed] = []
     pen_x = pen_y = padding
     shelf_height = 0
 
-    for entry in ordered:
+    for entry in entries:
         entry_width, entry_height = entry.size
         if padding + entry_width + padding > width:
-            raise ValueError(
+            raise EntryDoesNotFit(
                 f"{entry.id} is {entry_width} wide, too wide for a {width}-wide atlas"
                 + (f" with {padding} of padding" if padding else "")
             )
@@ -158,23 +186,28 @@ def place(
     """
     if not entries:
         raise ValueError("there are no entries to pack")
+    if len(entries) > MAX_ENTRIES:
+        # Before the width search, not after: bounding the *result* does not bound the cost
+        # of looking for it, and the search is what scales with the set.
+        raise EntryDoesNotFit(f"{len(entries)} entries is past the ceiling of {MAX_ENTRIES}")
     if padding < 0 or extrude < 0:
-        raise ValueError("padding and extrude are distances, so neither can be negative")
+        raise GapTooWide("padding and extrude are distances, so neither can be negative")
     if padding > MAX_GAP or extrude > MAX_GAP:
-        raise ValueError(f"padding and extrude are capped at {MAX_GAP}")
+        raise GapTooWide(f"padding and extrude are capped at {MAX_GAP}")
     if extrude > padding:
         # The whole point of the extrusion is to fill the gap. Wider than the gap, it writes
         # into the neighbour whose sampling it exists to protect (R2.3).
-        raise ValueError(f"an extrude of {extrude} is wider than the padding of {padding}")
+        raise GapTooWide(f"an extrude of {extrude} is wider than the padding of {padding}")
     seen = {entry.id for entry in entries}
     if len(seen) != len(entries):
         raise ValueError("two entries share an id")
 
-    chosen = width if width is not None else default_width(entries, padding)
+    ordered = in_shelf_order(entries)
+    chosen = width if width is not None else default_width(ordered, padding)
     if chosen < 1:
-        raise ValueError(f"an atlas needs a width of at least 1, got {chosen}")
+        raise EntryDoesNotFit(f"an atlas needs a width of at least 1, got {chosen}")
 
-    placed, height = shelve(entries, chosen, padding)
+    placed, height = shelve(ordered, chosen, padding)
     check_canvas(chosen, height, "the atlas")
 
     measured = anchors or {}

@@ -258,3 +258,36 @@ def test_the_reported_rectangle_excludes_the_extrusion() -> None:
 
     assert plain.entries[0].rect == extruded.entries[0].rect
     assert (extruded.entries[0].rect.width, extruded.entries[0].rect.height) == (8, 8)
+
+
+# The ceiling on the set, checked before the width search rather than after it.
+
+
+def test_a_set_past_the_entry_ceiling_is_refused_before_anything_is_placed() -> None:
+    """`default_width` searches by doubling and places the whole set at each step, so a
+    ceiling on the result does not bound the cost of looking for it."""
+    too_many = [atlas.Entry(id=f"e{index}", size=(1, 1)) for index in range(atlas.MAX_ENTRIES + 1)]
+
+    with pytest.raises(atlas.EntryDoesNotFit, match=str(atlas.MAX_ENTRIES)):
+        atlas.place(too_many)
+
+
+def test_each_refusal_has_its_own_type() -> None:
+    """Read by the CLI to pick a `fix`. Told apart by message, "padding and extrude are
+    capped at 64" routes to the extrusion's refusal, whose fix is to raise the padding that
+    is already too large."""
+    with pytest.raises(atlas.GapTooWide):
+        atlas.place(sizes((8, 8)), padding=atlas.MAX_GAP + 1)
+    with pytest.raises(atlas.GapTooWide):
+        atlas.place(sizes((8, 8)), padding=-1)
+    with pytest.raises(atlas.EntryDoesNotFit):
+        atlas.place(sizes((200, 8)), width=64)
+
+
+def test_the_set_is_sorted_once_however_wide_the_search_gets() -> None:
+    """The sort is `place`'s, not `shelve`'s: the doubling search calls the latter up to
+    sixteen times and the order does not change between them."""
+    ordered = atlas.in_shelf_order(sizes((8, 8), (8, 64), (8, 32)))
+
+    assert [entry.id for entry in ordered] == ["e1", "e2", "e0"]
+    assert atlas.shelve(ordered, 64, 0)[0][0].id == "e1"

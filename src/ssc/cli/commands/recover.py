@@ -583,23 +583,13 @@ def entry_ids(frames: list[Frame]) -> list[str]:
     return [Path(frame.name).stem for frame in frames]
 
 
-def atlas_layout_of(kind: str | None) -> str | None:
-    """The layout this kind declares, and R3.2's refusal.
+def profile_of(kind: str | None) -> kinds.Profile | None:
+    """The kind's profile, or nothing when no kind was named.
 
-    Two of a profile's fields matter here and `cell` is deliberately not one of them: an
-    atlas has no cell, and taking one from the profile would produce a grid pack wearing an
-    atlas' name.
+    Two of its fields matter here and `cell` is deliberately not one of them: an atlas has no
+    cell, and taking one from the profile would produce a grid pack wearing an atlas' name.
     """
-    if kind is None:
-        return None
-    profile = kinds.resolve(kind, ws.require()).profile
-    if profile.animates:
-        raise UsageError(
-            "kind-animates",
-            f"{kind} animates, and an animation is addressed by cell index rather than by rect",
-            fix="ssc tool pack without --atlas",
-        )
-    return profile.atlas_layout
+    return None if kind is None else kinds.resolve(kind, ws.require()).profile
 
 
 def pack_atlas(
@@ -632,17 +622,21 @@ def pack_atlas(
         raise UsageError(
             "canvas-too-large", str(refused), fix="use a narrower --width, or fewer entries"
         ) from refused
-    except ValueError as refused:
-        # One code per refusal, because the fix differs: an entry too wide is answered by a
-        # wider atlas, an over-wide extrusion by more padding. A caller acting on the wrong
-        # `fix` is sent in the wrong direction.
-        message = str(refused)
-        if "extrude" in message:
-            raise UsageError(
-                "extrude-past-padding", message, fix="raise --padding, or lower --extrude"
-            ) from refused
+    # One code per refusal, because the fix differs: an entry too wide is answered by a wider
+    # atlas and an out-of-range gap by a different gap, and a caller acting on the wrong
+    # `fix` is sent in the wrong direction. By type rather than by reading the message —
+    # "padding and extrude are capped" contains the word `extrude` and is not that refusal.
+    except atlas.GapTooWide as refused:
         raise UsageError(
-            "entry-does-not-fit", message, fix="raise --width, or pack that entry separately"
+            "invalid-gap", str(refused), fix="--extrude must be no wider than --padding"
+        ) from refused
+    except atlas.EntryDoesNotFit as refused:
+        raise UsageError(
+            "entry-does-not-fit", str(refused), fix="raise --width, or pack in smaller sets"
+        ) from refused
+    except ValueError as refused:
+        raise UsageError(
+            "invalid-atlas", str(refused), fix="check the set being packed"
         ) from refused
 
     written = write_one(out, sheet, dry_run=dry_run)
@@ -692,7 +686,19 @@ def pack_sheet(
     dry_run: bool,
 ) -> Result:
     frames = read_frames(source)
-    declared = atlas_layout_of(kind)
+    profile = profile_of(kind)
+    # An animating kind is not an atlas (R3.2) — but that is a refusal of *this mode*, not of
+    # naming the kind. `--kind character --cols 3` is an ordinary sheet and must stay one:
+    # checking `animates` as a side effect of merely reading the profile refused it, with a
+    # fix naming a flag the caller never passed.
+    if as_atlas and profile is not None and profile.animates:
+        raise UsageError(
+            "kind-animates",
+            f"{kind} animates, and an animation is addressed by cell index rather than by rect",
+            fix="ssc tool pack without --atlas",
+        )
+    # A kind that animates has no atlas layout to declare, whatever its profile says.
+    declared = None if profile is None or profile.animates else profile.atlas_layout
     # The flag and the profile answer one question, so either may ask for an atlas — but a
     # kind declaring `grid` must not be silently overridden into one, or the profile stops
     # being where a project decides this (R3.1).

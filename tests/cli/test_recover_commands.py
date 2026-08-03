@@ -313,3 +313,143 @@ def test_a_piece_filter_on_a_grid_is_refused_rather_than_ignored(tmp_path: Path)
     assert code == 2
     assert payload["error"]["code"] == "filter-without-mode"
     assert not (tmp_path / "o").exists()
+
+
+# specs/sheet-assembly — expand, mirror, align, pack.
+
+
+def figure_at(path: Path, x: int, y: int, size: int = 12) -> Path:
+    image = np.zeros((size, size, 4), dtype=np.uint8)
+    image[y : y + 4, x : x + 2] = (200, 30, 30, 255)
+    return save(path, image)
+
+
+def a_set(tmp_path: Path) -> Path:
+    source = tmp_path / "frames"
+    figure_at(source / "001.png", 1, 2)
+    figure_at(source / "002.png", 7, 5)
+    return source
+
+
+def test_expand_to_a_size(tmp_path: Path) -> None:
+    code, payload = run(
+        "tool",
+        "expand",
+        "--to",
+        "24x24",
+        "--in",
+        str(figure_at(tmp_path / "a.png", 1, 2)),
+        "--out",
+        str(tmp_path / "o.png"),
+    )
+    assert code == 0
+    assert payload["size"] == {"width": 24, "height": 24}
+    assert Image.open(tmp_path / "o.png").size == (24, 24)
+
+
+def test_expand_never_crops(tmp_path: Path) -> None:
+    code, payload = run(
+        "tool",
+        "expand",
+        "--to",
+        "4x4",
+        "--in",
+        str(figure_at(tmp_path / "a.png", 1, 2)),
+        "--out",
+        str(tmp_path / "o.png"),
+    )
+    assert code == 2
+    assert payload["error"]["code"] == "invalid-target"
+
+
+def test_expand_takes_exactly_one_of_to_and_by(tmp_path: Path) -> None:
+    code, payload = run(
+        "tool",
+        "expand",
+        "--in",
+        str(figure_at(tmp_path / "a.png", 1, 2)),
+        "--out",
+        str(tmp_path / "o.png"),
+    )
+    assert code == 2
+    assert payload["error"]["code"] == "no-target"
+
+
+def test_mirror_flips_and_says_so(tmp_path: Path) -> None:
+    code, payload = run(
+        "tool",
+        "mirror",
+        "--in",
+        str(figure_at(tmp_path / "a.png", 0, 0)),
+        "--out",
+        str(tmp_path / "o.png"),
+    )
+    assert code == 0
+    assert payload["mirrored"] is True
+    written = np.array(Image.open(tmp_path / "o.png").convert("RGBA"))
+    assert written[0, -1, 3] == 255
+    assert written[0, 0, 3] == 0
+
+
+def test_align_puts_every_frame_on_one_anchor(tmp_path: Path) -> None:
+    code, payload = run(
+        "tool", "align", "--in", str(a_set(tmp_path)), "--out", str(tmp_path / "out")
+    )
+    assert code == 0
+    assert payload["empty"] == []
+
+    from ssc.core.doctor.masks import alpha_mask, anchor
+
+    written = sorted((tmp_path / "out").iterdir())
+    anchors = {anchor(alpha_mask(np.array(Image.open(path).convert("RGBA")))) for path in written}
+    assert len(anchors) == 1
+
+
+def test_align_writes_an_onion_skin_when_asked(tmp_path: Path) -> None:
+    code, _ = run(
+        "tool",
+        "align",
+        "--onion",
+        str(tmp_path / "onion.png"),
+        "--in",
+        str(a_set(tmp_path)),
+        "--out",
+        str(tmp_path / "out"),
+    )
+    assert code == 0
+    assert (tmp_path / "onion.png").is_file()
+
+
+def test_pack_reports_the_cell_the_grid_and_the_anchor(tmp_path: Path) -> None:
+    code, payload = run(
+        "tool",
+        "pack",
+        "--cols",
+        "2",
+        "--in",
+        str(a_set(tmp_path)),
+        "--out",
+        str(tmp_path / "s.png"),
+    )
+    assert code == 0
+    assert payload["columns"] == 2
+    assert payload["rows"] == 1
+    assert payload["cell"] == {"width": 12, "height": 12}
+    assert "anchor" in payload
+    assert Image.open(tmp_path / "s.png").size == (24, 12)
+
+
+def test_a_cell_that_does_not_fit_is_refused(tmp_path: Path) -> None:
+    code, payload = run(
+        "tool",
+        "pack",
+        "--cell",
+        "4x4",
+        "--in",
+        str(a_set(tmp_path)),
+        "--out",
+        str(tmp_path / "s.png"),
+    )
+    assert code == 2
+    assert payload["error"]["code"] == "invalid-cell"
+    assert not (tmp_path / "s.png").exists()

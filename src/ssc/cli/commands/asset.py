@@ -6,7 +6,7 @@ import click
 
 from ssc.cli import kinds, meta
 from ssc.cli.errors import UsageError
-from ssc.cli.listing import under_assets
+from ssc.cli.listing import bound, under_assets
 from ssc.cli.main import ssc_command
 from ssc.cli.output import Result
 from ssc.cli.workspace import Workspace
@@ -47,13 +47,14 @@ def asset_new(key: str, kind: str, *, dry_run: bool, workspace: Workspace) -> Re
         return Result("asset new", f"would create {kind}/{key}", data, dry_run=True)
 
     directory.mkdir(parents=True, exist_ok=True)
-    # Again, now that the path exists. The first check ran against a `<kind>/` that may not
-    # have existed yet, and `resolve()` reads a missing component literally — so a link
-    # planted between the check and `mkdir` would have been invisible to it and followed by
-    # `mkdir(parents=True)`. Re-checking here costs nothing and moves what an attacker can
-    # win from a written `meta.json` to an empty directory.
-    under_assets(workspace, directory)
-    meta.save(directory, meta.AssetMeta(key=key, kind=kind))
+    # Held and checked again, now that the path exists. The first check ran against a
+    # `<kind>/` that may not have existed yet, and `resolve()` reads a missing component
+    # literally — so a link planted between the check and `mkdir` would have been invisible
+    # to it and followed by `mkdir(parents=True)`. `bound` re-checks *and* keeps the
+    # directory it checked, which is what the write below goes through: re-checking alone
+    # left the swap open for the statements between the check and the write.
+    with bound(workspace, directory) as held:
+        meta.save(held, meta.AssetMeta(key=key, kind=kind))
     return Result("asset new", f"created {kind}/{key}", data)
 
 

@@ -16,6 +16,7 @@ from typing import Any
 import numpy as np
 import pytest
 from click.testing import CliRunner
+from conftest import save_meta
 from PIL import Image
 
 from ssc.cli import meta
@@ -43,7 +44,7 @@ def add(directory: Path, path: str, stage: str, file_class: str, parents: list[s
         produced_by=meta.Provenance(command="test"),
         derived_from=parents,
     )
-    meta.save(directory, record)
+    save_meta(directory, record)
 
 
 @pytest.fixture
@@ -54,7 +55,7 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
     hero = tmp_path / "assets/character/hero"
     hero.mkdir(parents=True)
-    meta.save(hero, meta.AssetMeta(key="hero", kind="character"))
+    save_meta(hero, meta.AssetMeta(key="hero", kind="character"))
     write_png(hero / "001_hero.png")
     write_png(hero / "002_hero.snap.png")
     (hero / "003_hero.mp4").write_bytes(b"not decoded by anything here")
@@ -66,7 +67,7 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
     grass = tmp_path / "assets/tile/grass"
     grass.mkdir(parents=True)
-    meta.save(grass, meta.AssetMeta(key="grass", kind="tile"))
+    save_meta(grass, meta.AssetMeta(key="grass", kind="tile"))
     write_png(grass / "001_grass.png")
     add(grass, "001_grass.png", "raw", "source", [])
     return tmp_path
@@ -197,7 +198,7 @@ def test_an_asset_can_be_addressed_by_kind_and_key(workspace: Path) -> None:
 def test_a_bare_key_in_two_kinds_exits_two(workspace: Path, tmp_path: Path) -> None:
     twin = tmp_path / "assets/tile/hero"
     twin.mkdir(parents=True)
-    meta.save(twin, meta.AssetMeta(key="hero", kind="tile"))
+    save_meta(twin, meta.AssetMeta(key="hero", kind="tile"))
 
     code, payload = run("image", "show", "hero")
     assert code == 2
@@ -309,7 +310,7 @@ def test_show_refuses_a_linked_asset_directory_by_either_address(
     CliRunner().invoke(main, ["init"], catch_exceptions=False)
     elsewhere = tmp_path / "outside" / "hero"
     elsewhere.mkdir(parents=True)
-    meta.save(elsewhere, meta.AssetMeta(key="hero", kind="character"))
+    save_meta(elsewhere, meta.AssetMeta(key="hero", kind="character"))
     write_png(elsewhere / "001_secret.png")
     add(elsewhere, "001_secret.png", "anchor", "source", [])
     (tmp_path / "assets" / "character").mkdir(parents=True)

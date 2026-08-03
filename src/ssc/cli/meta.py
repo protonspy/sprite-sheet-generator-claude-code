@@ -15,7 +15,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from ssc.cli.atomic import replace
+from ssc.cli.atomic import Directory
 from ssc.cli.errors import SscError, UsageError
 from ssc.cli.names import check_name, check_relative_path
 
@@ -165,11 +165,18 @@ def load(asset_dir: Path) -> AssetMeta:
         ) from invalid
 
 
-def save(asset_dir: Path, meta: AssetMeta) -> Path:
+def save(asset_dir: Directory, meta: AssetMeta) -> Path:
     """Rewritten whole, atomically (R3.6). At tens of files per asset the cost is nothing
-    and the failure mode — half a record — is the one worth spending to avoid."""
+    and the failure mode — half a record — is the one worth spending to avoid.
+
+    It takes the *held* directory rather than a path (R3.7), and that is the point of the
+    type: `meta.json` is what makes a directory an asset, so a caller that has not bound
+    the directory it checked has no business writing one. There is nowhere left to express
+    "check it, then save by path" — which is the failure this signature exists to make
+    unwritable rather than merely discouraged.
+    """
     payload = meta.model_dump_json(indent=2, by_alias=True) + "\n"
-    return replace(path_of(asset_dir), payload.encode())
+    return asset_dir.replace(META_NAME, payload.encode())
 
 
 def record(

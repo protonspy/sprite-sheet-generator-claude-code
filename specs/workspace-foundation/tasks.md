@@ -31,6 +31,8 @@ repeated per task.
 - [x] 4.4 (Unit) `ssc asset new <key> --kind <kind>` — create the directory and its `meta.json`, and refuse a key the kind already has — R2.2, R2.3
 - [x] 4.5 (Unit) Reject any subdirectory of an asset other than `frames/` — R2.5
 - [x] 4.6 (Unit) Call that rejection where a caller addresses one asset, and the escape check on every route that reaches one, the two that create included — R2.5
+- [x] 4.7 (Unit) Hold the asset directory that was checked and write every file through it — the PNGs, `frames/` and `meta.json` — refusing when the path no longer names it — R3.7, R3.8
+- [x] 4.8 (Unit) Delete through the held directory too, refusing to cross a link on the way to a recorded path — the only command that removes anything removes `frames/`, a directory — R3.7, R3.8, R6.1
 
 ## 5 · The cache
 

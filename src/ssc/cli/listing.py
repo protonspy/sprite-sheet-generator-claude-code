@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from ssc.cli import meta
+from ssc.cli.atomic import Directory
 from ssc.cli.errors import SscError, UsageError
 from ssc.cli.meta import AssetMeta, FileRecord, prefix_of
 from ssc.cli.workspace import Workspace
@@ -152,6 +153,35 @@ def addressed(workspace: Workspace, directory: Path) -> Path:
     if directory.is_dir():
         meta.check_layout(directory)
     return directory
+
+
+def bound(workspace: Workspace, directory: Path) -> Directory:
+    """`under_assets`, for a caller that is about to *write* — held, then checked (R3.7).
+
+    The order is the whole content of this function, and it is the reverse of the obvious
+    one. Checking a path and then opening it leaves the window the check was for: a
+    component swapped in between is followed by the open, and `under_assets` never sees it.
+    So: open first, which pins a directory; then run the check, which resolves the path;
+    then confirm the path that passed names the directory being held. A swap before the
+    open fails the check, a swap after it cannot reach the writes, and a swap in between
+    fails the confirmation.
+
+    The escape gate and not `addressed`, for the reason `addressed` gives itself: `clean`
+    writes a record back for every asset in the workspace, so refusing here over one
+    asset's stray directory would abort a clean half way through — the blast radius that
+    keeps the layout check on the asset somebody named. The caller that named one adds it.
+
+    This opens what is there and does not create it. The creating routes `mkdir` first,
+    because what they do about a directory that already exists differs between them.
+    """
+    handle = Directory.open(directory)
+    try:
+        under_assets(workspace, directory)
+        handle.confirm(directory)
+    except BaseException:
+        handle.close()
+        raise
+    return handle
 
 
 def asset_dirs(workspace: Workspace) -> list[Path]:

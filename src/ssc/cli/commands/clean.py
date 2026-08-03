@@ -8,10 +8,8 @@ asymmetry is the whole of this command, and it reads one field to honour it.
 
 from __future__ import annotations
 
-import shutil
-
 from ssc.cli import meta
-from ssc.cli.listing import asset_dirs, inside
+from ssc.cli.listing import asset_dirs, bound, inside
 from ssc.cli.main import ssc_command
 from ssc.cli.output import Result
 from ssc.cli.workspace import Workspace
@@ -33,21 +31,30 @@ def clean(*, dry_run: bool, workspace: Workspace) -> Result:
         if not removable:
             continue
 
-        for entry in removable:
-            target = inside(directory, entry.path)
-            deleted.append(f"{record.kind}/{record.key}/{entry.path}")
-            if dry_run:
-                continue
-            # A record whose file already went by hand is still a record to drop: leaving
-            # it would let `--stage snap` resolve to a path that is not there.
-            if target.is_dir():
-                shutil.rmtree(target)
-            else:
-                target.unlink(missing_ok=True)
+        if dry_run:
+            deleted += [f"{record.kind}/{record.key}/{entry.path}" for entry in removable]
+            continue
 
-        if not dry_run:
+        # Held for the whole asset (R3.7). `asset_dirs` checked this directory when it
+        # scanned, and the scan is one loop iteration per asset ago — so both the deletes
+        # and the record that follows them go through the directory rather than through
+        # that path a second time. The deletes especially: this is the only command in
+        # `ssc` that removes anything, and one of the things it removes is `frames/`, a
+        # directory. A path re-resolved through a link turns that into `shutil.rmtree`
+        # somewhere nobody asked for, which is a worse outcome than any write.
+        with bound(workspace, directory) as held:
+            for entry in removable:
+                # Still checked as a string against the record, which is where a
+                # hand-edited `meta.json` is caught; `delete` is what refuses to *cross* a
+                # link, which a resolved path cannot promise once the root can move.
+                inside(held.path, entry.path)
+                deleted.append(f"{record.kind}/{record.key}/{entry.path}")
+                # A record whose file already went by hand is still a record to drop:
+                # leaving it would let `--stage snap` resolve to a path that is not there.
+                held.delete(entry.path)
+
             record.files = [entry for entry in record.files if entry.file_class != "derived"]
-            meta.save(directory, record)
+            meta.save(held, record)
 
     summary = (
         f"{len(deleted)} derived file{'' if len(deleted) == 1 else 's'}"

@@ -253,7 +253,7 @@ deliverable on its own: M1 already repairs a sheet you have today, with no API k
       format it appears; and by shape, matching `api_key=…`, `Authorization: Bearer …` or
       a connection string's password for one that never passed through this process's
       environment. Recorded as `workspace-foundation` R4.6
-- [ ] 0.12 (Unit) Bind an asset write to the directory that was checked, as a delta against
+- [x] 0.12 (Unit) Bind an asset write to the directory that was checked, as a delta against
       `workspace-foundation` — `asset new` and `tool slice` re-check with `under_assets`
       after `mkdir`, which is what moves a lost race from a written `meta.json` to an empty
       directory, but `atomic.write_new` and `atomic.replace` each call
@@ -262,7 +262,47 @@ deliverable on its own: M1 already repairs a sheet you have today, with no API k
       close is a directory handle opened once and every write made relative to it
       (`os.open(dir, O_DIRECTORY)` + `dir_fd=`), which is a change to the write helpers
       rather than to their callers. `record_frames`, which `tool cut` uses, has the same
-      shape with a wider window and belongs in the same pass
+      shape with a wider window and belongs in the same pass.
+      **Done as `workspace-foundation` R3.7**, and the write helpers alone were not enough:
+      a helper that opens `path.parent` binds to whatever the path resolves to *then*, which
+      is the same window one statement later. The directory has to be held by the caller
+      that checked it, so `listing.bound` opens it, checks it and confirms the checked path
+      is the directory being held — in that order, because check-then-open leaves the gap it
+      closes — and `meta.save` takes that object rather than a path, which is what makes the
+      unbound write unwritable rather than merely discouraged. Four routes, not three:
+      `clean` rewrites a record per asset too. It also does **not** get `addressed`'s layout
+      check, because `clean` sweeps the whole workspace and refusing there over one asset's
+      stray directory aborts a sweep mid-delete — the blast radius 0.9 already ruled on.
+      **Windows has no `dir_fd`**: `os.supports_dir_fd` is empty and `os.open` will not open
+      a directory, so the binding degrades there to an identity check before each write. It
+      narrows the window rather than closing it, and turns a lost race into a refusal.
+      **The security review then caught what "an asset write" left out**: `clean`'s deletes
+      still went through a re-resolved path, and one of the things a record names is
+      `frames/`, a directory — so the operation left unbound was `shutil.rmtree`, the widest
+      blast radius in the tool, while the writes beside it were hardened. Deleting is bound
+      too now, `O_NOFOLLOW` per segment on the way to a recorded path, and R3.7 says "writes
+      or deletes" rather than "writes".
+      **And a second review round found the whole POSIX branch was dead code.** The feature
+      gate read `os.replace in os.supports_dir_fd`, and that set is built by name from the
+      syscalls CPython found — `HAVE_RENAMEAT` registers `"rename"`, nothing ever registers
+      `"replace"` — so the gate was unsatisfiable and every platform silently took the
+      weaker Windows fallback. Nothing went red, because the machine this was written on is
+      the one where `False` is the right answer. The lesson is not the typo: **a
+      platform-conditional hardening needs the other platform run before the PR**, so this
+      one was verified under WSL on ext4 as well as on Windows, and `_DIR_FD is True` is now
+      an assertion rather than an assumption
+- [ ] 0.13 (Unit) Read a `meta.json` through the directory that was checked, as a delta against
+      `workspace-foundation` — 0.12 bound every write and every delete, and left the reads by
+      path: `meta.load`, `meta.check_layout` and `listing`'s scan all resolve the asset
+      directory again, so a swap in that window feeds a foreign record into the command that
+      asked for the real one. Lower stakes than a write and much wider: `load` is called from
+      almost every command, so the honest version changes `meta.load`'s signature the way
+      `meta.save`'s changed rather than patching the one call site `tool cut` uses. Two
+      smaller findings belong in the same pass: `under_assets` proves a directory is *under*
+      `assets/` and never that it is the `<kind>/<key>` the caller named, so a link aliasing
+      one valid asset onto another passes every check there is; and on Windows the identity
+      guard rests on `(st_dev, st_ino)`, which NTFS reports honestly and FAT32, exFAT and
+      some network volumes historically do not — worth measuring before trusting
 
 ## Notes
 

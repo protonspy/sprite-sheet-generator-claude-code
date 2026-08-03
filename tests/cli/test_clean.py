@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 
 from click.testing import CliRunner
+from conftest import save_meta
 
 from ssc.cli import meta
 from ssc.cli.app import main
@@ -39,7 +40,7 @@ def workspace_with_a_chain(tmp_path: Path) -> Path:
             data=data,
             produced_by=meta.Provenance(command="test"),
         )
-    meta.save(directory, record)
+    save_meta(directory, record)
     return directory
 
 

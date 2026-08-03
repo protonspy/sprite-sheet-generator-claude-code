@@ -19,6 +19,7 @@ import numpy as np
 
 from ssc.cli import kinds, listing, meta
 from ssc.cli import workspace as ws
+from ssc.cli.atomic import Directory
 from ssc.cli.commands.convert import MAX_BOARD_SIDE, parse_hex, parse_key, parse_size
 from ssc.cli.errors import SscError, UsageError
 from ssc.cli.frames import Frame, encode, load_image, read_frames, write_frames, write_one
@@ -151,30 +152,45 @@ def destination(asset: str | None, out: Path | None) -> None:
         )
 
 
-def asset_dir_for(address: str) -> tuple[Path, meta.AssetMeta]:
-    """The asset named by `<kind>/<key>`, which has to exist already."""
+def asset_dir_for(address: str) -> tuple[Directory, meta.AssetMeta]:
+    """The asset named by `<kind>/<key>`, which has to exist already, held open.
+
+    The third route to an asset directory, and the first that resolves an address to an
+    asset that already exists *and then writes into it*. `listing` states the invariant this
+    would otherwise break: every route passes through there, because guarding one of several
+    is the same as guarding none. It is held rather than merely checked because the write is
+    a few statements later and a path is not a directory — see `listing.bound`.
+    """
     parts = address.split("/")
     if len(parts) != 2:
         raise UsageError(
             "invalid-address", f"{address!r} is not an asset", fix="write it as <kind>/<key>"
         )
     workspace = ws.require()
-    # The third route to an asset directory, and the first that resolves an address to an
-    # asset that already exists *and then writes into it*. `listing` states the invariant
-    # this would otherwise break: every route passes through here, because guarding one of
-    # several is the same as guarding none.
-    directory = listing.addressed(workspace, workspace.asset_dir(parts[0], parts[1]))
-    if not meta.path_of(directory).is_file():
+    path = workspace.asset_dir(parts[0], parts[1])
+    if not meta.path_of(path).is_file():
+        # Before `bound`, because a key nobody has created yet is an ordinary mistake with
+        # a command that fixes it, and `Directory.open` on a path that is not there is a
+        # `FileNotFoundError` that says none of that.
         raise UsageError(
             "no-asset",
             f"no asset {address} in this workspace",
             fix=f"ssc asset new {parts[1]} --kind {parts[0]}",
         )
-    return directory, meta.load(directory)
+    held = listing.bound(workspace, path)
+    try:
+        # `bound` is the escape gate; the layout check is `addressed`'s and belongs to a
+        # caller that named one asset, which is what this is. Splitting them is what keeps
+        # `clean`'s sweep from aborting over an asset it was not asked about.
+        meta.check_layout(path)
+        return held, meta.load(path)
+    except BaseException:
+        held.close()
+        raise
 
 
 def record_frames(
-    directory: Path,
+    directory: Directory,
     record: meta.AssetMeta,
     pieces: list[np.ndarray],
     *,
@@ -186,20 +202,18 @@ def record_frames(
 
     One record, not N: a stage is unique per asset, and N frames are one stage. `frames/` is
     also the only subdirectory an asset may have, which is `workspace-foundation`'s R2.5.
+
+    Every write goes through the held directory (R3.7), including the `frames/` it creates:
+    this is the widest window in the tool — N frames and then a `meta.json` — so it is the
+    one where re-resolving `<kind>/<key>/` per file would have cost the most.
     """
-    target = directory / FRAMES_STAGE
     written = [f"{FRAMES_STAGE}/{index + 1:03d}.png" for index in range(len(pieces))]
     if dry_run:
         return written
 
-    if target.exists():
-        raise SscError(
-            "file-exists",
-            f"{target} already exists, and nothing in ssc overwrites",
-            fix=f"ssc clean, or remove {target} by hand",
-        )
-    for name, piece in zip(written, pieces, strict=True):
-        write_one(directory / name, piece)
+    with directory.child(FRAMES_STAGE) as frames_dir:
+        for name, piece in zip(written, pieces, strict=True):
+            frames_dir.write_new(name.split("/", 1)[1], encode(piece))
 
     meta.record(
         record,
@@ -208,7 +222,7 @@ def record_frames(
         file_class="derived",
         data=b"".join(encode(piece) for piece in pieces),
         produced_by=meta.Provenance(command="tool cut", params=params),
-        derived_from=[source.name] if (directory / source.name).exists() else [],
+        derived_from=[source.name] if (directory.path / source.name).exists() else [],
     )
     meta.save(directory, record)
     return written
@@ -275,14 +289,15 @@ def cut(
 
     if asset is not None:
         directory, record = asset_dir_for(asset)
-        written = record_frames(
-            directory,
-            record,
-            pieces,
-            source=source,
-            params={**decided, "from": source.name},
-            dry_run=dry_run,
-        )
+        with directory:
+            written = record_frames(
+                directory,
+                record,
+                pieces,
+                source=source,
+                params={**decided, "from": source.name},
+                dry_run=dry_run,
+            )
     else:
         assert out is not None
         frames = [Frame(f"{index + 1:03d}.png", piece) for index, piece in enumerate(pieces)]
@@ -371,22 +386,24 @@ def slice_sheet(
             if dry_run:
                 continue
             directory.mkdir(parents=True, exist_ok=True)
-            under_assets(workspace, directory)  # again, now that the path exists
-            record = meta.AssetMeta(key=name, kind=kind)
-            data = encode(piece)
-            filename = meta.filename(1, name, [], "png")
-            write_one(directory / filename, piece)
-            meta.record(
-                record,
-                path=filename,
-                stage="cut",
-                file_class="derived",
-                data=data,
-                produced_by=meta.Provenance(
-                    command="tool slice", params={**decided, "from": source.name}
-                ),
-            )
-            meta.save(directory, record)
+            # Held and re-checked now that the path exists, and both writes below go
+            # through what is held rather than through `directory` again (R3.7).
+            with listing.bound(workspace, directory) as held:
+                record = meta.AssetMeta(key=name, kind=kind)
+                data = encode(piece)
+                filename = meta.filename(1, name, [], "png")
+                held.write_new(filename, data)
+                meta.record(
+                    record,
+                    path=filename,
+                    stage="cut",
+                    file_class="derived",
+                    data=data,
+                    produced_by=meta.Provenance(
+                        command="tool slice", params={**decided, "from": source.name}
+                    ),
+                )
+                meta.save(held, record)
 
     return Result(
         "tool slice",

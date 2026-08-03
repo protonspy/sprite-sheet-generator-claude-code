@@ -1,5 +1,14 @@
 # Wiki changelog
 
+## 2026-08-03 — silhouette gets a metric
+
+`specs/sheet-doctor/` closed the one gap this page named as open.
+
+- **[[game-ready-defects]]** — `silhouette` is mask integrity at the target cell: holes
+  the body encloses, and fragments the body broke into. Outline readability was the other
+  reading and was rejected, with why. The page no longer tells the reader to assume no
+  metric, because there is one.
+
 ## 2026-08-02 — what the models accept, and one banned synonym
 
 Task 0.7 of `plans/ssc-pipeline.md` read the four named models' schemas off Fal's

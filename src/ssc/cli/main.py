@@ -65,3 +65,9 @@ def main() -> None:
 
     `tool` commands are local, free and synchronous. `gen` commands bill.
     """
+
+
+@click.group("tool", help="Local, free and synchronous. Nothing under `tool` bills.")
+def tool() -> None:
+    """The verb carries the guarantee: `tool` is free, `gen` charges. An agent scanning
+    the command list can tell which calls burn credit without inspecting a flag."""

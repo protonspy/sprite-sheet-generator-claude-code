@@ -21,6 +21,7 @@ from ssc.cli.commands.convert import (
 )
 from ssc.cli.commands.doctor import doctor
 from ssc.cli.commands.init import init
+from ssc.cli.commands.job import job
 from ssc.cli.commands.kind import kind
 from ssc.cli.commands.media import image, video
 from ssc.cli.commands.recover import (
@@ -38,6 +39,7 @@ main.add_command(init)
 main.add_command(asset)
 main.add_command(clean)
 main.add_command(kind)
+main.add_command(job)
 main.add_command(image)
 main.add_command(video)
 main.add_command(tool)

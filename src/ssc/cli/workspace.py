@@ -39,6 +39,13 @@ class Workspace:
     def cache(self) -> Path:
         return self.root / "cache"
 
+    @property
+    def jobs(self) -> Path:
+        """Local operational state, git-ignored, and `ssc clean` does not touch it: its rule
+        is that it deletes `derived` files, and a job record is neither derived nor an
+        asset. See adr:0005-a-job-always-exists."""
+        return self.root / "jobs"
+
     def asset_dir(self, kind: str, key: str) -> Path:
         """`assets/<kind>/<key>/` — kind first. See adr:0007-group-assets-by-kind-then-key.
 
@@ -88,4 +95,5 @@ def create(directory: Path) -> Workspace:
     write_new(workspace.config_path, yaml.safe_dump({"schema": SCHEMA}, sort_keys=True).encode())
     workspace.assets.mkdir(parents=True, exist_ok=True)
     workspace.cache.mkdir(parents=True, exist_ok=True)
+    workspace.jobs.mkdir(parents=True, exist_ok=True)
     return workspace

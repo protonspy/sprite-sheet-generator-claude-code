@@ -23,6 +23,8 @@ from ssc.cli.main import ssc_command
 from ssc.cli.output import Result
 from ssc.cli.snap import SnapParams, snap_frames
 from ssc.cli.snapper import Snapper
+from ssc.core import ninepatch
+from ssc.core.assemble import pack
 from ssc.core.bgremove import PRESETS, BgRemoveParams, remove
 from ssc.core.board import checkerboard, pose_board
 from ssc.core.normal import MAX_STRENGTH, MIN_STRENGTH
@@ -579,6 +581,123 @@ def layers(source: Path, scroll: str | None, *, dry_run: bool) -> Result:
                 {"index": index, "file": frame.name, "scroll": factor}
                 for index, (frame, factor) in enumerate(zip(frames, factors, strict=True))
             ],
+        },
+        dry_run=dry_run,
+    )
+
+
+#: The four a control has, in the order an engine expects them laid out. A closed set, which
+#: is unusual in this project and right here: an engine looks up `hover`, so a file named
+#: `hovver` that packed silently would produce a control whose hover state nothing queries —
+#: and the failure reads as "the button doesn't light up", with no error to explain it.
+STATES = ("normal", "hover", "pressed", "disabled")
+
+
+def parse_guides(value: str | None) -> tuple[int, int, int, int] | None:
+    if value is None:
+        return None
+    parts = [part.strip() for part in value.split(",") if part.strip()]
+    if len(parts) != 4 or not all(part.lstrip("-").isdigit() for part in parts):
+        raise UsageError(
+            "invalid-guides",
+            f"{value!r} is not four numbers",
+            fix="write it as left,right,top,bottom — distances inwards from each edge",
+        )
+    left, right, top, bottom = (int(part) for part in parts)
+    return left, right, top, bottom
+
+
+@ssc_command("ninepatch", help="Report the guides an engine stretches a panel by.")
+@click.option("--guides", default=None, help="left,right,top,bottom. Omit to derive them.")
+@click.option(
+    "--in", "source", required=True, type=click.Path(path_type=Path), help="A panel image."
+)
+def ninepatch_guides(source: Path, guides: str | None, *, dry_run: bool) -> Result:
+    """R1.1, R1.4, R1.5 — the four numbers, and the nine regions they make.
+
+    No `--out`, for `doctor`'s reason: the guides are a fact about the art, not a new image.
+    """
+    frames = read_frames(source)
+    if len(frames) != 1:
+        raise UsageError(
+            "not-one-panel",
+            f"a nine-patch is one image and {source} holds {len(frames)}",
+            fix="point --in at the panel itself",
+        )
+    image = frames[0].image
+    resolved = ninepatch.guides_for(image, parse_guides(guides))
+    try:
+        described = ninepatch.describe(image, resolved)
+    except ValueError as refused:
+        raise UsageError(
+            "invalid-guides",
+            str(refused),
+            fix="leave a centre: left + right must be less than the width, and likewise down",
+        ) from refused
+
+    left, right, top, bottom = resolved
+    return Result(
+        "tool ninepatch",
+        f"guides {left},{right},{top},{bottom} on {image.shape[1]}x{image.shape[0]}",
+        {
+            **described,
+            "derived": guides is None,
+            "size": {"width": int(image.shape[1]), "height": int(image.shape[0])},
+        },
+        dry_run=dry_run,
+    )
+
+
+@ssc_command("states", help="Pack a control's states into one sheet.")
+@click.option("--out", required=True, type=click.Path(path_type=Path))
+@click.option(
+    "--in",
+    "source",
+    required=True,
+    type=click.Path(path_type=Path),
+    help="A directory whose filenames are state names.",
+)
+def control_states(source: Path, out: Path, *, dry_run: bool) -> Result:
+    """R3.1, R3.2, R3.3 — one sheet, in the order the engine expects."""
+    frames = read_frames(source)
+    named = {Path(frame.name).stem.lower(): frame for frame in frames}
+
+    unknown = sorted(set(named) - set(STATES))
+    if unknown:
+        raise UsageError(
+            "unknown-state",
+            f"{', '.join(unknown)} {'is' if len(unknown) == 1 else 'are'} not a control state",
+            fix=f"name the files after {', '.join(STATES)}",
+        )
+
+    sizes = {(frame.image.shape[1], frame.image.shape[0]) for frame in frames}
+    if len(sizes) > 1:
+        found = ", ".join(f"{width}x{height}" for width, height in sorted(sizes))
+        raise UsageError(
+            "states-differ",
+            f"a control's states are one size and these are {found}",
+            fix="ssc tool expand them to a common size",
+        )
+
+    # Canonical order, not filename order: an engine indexes by position, and `disabled`
+    # sorting before `normal` alphabetically would put them in the wrong cells.
+    present = [state for state in STATES if state in named]
+    width, height = next(iter(sizes))
+    sheet, layout = pack([named[state].image for state in present], columns=len(present))
+    written = write_one(out, sheet, dry_run=dry_run)
+    return Result(
+        "tool states",
+        f"{len(present)} state{'' if len(present) == 1 else 's'} as one sheet",
+        {
+            **layout.as_dict(),
+            "states": [
+                {
+                    "name": state,
+                    "rect": {"x": index * width, "y": 0, "width": width, "height": height},
+                }
+                for index, state in enumerate(present)
+            ],
+            "written": [str(path) for path in written],
         },
         dry_run=dry_run,
     )

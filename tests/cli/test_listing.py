@@ -301,6 +301,50 @@ def test_a_recorded_file_that_is_a_symlink_out_is_refused_before_it_is_opened(
     assert victim.read_bytes() == b"not reproducible"
 
 
+# workspace-foundation R2.5 — enforced on the asset a caller addressed, which is where
+# refusing changes an outcome, and not on the scan, which would take the workspace down.
+
+
+@pytest.mark.parametrize("address", ["character/hero", "hero"])
+def test_addressing_an_asset_that_holds_a_stray_subdirectory_is_refused(
+    address: str, tmp_path: Path
+) -> None:
+    """Both branches of `resolve`: naming the kind, and letting a bare key find it."""
+    workspace.create(tmp_path)
+    directory = make_asset(tmp_path, "character", "hero")
+    (directory / "notes").mkdir()
+
+    with pytest.raises(SscError) as refused:
+        listing.resolve(workspace.Workspace(root=tmp_path), address)
+    assert refused.value.code == "unexpected-subdirectory"
+    assert "notes" in refused.value.message
+
+
+def test_one_malformed_asset_does_not_take_the_listing_down_with_it(tmp_path: Path) -> None:
+    """The blast radius the code review found: `entries` scans every asset, so refusing
+    there means one stray directory anywhere stops `list`, `clean`, and every unrelated
+    asset. The read paths in this module skip what they cannot use; this one does too."""
+    workspace.create(tmp_path)
+    make_asset(tmp_path, "character", "hero")
+    (make_asset(tmp_path, "tile", "grass") / "notes").mkdir()
+
+    listed = [directory.name for directory in listing.asset_dirs(workspace.Workspace(tmp_path))]
+
+    assert listed == ["hero", "grass"]
+    # And the healthy one is still reachable by name while the other is not.
+    assert listing.resolve(workspace.Workspace(tmp_path), "character/hero")[1].key == "hero"
+
+
+def test_frames_is_the_one_subdirectory_that_belongs(tmp_path: Path) -> None:
+    """The other half of R2.5: `frames/` is the set, and checking the layout must not
+    refuse the one asset shape the whole pipeline produces."""
+    workspace.create(tmp_path)
+    directory = make_asset(tmp_path, "character", "hero")
+    (directory / "frames").mkdir()
+
+    assert listing.addressed(workspace.Workspace(root=tmp_path), directory) == directory
+
+
 def test_an_asset_directory_that_stays_inside_is_allowed(tmp_path: Path) -> None:
     """The other half of R4.1: the check must not refuse an ordinary workspace, including
     one whose `assets/` is itself somewhere else — that is the root both sides resolve

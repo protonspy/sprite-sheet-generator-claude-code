@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -150,3 +151,64 @@ def test_an_absolute_kind_cannot_discard_the_workspace_root(
     )
     assert result.exit_code == 2
     assert json.loads(result.output)["error"]["code"] == "invalid-name"
+
+
+def test_asset_new_refuses_a_kind_directory_that_is_a_link_out(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, link_dir: Callable[[Path, Path], None]
+) -> None:
+    """A valid name is not a valid destination. `assets/<kind>/` linked elsewhere makes an
+    otherwise ordinary `--kind character` create a directory and write `meta.json` outside
+    the workspace — reading was already guarded, creating was not."""
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    runner.invoke(main, ["init"], catch_exceptions=False)
+    elsewhere = tmp_path / "outside"
+    elsewhere.mkdir()
+    link_dir(tmp_path / "assets" / "character", elsewhere)
+
+    result = runner.invoke(
+        main, ["asset", "new", "hero", "--kind", "character", "--json"], catch_exceptions=False
+    )
+    assert result.exit_code == 1
+    assert json.loads(result.output)["error"]["code"] == "asset-escapes-workspace"
+    assert not (elsewhere / "hero").exists()
+
+
+def test_tool_slice_refuses_a_kind_directory_that_is_a_link_out(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, link_dir: Callable[[Path, Path], None]
+) -> None:
+    """The third creating route, and the one the first pass at this fix missed: `slice`
+    writes a `meta.json` and a PNG per piece, so the same link puts both outside."""
+    import numpy as np
+    from PIL import Image
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    runner.invoke(main, ["init"], catch_exceptions=False)
+    elsewhere = tmp_path / "outside"
+    elsewhere.mkdir()
+    link_dir(tmp_path / "assets" / "icon", elsewhere)
+    sheet = tmp_path / "sheet.png"
+    Image.fromarray(np.zeros((16, 32, 4), dtype=np.uint8)).save(sheet)
+
+    result = runner.invoke(
+        main,
+        [
+            "tool",
+            "slice",
+            "--in",
+            str(sheet),
+            "--kind",
+            "icon",
+            "--key",
+            "gem",
+            "--grid",
+            "2x1",
+            "--json",
+        ],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 1
+    assert json.loads(result.stdout)["error"]["code"] == "asset-escapes-workspace"
+    assert list(elsewhere.iterdir()) == []

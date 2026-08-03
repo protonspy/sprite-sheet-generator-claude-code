@@ -17,7 +17,7 @@ from typing import Any
 import click
 import numpy as np
 
-from ssc.cli import meta
+from ssc.cli import listing, meta
 from ssc.cli import workspace as ws
 from ssc.cli.commands.convert import MAX_BOARD_SIDE, parse_hex, parse_key, parse_size
 from ssc.cli.errors import SscError, UsageError
@@ -162,7 +162,7 @@ def asset_dir_for(address: str) -> tuple[Path, meta.AssetMeta]:
     # asset that already exists *and then writes into it*. `listing` states the invariant
     # this would otherwise break: every route passes through here, because guarding one of
     # several is the same as guarding none.
-    directory = under_assets(workspace, workspace.asset_dir(parts[0], parts[1]))
+    directory = listing.addressed(workspace, workspace.asset_dir(parts[0], parts[1]))
     if not meta.path_of(directory).is_file():
         raise UsageError(
             "no-asset",
@@ -355,7 +355,11 @@ def slice_sheet(
         assert kind is not None
         workspace = ws.require()
         for name, piece in zip(names, pieces, strict=True):
-            directory = workspace.asset_dir(kind, name)
+            # The third route that creates an asset directory, and the one the fix to
+            # `asset new` first missed: `slice` writes a `meta.json` and a PNG per piece,
+            # so a linked `assets/<kind>/` puts both outside the workspace exactly as it
+            # did there. Guarding some of the creating routes is the same as guarding none.
+            directory = under_assets(workspace, workspace.asset_dir(kind, name))
             if meta.path_of(directory).exists():
                 raise UsageError(
                     "asset-exists",
@@ -366,6 +370,7 @@ def slice_sheet(
             if dry_run:
                 continue
             directory.mkdir(parents=True, exist_ok=True)
+            under_assets(workspace, directory)  # again, now that the path exists
             record = meta.AssetMeta(key=name, kind=kind)
             data = encode(piece)
             filename = meta.filename(1, name, [], "png")

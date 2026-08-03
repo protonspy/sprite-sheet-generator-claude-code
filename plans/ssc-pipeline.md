@@ -211,12 +211,23 @@ deliverable on its own: M1 already repairs a sheet you have today, with no API k
 - [x] 0.8 (Unit) Stand up CI — `pyproject.toml`, the package skeleton, and a GitHub
       Actions workflow running ruff, ruff format, mypy, pytest on Linux and Windows plus
       `scc validate` on the artifacts
-- [ ] 0.9 (Unit) Put `asset new` behind `listing.under_assets` and call `meta.check_layout`
+- [x] 0.9 (Unit) Put `asset new` behind `listing.under_assets` and call `meta.check_layout`
       from somewhere, as a delta against `workspace-foundation` — `asset new` builds its
       directory with `workspace.asset_dir` and never re-resolves it, so a linked
       `assets/<kind>/` makes it create a directory and write `meta.json` outside the
       workspace; `check_layout` is defined and called from nowhere. Both found while
-      auditing `asset-listing`, both that leaf's to fix rather than this one's
+      auditing `asset-listing`, both that leaf's to fix rather than this one's.
+      **The escape check goes on every route, the layout check only where a caller named
+      one asset.** Putting both in `under_assets` was the first attempt and the review
+      killed it: `asset_dirs` scans the whole workspace, so refusing there means one stray
+      directory in one asset stops `list`, `clean` and every unrelated asset — while the
+      read paths beside it skip what they cannot use rather than aborting. So `addressed`
+      carries the layout check for `show` and `recover`, and `under_assets` stays the
+      escape gate everywhere. The review also found a **third creating route**, `tool
+      slice`, with the same hole `asset new` had, and a **TOCTOU window** in both: the
+      first check runs before `mkdir`, against a `<kind>/` that may not exist yet, and a
+      missing component resolves to itself — so both re-check after `mkdir`, which moves
+      what a race can win from a written `meta.json` to an empty directory
 - [x] 0.10 (Unit) Decide what `cli/main.py` does with an exception that is not an `SscError`,
       as a delta against `workspace-foundation` — it catches `SscError` and nothing else, so
       anything unexpected leaves the command as a Python traceback rather than the one JSON
@@ -230,11 +241,28 @@ deliverable on its own: M1 already repairs a sheet you have today, with no API k
       the file and the line. It covers the command and the rendering; **click's own argument
       parsing still exits before any of it runs**, so a missing argument is still plain text
       and exit 2, which would need wrapping at the group's `standalone_mode`
-- [ ] 0.11 (Unit) Guard the catch-all's message before `gen-fal` lands — it puts an
+- [x] 0.11 (Unit) Guard the catch-all's message before `gen-fal` lands — it puts an
       exception's `str()` verbatim into structured output, and HTTP clients routinely embed
       the full URL, sometimes with a credential in the query string. Nothing leaks today
       because nothing in `src/` touches a secret; the guard has to exist before the first
-      one does, not after
+      one does, not after. **The guard is at `render`, not at the catch-all** — the same
+      URL reaches output through the `SscError` a leaf composes from a provider's response,
+      which is the path written on purpose, and through `gen --dry-run`'s resolved call,
+      which is not an error at all. Two rules, because a credential arrives two ways: by
+      value, matching what the environment holds under a secret-looking name in whatever
+      format it appears; and by shape, matching `api_key=…`, `Authorization: Bearer …` or
+      a connection string's password for one that never passed through this process's
+      environment. Recorded as `workspace-foundation` R4.6
+- [ ] 0.12 (Unit) Bind an asset write to the directory that was checked, as a delta against
+      `workspace-foundation` — `asset new` and `tool slice` re-check with `under_assets`
+      after `mkdir`, which is what moves a lost race from a written `meta.json` to an empty
+      directory, but `atomic.write_new` and `atomic.replace` each call
+      `parent.mkdir(parents=True, exist_ok=True)` again and open by path, so a component
+      swapped in the few statements after the second check is still followed. The honest
+      close is a directory handle opened once and every write made relative to it
+      (`os.open(dir, O_DIRECTORY)` + `dir_fd=`), which is a change to the write helpers
+      rather than to their callers. `record_frames`, which `tool cut` uses, has the same
+      shape with a wider window and belongs in the same pass
 
 ## Notes
 

@@ -54,6 +54,30 @@ permitted to resample, and a test walks the AST of `src/` and fails on any other
 call. The plan is explicit that one careless bilinear resize undoes all of M1 and that the
 damage is invisible until 4× zoom — so this is a test, not a review convention.
 
+**One object means one place to redact (R4.6).** Because every command's output crosses
+`render`, that is where a credential is replaced by `***` — the deliberate message a leaf
+composes from a provider's response as much as the catch-all's `str(exception)`. Two rules,
+because a credential arrives two ways: by *value*, matching anything the environment holds
+under a secret-looking name, which catches a leak in a format nobody predicted; and by
+*shape*, matching `api_key=…` or `Authorization: Bearer …`, which catches a credential that
+never passed through this process's environment. The traceback on stderr goes through the
+same guard, because stderr is what a CI log keeps. Nothing here holds a secret today —
+`gen-fal` is the first leaf that will, and the guard has to exist before it rather than
+after the first key reaches somebody's log.
+
+**One gate, not one per route (R2.5, asset-listing R4.1).** An asset directory is validated
+where it is resolved, not where it is used. `under_assets` refuses one that resolved out of
+`assets/` through a link, and every route passes through it — `list`, `show`, `recover`,
+and the two that *create*, `asset new` and `tool slice` — because guarding some of several
+routes is the same as guarding none. The creating routes check twice, before and after
+`mkdir`: the first check runs against a `<kind>/` that may not exist yet, and a missing
+component resolves to itself, so a link planted in between would otherwise be created
+through. `addressed` adds the layout check (no subdirectory but `frames/`) and is used
+where a caller *named* one asset and is about to read or write it. Deliberately not on the
+workspace scan: refusing to list a workspace over one asset's stray directory takes down
+`list`, `clean` and every unrelated asset with it, and the read paths here skip what they
+cannot use rather than aborting.
+
 **Nothing overwrites.** Every write goes through a helper that refuses an existing path
 (R3.5). Combined with "every command writes a new file", the recovery story for any mistake
 is `git checkout`, and there is no state to unwind.

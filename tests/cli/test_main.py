@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import click
+import pytest
 from click.testing import CliRunner
 
 from ssc.cli.errors import GatePending, SscError, UsageError
@@ -149,3 +150,60 @@ def test_a_result_that_cannot_be_rendered_is_still_one_json_object() -> None:
     assert result.exit_code == 1
     assert payload["error"]["code"] == "internal-error"
     assert "cannot be rendered" in payload["error"]["message"]
+
+
+def test_a_credential_in_an_unexpected_exception_reaches_neither_channel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Plan task 0.11. The catch-all puts `str(exception)` in the object, which is right —
+    but an HTTP client's message carries the URL, and a URL carries the key. Both channels
+    are guarded, because stderr is what a CI log keeps (R4.6)."""
+    import json
+
+    from click.testing import CliRunner
+
+    from ssc.cli.main import ssc_command
+
+    monkeypatch.setenv("FAL_KEY", "abcd1234-secret-value")
+
+    @ssc_command("bill", help="Fail the way an HTTP client fails.")
+    def bill(*, dry_run: bool) -> object:
+        raise RuntimeError("401 for https://fal.run/x?api_key=abcd1234-secret-value")
+
+    result = CliRunner().invoke(bill, ["--json"], catch_exceptions=False)
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 1
+    assert payload["error"]["code"] == "internal-error"
+    assert "abcd1234-secret-value" not in result.stdout
+    assert "abcd1234-secret-value" not in result.stderr
+    assert "401" in payload["error"]["message"]
+    assert "Traceback" in result.stderr
+
+
+def test_a_credential_in_an_ordinary_result_is_redacted_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The path a leaf writes on purpose: `gen --dry-run` reports the call it would make,
+    and the call is where the URL is. A guard on the catch-all alone would miss it."""
+    import json
+
+    from click.testing import CliRunner
+
+    from ssc.cli.main import ssc_command
+    from ssc.cli.output import Result
+
+    monkeypatch.setenv("FAL_KEY", "abcd1234-secret-value")
+
+    @ssc_command("resolved", help="Report the call that would be made.")
+    def resolved(*, dry_run: bool) -> Result:
+        return Result(
+            "resolved", "would call fal", {"url": "https://fal.run/x?key=abcd1234-secret-value"}
+        )
+
+    result = CliRunner().invoke(resolved, ["--json"], catch_exceptions=False)
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 0
+    assert "abcd1234-secret-value" not in result.output
+    assert payload["url"].endswith("***")

@@ -36,9 +36,8 @@ def distance(first: np.ndarray, second: np.ndarray) -> float:
         return 1.0
     if first.size == 0:
         return 0.0
-    return float(np.count_nonzero(np.any(first != second, axis=-1))) / (
-        first.shape[0] * first.shape[1]
-    )
+    differing = int(np.count_nonzero(np.any(first != second, axis=-1)))
+    return differing / float(first.shape[0] * first.shape[1])
 
 
 def differences(frames: list[np.ndarray], threshold: float) -> list[Difference]:

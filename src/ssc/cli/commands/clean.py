@@ -12,6 +12,7 @@ import shutil
 from pathlib import Path
 
 from ssc.cli import meta
+from ssc.cli.errors import SscError
 from ssc.cli.main import ssc_command
 from ssc.cli.output import Result
 from ssc.cli.workspace import Workspace
@@ -22,6 +23,31 @@ def assets(workspace: Workspace) -> list[Path]:
     if not workspace.assets.is_dir():
         return []
     return sorted(path.parent for path in workspace.assets.glob("*/*/" + meta.META_NAME))
+
+
+def inside(directory: Path, relative: str) -> Path:
+    """Resolve `relative` against `directory` and refuse anything that leaves it.
+
+    `meta.py` already rejects an escaping path when the record is built or loaded. This
+    is the second check, at the moment of deleting, because one validation gap is all
+    that would otherwise stand between a bad record and `shutil.rmtree` on somebody's
+    home directory — and a symlink can move the target after validation.
+    """
+    target = (directory / relative).resolve()
+    root = directory.resolve()
+    if target != root and root not in target.parents:
+        raise SscError(
+            "path-escapes-asset",
+            f"{relative!r} resolves to {target}, which is outside {root}",
+            fix=f"remove that record from {meta.META_NAME}",
+        )
+    if target == root:
+        raise SscError(
+            "path-escapes-asset",
+            f"{relative!r} is the asset directory itself, which clean never deletes",
+            fix=f"remove that record from {meta.META_NAME}",
+        )
+    return target
 
 
 @ssc_command(
@@ -39,10 +65,10 @@ def clean(*, dry_run: bool, workspace: Workspace) -> Result:
             continue
 
         for entry in removable:
+            target = inside(directory, entry.path)
             deleted.append(f"{record.kind}/{record.key}/{entry.path}")
             if dry_run:
                 continue
-            target = directory / entry.path
             # A record whose file already went by hand is still a record to drop: leaving
             # it would let `--stage snap` resolve to a path that is not there.
             if target.is_dir():

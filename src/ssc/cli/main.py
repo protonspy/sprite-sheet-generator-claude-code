@@ -25,6 +25,10 @@ def ssc_command(
     look one up: with it, the located `Workspace` arrives as a keyword argument and the
     refusal for a missing one is identical everywhere (R1.5). Commands that work off
     `--in`/`--out` leave it alone (R1.6).
+
+    **A command's own `@click.option` and `@click.argument` go below this decorator**, so
+    they are applied to the function first and this one wraps the result. The other order
+    puts them on the already-built `click.Command` and they are silently ignored.
     """
 
     def decorate(fn: Callable[..., Result]) -> click.Command:

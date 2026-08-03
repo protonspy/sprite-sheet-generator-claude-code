@@ -15,6 +15,7 @@ import yaml
 
 from ssc.cli.atomic import write_new
 from ssc.cli.errors import UsageError
+from ssc.cli.names import check_name
 
 MARKER = "ssc.yaml"
 SCHEMA = 1
@@ -39,8 +40,13 @@ class Workspace:
         return self.root / "cache"
 
     def asset_dir(self, kind: str, key: str) -> Path:
-        """`assets/<kind>/<key>/` — kind first. See adr:0007-group-assets-by-kind-then-key."""
-        return self.assets / kind / key
+        """`assets/<kind>/<key>/` — kind first. See adr:0007-group-assets-by-kind-then-key.
+
+        Both arguments are validated here rather than at each call site, because this is
+        the one place they become a path. `assets / "../.." / key` escapes the workspace,
+        and `assets / "C:/Windows"` discards `assets` entirely.
+        """
+        return self.assets / check_name(kind, "kind") / check_name(key, "key")
 
 
 def find(start: Path | None = None) -> Workspace | None:

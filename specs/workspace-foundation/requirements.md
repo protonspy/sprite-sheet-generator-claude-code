@@ -69,3 +69,9 @@ much, for an agent driving `ssc` with no eyes on the directory.
   `specs/asset-listing/`; this leaf owes them a recorded stage, not the commands.
 - **`jobs/` and gates.** Exit `3` is reserved here so the contract is complete, but nothing
   in this leaf produces it.
+- **A command that actually caches.** R5 defines the key, the store and the field that
+  reports a reuse, and all three are built and tested — but `init`, `asset new` and
+  `clean` compute nothing worth caching, so R5.2's reuse is exercised at the library
+  boundary rather than through a command. The first command to close that loop is
+  `specs/pixel-art-conversion/`'s `ssc tool snap`, which is also the reason the cache
+  exists: `snap` runs on every frame of every animation.

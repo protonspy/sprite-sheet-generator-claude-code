@@ -27,7 +27,10 @@ def write_new(path: Path, data: bytes) -> Path:
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | _BINARY)
+        # 0o600, matching what `tempfile.mkstemp` gives `replace` below. os.open would
+        # otherwise default to 0o777 masked by the umask — world-readable data files
+        # with an execute bit, for no reason.
+        descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | _BINARY, 0o600)
     except FileExistsError:
         raise SscError(
             "file-exists",

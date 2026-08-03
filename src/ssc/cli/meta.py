@@ -13,10 +13,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from ssc.cli.atomic import replace
 from ssc.cli.errors import SscError, UsageError
+from ssc.cli.names import check_name, check_relative_path
 
 SCHEMA = 1
 META_NAME = "meta.json"
@@ -63,6 +64,22 @@ class FileRecord(BaseModel):
     derived_from: list[str] = Field(default_factory=list)
     written_at: str = Field(default_factory=now)
 
+    @field_validator("path", "derived_from", mode="after")
+    @classmethod
+    def _paths_stay_inside_the_asset(cls, value: str | list[str]) -> str | list[str]:
+        """`meta.json` survives hand-editing and a crash, and `ssc clean` deletes what it
+        names. A recorded `../../..` is a delete outside the workspace, so the constraint
+        belongs on the model rather than on each reader."""
+        for candidate in [value] if isinstance(value, str) else value:
+            try:
+                check_relative_path(candidate, "a recorded path")
+            except UsageError as refused:
+                # Re-raised as a ValueError so pydantic collects it: a bad path found
+                # while *loading* is a corrupt file (exit 1), not a caller mistake, and
+                # `load` below is what turns it into that.
+                raise ValueError(refused.message) from refused
+        return value
+
 
 class AssetMeta(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
@@ -72,6 +89,15 @@ class AssetMeta(BaseModel):
     kind: str
     created_at: str = Field(default_factory=now)
     files: list[FileRecord] = Field(default_factory=list)
+
+    @field_validator("key", "kind", mode="after")
+    @classmethod
+    def _names_are_names(cls, value: str) -> str:
+        """Both end up as directory names under `assets/`, so both are single segments."""
+        try:
+            return check_name(value, "a recorded name")
+        except UsageError as refused:
+            raise ValueError(refused.message) from refused
 
     def stage(self, name: str) -> FileRecord:
         """Resolve a stage to its file without the caller counting prefixes (R3.3)."""
@@ -85,8 +111,14 @@ class AssetMeta(BaseModel):
         )
 
     def next_prefix(self) -> int:
-        """The next unused number. Prefixes are never reused, so deleting a `derived`
-        file and recomputing it does not shuffle what came after."""
+        """One past the highest prefix on record.
+
+        The guarantee is narrower than "never reused", and it is worth stating exactly:
+        **deleting a file never renumbers the files that remain.** A gap in the middle
+        stays a gap, which is what keeps a chain readable after `ssc clean`. The number
+        freed by deleting the *last* file is handed out again, and that is harmless
+        precisely because R2.4 makes the prefix presentation and never an address.
+        """
         used = [prefix for prefix in (prefix_of(record.path) for record in self.files) if prefix]
         return max(used, default=0) + 1
 
@@ -114,7 +146,17 @@ def load(asset_dir: Path) -> AssetMeta:
             f"{asset_dir} holds no {META_NAME}",
             fix="ssc asset new <key> --kind <kind>",
         )
-    return AssetMeta.model_validate_json(target.read_bytes())
+    try:
+        return AssetMeta.model_validate_json(target.read_bytes())
+    except ValidationError as invalid:
+        # A record ssc will not act on beats a record it half-believes: `clean` deletes
+        # what this file names, so a malformed one stops the command rather than being
+        # repaired into something plausible.
+        raise SscError(
+            "meta-invalid",
+            f"{target} is not a valid {META_NAME}: {invalid.error_count()} problem(s)",
+            fix="fix it by hand against the schema, or restore it from git",
+        ) from invalid
 
 
 def save(asset_dir: Path, meta: AssetMeta) -> Path:
@@ -139,6 +181,10 @@ def record(
     Two files sharing a stage would make `--stage nobg` ambiguous, and an ambiguity
     resolved by picking the first match is the kind that goes unnoticed for months.
     """
+    # Checked here as well as on the model, so a caller passing a path that walks out of
+    # the asset gets the usage error it is, rather than a validation error from pydantic.
+    check_relative_path(path)
+    check_name(stage, "stage")
     for existing in meta.files:
         if existing.stage == stage:
             raise UsageError(

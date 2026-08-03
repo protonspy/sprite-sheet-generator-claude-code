@@ -46,15 +46,31 @@ def test_the_next_prefix_follows_the_highest_used() -> None:
     assert record.next_prefix() == 3
 
 
-def test_a_prefix_is_never_reused(tmp_path: Path) -> None:
-    """Deleting a derived file and recomputing it must not shuffle what came after it."""
+def test_deleting_a_file_never_renumbers_the_ones_that_remain() -> None:
+    """The actual guarantee. A gap in the middle stays a gap, so `ssc clean` cannot
+    shuffle the numbers a human has been reading."""
     record = asset()
     add(record, "001_anchor.png", "anchor")
     add(record, "002_anchor.snap.png", "snap")
-    record.files = [entry for entry in record.files if entry.stage != "snap"]
-    assert record.next_prefix() == 2  # 001 remains; the gap left by 002 is refilled once
     add(record, "003_anchor.nobg.png", "nobg")
+
+    record.files = [entry for entry in record.files if entry.stage != "snap"]
+
+    assert [entry.path for entry in record.files] == ["001_anchor.png", "003_anchor.nobg.png"]
     assert record.next_prefix() == 4
+
+
+def test_the_number_freed_by_deleting_the_last_file_is_handed_out_again() -> None:
+    """Stated rather than prevented: the prefix is presentation, never an address (R2.4),
+    so reissuing the highest one costs nothing. Anything stronger would need a high-water
+    mark in the schema for no benefit."""
+    record = asset()
+    add(record, "001_anchor.png", "anchor")
+    add(record, "002_anchor.snap.png", "snap")
+
+    record.files = [entry for entry in record.files if entry.stage != "snap"]
+
+    assert record.next_prefix() == 2
 
 
 def test_an_empty_asset_starts_at_one() -> None:

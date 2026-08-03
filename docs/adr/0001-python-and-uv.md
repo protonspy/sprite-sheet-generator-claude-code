@@ -23,7 +23,8 @@ directory of images; asking them to manage a virtualenv is a tax on every use.
 
 ## Decision
 
-Python, `>=3.11`, `src/` layout, built with hatchling, and run through **uv** —
+Python, `>=3.12` (see the first consequence; `>=3.11` was the original intent), `src/`
+layout, built with hatchling, and run through **uv** —
 `uv run ssc …`, `uvx ssc …` — so a user gets an isolated, resolved environment without
 creating or activating one. The optional model runtimes are extras (`[cv]`, `[cv-gpu]`)
 rather than dependencies, so the deterministic half of the tool installs small.

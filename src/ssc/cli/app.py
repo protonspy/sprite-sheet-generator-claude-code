@@ -11,6 +11,7 @@ from ssc.cli.commands.clean import clean
 from ssc.cli.commands.convert import bgremove, board, pixelart, snap
 from ssc.cli.commands.doctor import doctor
 from ssc.cli.commands.init import init
+from ssc.cli.commands.kind import kind
 from ssc.cli.commands.media import image, video
 from ssc.cli.commands.recover import (
     align,
@@ -26,6 +27,7 @@ from ssc.cli.main import main, tool
 main.add_command(init)
 main.add_command(asset)
 main.add_command(clean)
+main.add_command(kind)
 main.add_command(image)
 main.add_command(video)
 main.add_command(tool)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import click
 
-from ssc.cli import meta
+from ssc.cli import kinds, meta
 from ssc.cli.errors import UsageError
 from ssc.cli.main import ssc_command
 from ssc.cli.output import Result
@@ -21,6 +21,10 @@ def asset() -> None:
 @click.option("--kind", required=True, help="The asset's kind, e.g. character, tile, icon.")
 @click.argument("key")
 def asset_new(key: str, kind: str, *, dry_run: bool, workspace: Workspace) -> Result:
+    # The kind has to resolve to a profile (R3.2). A typo here would otherwise create an
+    # asset of a kind nothing knows anything about, and surface commands later as a cell
+    # size nobody chose.
+    kinds.resolve(kind, workspace)
     directory = workspace.asset_dir(kind, key)
 
     # Uniqueness is per kind, not global — see adr:0007-group-assets-by-kind-then-key for

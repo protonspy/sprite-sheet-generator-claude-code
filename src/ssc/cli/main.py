@@ -9,7 +9,7 @@ from typing import Any
 
 import click
 
-from ssc.cli import workspace
+from ssc.cli import redact, workspace
 from ssc.cli.errors import EXIT_ERROR, EXIT_OK, SscError
 from ssc.cli.output import Result, render
 
@@ -53,7 +53,9 @@ def ssc_command(
                 # one object on stdout. Discarding it was the wrong half of the trade: the
                 # machine gains a parseable envelope and the developer loses the file and
                 # the line, which is exactly what four review rounds of this leaf needed.
-                click.echo(traceback.format_exc(), err=True)
+                # Redacted like everything else (R4.6): stderr is where CI logs come from,
+                # and a traceback's first line is the message the URL was embedded in.
+                click.echo(redact.scrub(traceback.format_exc()), err=True)
                 # Every command emits one JSON object (R4.1), and that has to hold for the
                 # failures nobody anticipated too — otherwise the one caller this tool is
                 # built for gets a traceback on stderr and nothing it can parse. Four
@@ -77,7 +79,7 @@ def ssc_command(
             try:
                 text = render(payload, as_json=as_json)
             except Exception as unrenderable:
-                click.echo(traceback.format_exc(), err=True)
+                click.echo(redact.scrub(traceback.format_exc()), err=True)
                 payload = SscError(
                     "internal-error",
                     f"this command built a result that cannot be rendered: {unrenderable}",

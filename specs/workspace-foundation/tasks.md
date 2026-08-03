@@ -30,6 +30,11 @@ repeated per task.
 - [x] 4.3 (Unit) Record a written file with its digest and provenance, refuse a stage already taken, and resolve a stage name back to its file — R3.1, R3.3, R3.4
 - [x] 4.4 (Unit) `ssc asset new <key> --kind <kind>` — create the directory and its `meta.json`, and refuse a key the kind already has — R2.2, R2.3
 - [x] 4.5 (Unit) Reject any subdirectory of an asset other than `frames/` — R2.5
+- [x] 4.6 (Unit) Call that rejection, and the escape check, from the one gate every route to an asset passes through, `asset new` included — R2.5
+
+## 7 · What a command may say
+
+- [x] 7.1 (Unit) Redact a credential — an environment secret by value, a `key=value` pair or an authorization scheme by shape — at the boundary every command's output crosses — R4.6
 
 ## 5 · The cache
 

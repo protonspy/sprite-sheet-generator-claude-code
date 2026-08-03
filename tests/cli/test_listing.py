@@ -301,6 +301,41 @@ def test_a_recorded_file_that_is_a_symlink_out_is_refused_before_it_is_opened(
     assert victim.read_bytes() == b"not reproducible"
 
 
+# workspace-foundation R2.5 — the gate every route passes through is where the layout is
+# checked, because a rule enforced on some of the routes is a rule nobody can rely on.
+
+
+def test_an_asset_holding_a_subdirectory_other_than_frames_is_refused(tmp_path: Path) -> None:
+    workspace.create(tmp_path)
+    directory = make_asset(tmp_path, "character", "hero")
+    (directory / "notes").mkdir()
+
+    with pytest.raises(SscError) as refused:
+        listing.entries(workspace.Workspace(root=tmp_path))
+    assert refused.value.code == "unexpected-subdirectory"
+    assert "notes" in refused.value.message
+
+
+def test_resolving_by_kind_and_key_checks_the_layout_too(tmp_path: Path) -> None:
+    workspace.create(tmp_path)
+    directory = make_asset(tmp_path, "character", "hero")
+    (directory / "notes").mkdir()
+
+    with pytest.raises(SscError) as refused:
+        listing.resolve(workspace.Workspace(root=tmp_path), "character/hero")
+    assert refused.value.code == "unexpected-subdirectory"
+
+
+def test_frames_is_the_one_subdirectory_that_belongs(tmp_path: Path) -> None:
+    """The other half of R2.5: `frames/` is the set, and checking the layout must not
+    refuse the one asset shape the whole pipeline produces."""
+    workspace.create(tmp_path)
+    directory = make_asset(tmp_path, "character", "hero")
+    (directory / "frames").mkdir()
+
+    assert listing.under_assets(workspace.Workspace(root=tmp_path), directory) == directory
+
+
 def test_an_asset_directory_that_stays_inside_is_allowed(tmp_path: Path) -> None:
     """The other half of R4.1: the check must not refuse an ordinary workspace, including
     one whose `assets/` is itself somewhere else — that is the root both sides resolve

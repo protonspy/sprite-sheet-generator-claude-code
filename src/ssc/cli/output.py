@@ -11,6 +11,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
+from ssc.cli import redact
+
 
 @dataclass
 class Result:
@@ -40,7 +42,15 @@ class Result:
 
 def render(payload: dict[str, Any], *, as_json: bool) -> str:
     """One object, rendered either way. Prose is a view of the JSON, never a second
-    source of truth about what happened."""
+    source of truth about what happened.
+
+    Redaction happens here because this is the boundary every command's output crosses —
+    the deliberate `SscError` a leaf composes from a provider's response as much as the
+    catch-all's `str(exception)`. Guarding only the catch-all would guard the path nobody
+    writes on purpose and leave the one they do (R4.6). It runs before the encoder so a
+    secret cannot be missed for having been JSON-escaped on the way past.
+    """
+    payload = redact.scrubbed(payload)
     if as_json:
         return json.dumps(payload, indent=2, sort_keys=True)
 

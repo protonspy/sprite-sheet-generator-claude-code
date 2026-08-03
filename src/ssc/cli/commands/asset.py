@@ -6,6 +6,7 @@ import click
 
 from ssc.cli import kinds, meta
 from ssc.cli.errors import UsageError
+from ssc.cli.listing import under_assets
 from ssc.cli.main import ssc_command
 from ssc.cli.output import Result
 from ssc.cli.workspace import Workspace
@@ -25,7 +26,12 @@ def asset_new(key: str, kind: str, *, dry_run: bool, workspace: Workspace) -> Re
     # asset of a kind nothing knows anything about, and surface commands later as a cell
     # size nobody chose.
     kinds.resolve(kind, workspace)
-    directory = workspace.asset_dir(kind, key)
+    # `asset_dir` validates the two names as strings; it cannot see that `assets/<kind>/`
+    # is a link pointing somewhere else on disk. This is the route that *creates* an asset,
+    # so without the check a linked kind directory makes `mkdir` and `meta.json` land
+    # outside the workspace — and every later command then reads an asset the workspace
+    # does not own. Reading is already guarded; creating was the one route that was not.
+    directory = under_assets(workspace, workspace.asset_dir(kind, key))
 
     # Uniqueness is per kind, not global — see adr:0007-group-assets-by-kind-then-key for
     # why two kinds are allowed to share a key.

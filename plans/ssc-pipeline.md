@@ -211,12 +211,17 @@ deliverable on its own: M1 already repairs a sheet you have today, with no API k
 - [x] 0.8 (Unit) Stand up CI — `pyproject.toml`, the package skeleton, and a GitHub
       Actions workflow running ruff, ruff format, mypy, pytest on Linux and Windows plus
       `scc validate` on the artifacts
-- [ ] 0.9 (Unit) Put `asset new` behind `listing.under_assets` and call `meta.check_layout`
+- [x] 0.9 (Unit) Put `asset new` behind `listing.under_assets` and call `meta.check_layout`
       from somewhere, as a delta against `workspace-foundation` — `asset new` builds its
       directory with `workspace.asset_dir` and never re-resolves it, so a linked
       `assets/<kind>/` makes it create a directory and write `meta.json` outside the
       workspace; `check_layout` is defined and called from nowhere. Both found while
-      auditing `asset-listing`, both that leaf's to fix rather than this one's
+      auditing `asset-listing`, both that leaf's to fix rather than this one's.
+      **Somewhere is `under_assets` itself** — it already carries the invariant that every
+      route to an asset directory passes through it, so the layout check placed there holds
+      for `list`, `show`, `recover` and `asset new` at once rather than at four call sites
+      where the fifth is forgotten. It runs only where a directory already exists, because
+      `asset new` comes through before it creates one
 - [x] 0.10 (Unit) Decide what `cli/main.py` does with an exception that is not an `SscError`,
       as a delta against `workspace-foundation` — it catches `SscError` and nothing else, so
       anything unexpected leaves the command as a Python traceback rather than the one JSON
@@ -230,11 +235,18 @@ deliverable on its own: M1 already repairs a sheet you have today, with no API k
       the file and the line. It covers the command and the rendering; **click's own argument
       parsing still exits before any of it runs**, so a missing argument is still plain text
       and exit 2, which would need wrapping at the group's `standalone_mode`
-- [ ] 0.11 (Unit) Guard the catch-all's message before `gen-fal` lands — it puts an
+- [x] 0.11 (Unit) Guard the catch-all's message before `gen-fal` lands — it puts an
       exception's `str()` verbatim into structured output, and HTTP clients routinely embed
       the full URL, sometimes with a credential in the query string. Nothing leaks today
       because nothing in `src/` touches a secret; the guard has to exist before the first
-      one does, not after
+      one does, not after. **The guard is at `render`, not at the catch-all** — the same
+      URL reaches output through the `SscError` a leaf composes from a provider's response,
+      which is the path written on purpose, and through `gen --dry-run`'s resolved call,
+      which is not an error at all. Two rules, because a credential arrives two ways: by
+      value, matching what the environment holds under a secret-looking name in whatever
+      format it appears; and by shape, matching `api_key=…` or `Authorization: Bearer …`
+      for one that never passed through this process's environment. Recorded as
+      `workspace-foundation` R4.6
 
 ## Notes
 

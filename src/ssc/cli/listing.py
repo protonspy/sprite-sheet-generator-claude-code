@@ -126,6 +126,12 @@ def under_assets(workspace: Workspace, directory: Path) -> Path:
 
     `assets/` itself being a link is fine and deliberately allowed — it is the root both
     sides resolve against, so a workspace whose art lives on another disk keeps working.
+
+    The layout check rides along for the same reason the escape check is here rather than
+    at each call site: `meta.check_layout` states R2.5, and a requirement enforced on some
+    of the routes to an asset is a requirement nobody can rely on. It runs only where
+    there is a directory to look at, because `asset new` comes through here before it
+    creates one.
     """
     root = workspace.assets.resolve()
     resolved = directory.resolve()
@@ -135,6 +141,8 @@ def under_assets(workspace: Workspace, directory: Path) -> Path:
             f"{directory} resolves to {resolved}, which is outside {root}",
             fix=f"remove it from {workspace.assets}, or move the asset in for real",
         )
+    if directory.is_dir():
+        meta.check_layout(directory)
     return directory
 
 

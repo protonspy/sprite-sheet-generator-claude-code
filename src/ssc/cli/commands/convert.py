@@ -504,6 +504,14 @@ def parse_scroll(value: str | None, layers: int) -> list[float]:
     distances nobody knows, so the number a caller tunes by eye is the real answer and this
     is what they tune from.
     """
+    if layers < 1:
+        # Unreachable through `tool layers`, whose `read_frames` refuses an empty directory
+        # first — but this function divides by the count, and the next caller may not.
+        raise UsageError(
+            "no-layers",
+            "a stack needs at least one layer",
+            fix="point --in at a directory of images",
+        )
     if value is None:
         return [(index + 1) / layers for index in range(layers)]
 
@@ -540,7 +548,7 @@ def parse_scroll(value: str | None, layers: int) -> list[float]:
     "source",
     required=True,
     type=click.Path(path_type=Path),
-    help="A directory of layers, ordered by filename far to near.",
+    help="A directory of layers ordered by filename, far to near — or one image.",
 )
 def layers(source: Path, scroll: str | None, *, dry_run: bool) -> Result:
     """R2.1, R2.5 — the stack, and the refusal that keeps it one.

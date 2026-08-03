@@ -185,24 +185,24 @@ deliverable on its own: M1 already repairs a sheet you have today, with no API k
 
 ## Tasks
 
-- [ ] 0.1 (Unit) Build spritefusion-pixel-snapper for `wasm32-wasip1` — write the thin
+- [x] 0.1 (Unit) Build spritefusion-pixel-snapper for `wasm32-wasip1` — write the thin
       wrapper crate exposing a flat ABI over `process_image`, vendor
       `vendor/pixel-snapper.wasm` alongside the upstream `LICENSE`, and prove with a
       test that `wasmtime` loads the module and snaps a fixture
-- [ ] 0.2 (Unit) Record the decisions already made in `docs/adr/` — Python + uv, the
+- [x] 0.2 (Unit) Record the decisions already made in `docs/adr/` — Python + uv, the
       snapper vendored via WASI, generation inside v1, a job always exists — plus the
       outcome of 0.1 as its own record
 - [x] 0.3 (Unit) Fill in `.claude/rules/project.md` (build, test, scoped test, lint,
       format) and `docs/stack.md` with the core dependencies, `fal-client` among them
-- [ ] 0.4 (Unit) Settle in `docs/glossary.md` the vocabulary all twenty-seven specs
+- [x] 0.4 (Unit) Settle in `docs/glossary.md` the vocabulary all twenty-seven specs
       inherit: key, kind, stage, source, derived, output, anchor, cell, sheet, frame,
       atlas, tile, seam, nine-slice, job, gate, snap, pixelart, flicker
 - [x] 0.5 (Unit) Distil the design document and the three transcripts in `docs/raw/`
       into `docs/wiki/` pages reachable from `index.md`, then delete the raw files
-- [ ] 0.6 (Unit) Record as an ADR that `job-store` is built on `fal-client`'s
+- [x] 0.6 (Unit) Record as an ADR that `job-store` is built on `fal-client`'s
       `submit` → `get_handle(application, request_id)` → `status`/`result`/`cancel`
       surface, and pin the client version that provides it
-- [ ] 0.7 (Unit) Pull the endpoint ids and parameter schemas for the four models this
+- [x] 0.7 (Unit) Pull the endpoint ids and parameter schemas for the four models this
       workflow names — Nano Banana 2, GPT Image 1.5, Grok Imagine Video, BiRefNet — into
       the shipped registry fallback, and confirm whether Fal exposes them machine-readably
       or they have to be transcribed
@@ -252,6 +252,14 @@ flat ABI — or a WASI `main` reading stdin and writing stdout — compiled to
 binary from `cargo build --release`, or porting the algorithm to numpy and paying that
 cost. The decision is taken with the evidence in hand and becomes an ADR.
 `ssc tool pixelart` does not depend on the `.wasm` and proceeds either way.
+
+**Done, and the ladder was not needed** — see `adr:0003-patch-upstream-and-call-it-over-a-flat-abi`.
+The wrapper crate alone was not sufficient: `wasm32-wasip1` is still
+`target_arch = "wasm32"`, so every gate upstream uses to mean "browser" fires under WASI,
+and everything below the JS entry point is private. An 80-line patch against a pinned
+commit fixes both, `wasm/build.py` applies it, and the module's output is byte-identical
+to upstream's own native CLI on the fixture. The flat ABI won over the WASI `main`
+because `snap` runs per frame and a `main` is a process per frame.
 
 **`proper-pixel-art` was considered and not adopted.**
 [It](https://github.com/KennethJAllen/proper-pixel-art) (MIT, Python, on PyPI) would
@@ -423,6 +431,19 @@ the result looks plausible enough to pass review. The honest answers are "lay th
 both numbers in front of it: what the board layout requires, and what the model's schema
 allows. That is why `tool board` computes the layout and `gen image` reconciles rather
 than trusting whatever `--size` was typed.
+
+**Task 0.7 measured this and it is worse than "a set of sizes"** — see
+`docs/wiki/model-parameters.md`. Fal publishes an OpenAPI document per endpoint,
+unauthenticated, so the schemas are read rather than transcribed and the runtime fetch the
+registry assumes is confirmed viable. None of the three image paths takes a size in
+pixels, and they
+disagree on the shape of the question: GPT Image 1.5 has an `image_size` enum of exactly
+`1024x1024` · `1536x1024` · `1024x1536`, while Nano Banana 2 and Grok Imagine Video take a
+free `aspect_ratio` plus a resolution tier. So 6:1 on GPT Image 1.5 is not "nearest
+allowed" — it is unrepresentable, and the refusal path is the normal one rather than the
+edge case. Two more findings land on `model-registry`: `seed` exists on Nano Banana 2 and
+**not** on GPT Image 1.5, so a normalised `--seed` cannot be assumed to reach the model;
+and passing a reference image is a different endpoint (`/edit`), not a parameter.
 
 This is also what makes `--dry-run` the agent's real interface. Returning the fully
 resolved call — chosen model, chosen size and how far it is from the requested one, the

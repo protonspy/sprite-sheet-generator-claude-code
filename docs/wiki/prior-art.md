@@ -29,7 +29,7 @@ under `snap`, and the flicker fix needs a shared palette regardless.
 ## Sorceress "True Pixel" — competitor, read closely
 
 A commercial suite (one-off fee) covering the same path: frame extraction, chroma
-cleanup, palette conversion, sprite sheets for Godot, Unity and GameMaker. Their public
+cleanup, palette conversion, sheets for Godot, Unity and GameMaker. Their public
 wiki documents each tool, and reading it changed four decisions rather than confirming
 them:
 

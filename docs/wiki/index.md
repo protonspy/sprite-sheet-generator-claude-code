@@ -17,6 +17,8 @@ hold the reasoning behind it.
   a model, and why they are generated rather than downloaded.
 - [[generating-animations]] — pose board for idle and attack, video for walk cycles, and
   why that split is not a preference.
+- [[model-parameters]] — what the four named models actually accept, why none of them
+  takes a size in pixels, and what that costs the layout.
 
 ## Repairing it
 

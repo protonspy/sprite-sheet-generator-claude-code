@@ -1,0 +1,80 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 663b4c1..850d1ff 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -28,6 +28,6 @@ rand_chacha = "0.3"
+ rayon = "1.10"
+ 
+ # WASM-specific dependencies
+-[target.'cfg(target_arch = "wasm32")'.dependencies]
++[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+ wasm-bindgen = "0.2"
+ getrandom = { version = "0.2", features = ["js"] }
+diff --git a/src/lib.rs b/src/lib.rs
+index 92a0dec..8a4a8cf 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -14,13 +14,13 @@ use std::fmt;
+ #[cfg(not(target_arch = "wasm32"))]
+ use std::path::{Path, PathBuf};
+ 
+-#[cfg(target_arch = "wasm32")]
++#[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+ use wasm_bindgen::prelude::*;
+ 
+ const MAX_PALETTE_COLORS: usize = 256;
+ 
+ #[derive(Debug, Clone)]
+-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
++#[cfg_attr(all(target_arch = "wasm32", not(target_os = "wasi")), wasm_bindgen)]
+ pub struct Config {
+     pub k_colors: usize,
+     pub pixel_size_override: Option<f64>,
+@@ -90,7 +90,7 @@ impl From<image::ImageError> for PixelSnapperError {
+     }
+ }
+ 
+-#[cfg(target_arch = "wasm32")]
++#[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+ impl From<PixelSnapperError> for wasm_bindgen::JsValue {
+     fn from(err: PixelSnapperError) -> wasm_bindgen::JsValue {
+         wasm_bindgen::JsValue::from_str(&err.to_string())
+@@ -306,7 +306,7 @@ fn process_image_common(input_bytes: &[u8], config: Option<Config>) -> Result<Pr
+ 
+ /// WASM entry point
+ /// `palette_hex` is a comma-separated list of hex colors: `"0d2b45,ffecd6"`.
+-#[cfg(target_arch = "wasm32")]
++#[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+ #[wasm_bindgen]
+ pub fn process_image(
+     input_bytes: &[u8],
+@@ -1458,3 +1458,29 @@ mod cli_tests {
+         assert!(error.to_string().contains("unknown argument '--unknown'"));
+     }
+ }
++
++/// WASI entry point — the `JsValue`-free twin of [`process_image`], added so the
++/// crate can be built for `wasm32-wasip1` without wasm-bindgen's JS glue.
++/// `palette_hex` is a comma-separated list of hex colors: `"0d2b45,ffecd6"`.
++#[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
++pub fn process_image_wasi(
++    input_bytes: &[u8],
++    k_colors: Option<u32>,
++    pixel_size_override: Option<f64>,
++    palette_hex: Option<&str>,
++) -> Result<Vec<u8>> {
++    let mut config = Config::default();
++    if let Some(k) = k_colors {
++        if k == 0 {
++            return Err(PixelSnapperError::InvalidInput(
++                "k_colors must be greater than 0".to_string(),
++            ));
++        }
++        config.k_colors = k as usize;
++    }
++
++    config.pixel_size_override = pixel_size_override;
++    config.palette = palette_hex.map(parse_palette_hex).transpose()?;
++
++    process_image_common(input_bytes, Some(config)).map(|processed| processed.output_bytes)
++}

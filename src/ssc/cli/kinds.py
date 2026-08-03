@@ -19,23 +19,20 @@ import yaml
 from ssc.cli.errors import SscError, UsageError
 from ssc.cli.names import check_name
 from ssc.cli.workspace import Workspace
+from ssc.core.assemble import ANCHOR_MODES
 
 BUILT_IN = "built-in"
 DECLARED = "ssc.yaml"
 
-#: The anchors `core.assemble` actually implements. A profile naming one it does not is a
-#: typo that would otherwise fall through to "centre" behaviour in whichever leaf reads the
-#: field — which is exactly the "three commands later" failure validating on read exists to
-#: prevent.
-ANCHORS = ("feet", "bottom", "centre")
+#: Imported rather than retyped. It was a fourth hand-written copy of a list that already
+#: appears twice in `recover.py`'s `click.Choice` and is implied by `assemble.py`'s if/elif —
+#: a value that must match between places, which is the defect class this project keeps
+#: hitting. One definition, in the module that implements it.
+ANCHORS = ANCHOR_MODES
 
 #: What `atlas-packing` will know how to do. Declared here because the field is declared
 #: here; a layout nobody implements is a promise to a caller that nothing keeps.
 LAYOUTS = ("grid", "bin")
-
-#: Fields that are a name and nothing more. Constrained to being *a string* rather than to a
-#: set, because a template name is a project's to choose.
-FREE_TEXT = ("template",)
 
 #: A configuration file is a few dozen lines. The ceiling is here because everything below
 #: it — the parse, the alias expansion, the map of maps — is work proportional to the file,
@@ -192,9 +189,9 @@ def declared(workspace: Workspace | None) -> dict[str, dict[str, Any]]:
 
     try:
         document = yaml.load(  # StrictLoader is SafeLoader with aliases refused
-            workspace.config_path.read_text(encoding="utf-8"), Loader=StrictLoader
+            workspace.config_path.read_bytes().decode("utf-8"), Loader=StrictLoader
         )
-    except (yaml.YAMLError, RecursionError) as broken:
+    except (yaml.YAMLError, RecursionError, UnicodeDecodeError) as broken:
         # RecursionError as well: deeply nested flow collections blow the stack inside
         # PyYAML's own scanner, and it is not a YAMLError, so it escaped as a traceback.
         raise SscError(
@@ -212,13 +209,37 @@ def declared(workspace: Workspace | None) -> dict[str, dict[str, Any]]:
             fix="the file is `schema: 1` and settings under it",
         )
 
-    found = document.get("kinds") or {}
+    found = document.get("kinds")
+    if found is None:
+        return {}
+    # Not `or {}`: that short-circuits on every falsy wrong type — `kinds: 0`, `kinds: ""`,
+    # `kinds: []` — and reports "no kinds declared" for a file that plainly declares
+    # something. A validate-on-read promise silently not kept is worse than no promise.
     if not isinstance(found, dict):
         raise SscError(
             "invalid-config",
             f"{workspace.config_path} declares `kinds` as {type(found).__name__}, not a map",
             fix="write it as a map of name to profile",
         )
+
+    # YAML keys are not necessarily strings — `123:` and `true:` are both valid — and a
+    # non-string key blew up later at `sorted(...)` and at `", ".join(...)`, past the point
+    # where `check_name` would have refused it. Both levels are checked here, once.
+    for key, value in found.items():
+        if not isinstance(key, str):
+            raise SscError(
+                "invalid-config",
+                f"{workspace.config_path} declares a kind named {key!r}, which is not a name",
+                fix="quote it, or use letters, digits, dot, dash or underscore",
+            )
+        if isinstance(value, dict):
+            for item in value:
+                if not isinstance(item, str):
+                    raise SscError(
+                        "invalid-kind",
+                        f"kind {key!r} declares a field named {item!r}, which is not a name",
+                        fix=f"a profile has: {', '.join(sorted(FIELDS))}",
+                    )
     return found
 
 

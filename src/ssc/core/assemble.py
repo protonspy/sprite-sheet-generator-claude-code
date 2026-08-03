@@ -15,6 +15,12 @@ from ssc.core.doctor.masks import alpha_mask, anchor
 
 Place = str
 
+#: The anchors this module implements, as a value other modules import rather than retype.
+#: `kinds.py` validates a profile against it and `recover.py` offers it as a `click.Choice`;
+#: all three used to carry their own copy, which is the shape of defect this project has
+#: been bitten by repeatedly.
+ANCHOR_MODES = ("feet", "bottom", "centre")
+
 #: The largest canvas any of these will build. Same number the board generator holds itself
 #: to, for the same reason: every operation here allocates `width x height x 4` bytes, and
 #: three of the four take a value that multiplies into that — `--cols` times the cell, `--by`

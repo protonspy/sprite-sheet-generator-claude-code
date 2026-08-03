@@ -304,3 +304,52 @@ def test_a_deeply_nested_document_is_a_refusal_not_a_stack_overflow(tmp_path: Pa
     with pytest.raises(SscError) as refused:
         kinds.every(space)
     assert refused.value.code == "invalid-config"
+
+
+# The re-review's three, all one class: an exception that is not an SscError.
+
+
+@pytest.mark.parametrize("document", ["schema: 1\nkinds:\n  123: {}\n", "kinds:\n  true: {}\n"])
+def test_a_kind_named_by_a_non_string_key_is_refused(tmp_path: Path, document: str) -> None:
+    """YAML keys are not necessarily strings, and a non-string one blew up at `sorted(...)`
+    before `check_name` ever saw it."""
+    space = ws.create(tmp_path)
+    space.config_path.write_text(document, encoding="utf-8")
+    with pytest.raises(SscError) as refused:
+        kinds.every(space)
+    assert refused.value.code == "invalid-config"
+
+
+def test_a_field_named_by_a_non_string_key_is_refused(tmp_path: Path) -> None:
+    space = ws.create(tmp_path)
+    space.config_path.write_text("kinds:\n  icon:\n    5: value\n", encoding="utf-8")
+    with pytest.raises(SscError) as refused:
+        kinds.every(space)
+    assert refused.value.code == "invalid-kind"
+
+
+def test_bytes_that_are_not_utf8_are_a_refusal(tmp_path: Path) -> None:
+    """`UnicodeDecodeError` is a ValueError, not a YAMLError, so it escaped the tuple."""
+    space = ws.create(tmp_path)
+    space.config_path.write_bytes(b'schema: 1\nkinds:\n  a: {template: "\xff\xfe"}\n')
+    with pytest.raises(SscError) as refused:
+        kinds.every(space)
+    assert refused.value.code == "invalid-config"
+
+
+@pytest.mark.parametrize("value", ["0", '""', "[]", "false"])
+def test_a_falsy_kinds_value_of_the_wrong_type_is_refused(tmp_path: Path, value: str) -> None:
+    """`or {}` short-circuited before the type check, so a file that plainly declares
+    something reported 'no kinds declared'."""
+    space = ws.create(tmp_path)
+    space.config_path.write_text(f"schema: 1\nkinds: {value}\n", encoding="utf-8")
+    with pytest.raises(SscError) as refused:
+        kinds.every(space)
+    assert refused.value.code == "invalid-config"
+
+
+def test_the_anchors_a_profile_may_name_are_the_ones_assemble_implements() -> None:
+    """A value that must match between places, from one place. It was four copies."""
+    from ssc.core.assemble import ANCHOR_MODES
+
+    assert kinds.ANCHORS is ANCHOR_MODES

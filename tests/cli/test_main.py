@@ -96,3 +96,27 @@ def test_a_command_may_declare_its_options_either_side_of_the_decorator() -> Non
     result = CliRunner().invoke(above_command, ["--extra", "hello"])
     assert result.exit_code == 0
     assert result.output.strip() == "got hello"
+
+
+def test_an_unexpected_exception_is_still_one_json_object() -> None:
+    """Plan task 0.10, and the reason four reviews found four different tracebacks: R4.1
+    says every command emits one JSON object, and that has to hold for the failures nobody
+    anticipated too. The one caller this tool is built for cannot parse a traceback."""
+    import json
+
+    from click.testing import CliRunner
+
+    from ssc.cli.main import ssc_command
+
+    @ssc_command("boom", help="Raise something nobody planned for.")
+    def boom(*, dry_run: bool) -> object:
+        raise KeyError("a key nobody checked")
+
+    result = CliRunner().invoke(boom, ["--json"], catch_exceptions=False)
+    payload = json.loads(result.output)
+
+    assert result.exit_code == 1
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "internal-error"
+    # The diagnosis is not swallowed — the type and the message are in the object.
+    assert "KeyError" in payload["error"]["message"]

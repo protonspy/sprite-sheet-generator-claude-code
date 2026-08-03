@@ -25,7 +25,15 @@ from ssc.cli.frames import Frame, encode, load_image, read_frames, write_frames,
 from ssc.cli.listing import under_assets
 from ssc.cli.main import ssc_command
 from ssc.cli.output import Result
-from ssc.core.assemble import CanvasTooLarge, expand, flip, onion, pack, plan_alignment
+from ssc.core.assemble import (
+    ANCHOR_MODES,
+    CanvasTooLarge,
+    expand,
+    flip,
+    onion,
+    pack,
+    plan_alignment,
+)
 from ssc.core.curate import differences
 from ssc.core.recover import (
     Rect,
@@ -512,7 +520,7 @@ def mirror(source: Path, out: Path, *, dry_run: bool) -> Result:
 
 @ssc_command("align", help="Lock every frame of a set to one anchor.")
 @click.option("--onion", "onion_out", default=None, type=click.Path(path_type=Path))
-@click.option("--anchor", "mode", type=click.Choice(["feet", "bottom", "centre"]), default="feet")
+@click.option("--anchor", "mode", type=click.Choice(ANCHOR_MODES), default="feet")
 @click.option("--out", required=True, type=click.Path(path_type=Path))
 @click.option("--in", "source", required=True, type=click.Path(path_type=Path))
 def align(source: Path, out: Path, mode: str, onion_out: Path | None, *, dry_run: bool) -> Result:
@@ -552,7 +560,7 @@ def align(source: Path, out: Path, mode: str, onion_out: Path | None, *, dry_run
 @click.option(
     "--anchor",
     "mode",
-    type=click.Choice(["feet", "bottom", "centre"]),
+    type=click.Choice(ANCHOR_MODES),
     default="feet",
     help="Which anchor to measure. Must match the one `align` used.",
 )

@@ -9,7 +9,7 @@ from typing import Any
 import click
 
 from ssc.cli import workspace
-from ssc.cli.errors import EXIT_OK, SscError
+from ssc.cli.errors import EXIT_ERROR, EXIT_OK, SscError
 from ssc.cli.output import Result, render
 
 
@@ -47,6 +47,22 @@ def ssc_command(
             except SscError as error:
                 payload = error.as_dict()
                 code = error.exit_code
+            except Exception as unexpected:
+                # Every command emits one JSON object (R4.1), and that has to hold for the
+                # failures nobody anticipated too — otherwise the one caller this tool is
+                # built for gets a traceback on stderr and nothing it can parse. Four
+                # separate reviews found four different ways to reach this, each a distinct
+                # exception type; the fifth would have been found by a user.
+                #
+                # The diagnosis is not swallowed: the type and the message are in the
+                # object, which is more than a traceback gives a program and enough for a
+                # person to act on.
+                payload = SscError(
+                    "internal-error",
+                    f"{type(unexpected).__name__}: {unexpected}",
+                    fix="this is a bug in ssc; the code and message above are what to report",
+                ).as_dict()
+                code = EXIT_ERROR
 
             # With --json, stdout carries the object and nothing else — including when the
             # object describes a failure. Without it, an error belongs on stderr.

@@ -65,6 +65,15 @@ of failure as silently dropping an option.
 
 ## Risks
 
+**The live schema is trusted, and that is the deal this design makes.** The fetched schema
+*is* the acceptance check that stops a money leak, so a response that is subtly wider than
+the real one — a raised `maximum`, a dropped `enum` — is indistinguishable from an honest
+change and would be obeyed. Two things bound it rather than close it: the fetch is `https`
+only, size-capped and on a wall-clock budget, and a schema that is empty or absurdly large is
+not believed at all and falls back to the package. Neither makes a hostile response safe.
+What makes it *survivable* is that the shipped copy exists and R1.5 says which was used, so a
+call refused today and accepted yesterday has an answer rather than a mystery.
+
 **A provider that changes a schema mid-flight.** The runtime read is authoritative, so an
 option valid this morning can be refused this afternoon, correctly. What makes that
 debuggable rather than baffling is R1.5 — the report says where the schema came from, so

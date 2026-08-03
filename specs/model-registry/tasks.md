@@ -10,6 +10,7 @@ profile resolution, which R3.2 extends; `tests/cli/test_workspace.py` covers rea
 
 - [x] 1.1 (Unit) Read the shipped registry into models with their media, endpoint and schema — R1.1, R1.3
 - [x] 1.2 (Unit) Try the provider first, fall back to the shipped copy, and report which was used — R1.4, R1.5
+- [x] 1.4 (Unit) Follow the endpoint's own request body to its schema, and bound what a live response may be — R1.4
 - [x] 1.3 (Unit) `ssc model list [--media]` and `ssc model show <id>`, refusing a name nobody has — R1.1, R1.2, R1.3, R1.6
 
 ## 2 · The check that runs before the money

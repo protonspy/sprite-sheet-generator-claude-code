@@ -11,6 +11,7 @@ tests exercise — and that is also the path that matters when Fal is down.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -270,3 +271,113 @@ def test_a_kind_can_name_a_model_for_each_media() -> None:
     assert kinds.Profile(name="x").image_model == ""
     assert "image_model" in kinds.FIELDS
     assert "video_model" in kinds.Profile(name="x").as_dict()
+
+
+# The fetcher's own body, which every other test replaces — and where the review found the
+# defect that only appears when the network is *reachable*.
+
+
+def openapi_document(endpoint: str) -> dict[str, Any]:
+    """A document shaped the way a real FastAPI one is: the error schemas come first, and
+    both of them have `properties`."""
+    return {
+        "paths": {
+            f"/{endpoint}": {
+                "post": {
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/TextToImageRequest"}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "components": {
+            "schemas": {
+                "HTTPValidationError": {"properties": {"detail": {"type": "string"}}},
+                "ValidationError": {"properties": {"loc": {"type": "array"}}},
+                "TextToImageOutput": {"properties": {"images": {"type": "array"}}},
+                "TextToImageRequest": {
+                    "properties": {"prompt": {"type": "string"}},
+                    "required": ["prompt"],
+                },
+            }
+        },
+    }
+
+
+def test_the_input_schema_is_followed_rather_than_guessed() -> None:
+    """Taking the first schema with `properties` returns `HTTPValidationError`, `load` marks
+    it authoritative, and every real option is then reported unknown."""
+    found = models.input_schema_of(openapi_document(NANO), NANO)
+
+    assert found is not None
+    assert set(found["properties"]) == {"prompt"}
+
+
+def test_a_document_that_does_not_describe_this_endpoint_is_no_schema() -> None:
+    assert models.input_schema_of(openapi_document("other/model"), NANO) is None
+    assert models.input_schema_of({}, NANO) is None
+    assert models.input_schema_of({"paths": {f"/{NANO}": {}}}, NANO) is None
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        {"properties": {}},
+        {"properties": "not a map"},
+        {"properties": {f"f{index}": {} for index in range(models.MAX_PROPERTIES + 1)}},
+    ],
+)
+def test_a_live_schema_that_is_not_a_model_s_input_is_not_believed(schema: Any) -> None:
+    """The fetched schema *is* the check that stops a money leak, so a response that is
+    empty or absurd is a reason to fall back rather than a new set of rules to obey."""
+    assert models.plausible(schema) is False
+
+
+def test_a_real_looking_live_schema_is_believed() -> None:
+    assert models.plausible({"properties": {"prompt": {"type": "string"}}}) is True
+
+
+def test_the_core_concepts_are_declared_once() -> None:
+    """`core.json` states them and so does this module. Two records of one fact drift, and
+    the copy is the one that goes stale."""
+    from importlib import resources
+
+    declared = json.loads(
+        resources.files("ssc.data").joinpath("core.json").read_text(encoding="utf-8")
+    )
+    assert tuple(declared["concepts"]) == models.CONCEPTS
+
+
+def test_a_registry_whose_files_disagree_about_the_concepts_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(models, "CONCEPTS", ("prompt", "moved-on"))
+
+    with pytest.raises(SscError) as refused:
+        models.load(fetch=lambda endpoint: None)
+    assert refused.value.code == "registry-invalid"
+
+
+# R2.2 for the type the checker had no branch for.
+
+
+def test_an_array_option_refuses_a_value_that_is_not_a_list(registry: models.Registry) -> None:
+    """`image_urls` is a *required* array on both `/edit` endpoints, so it is the field most
+    likely to be got wrong by a caller passing one URL."""
+    with pytest.raises(UsageError) as refused:
+        registry.check("fal-ai/gpt-image-1.5/edit", {"prompt": "x", "image_urls": "https://x/a"})
+
+    assert refused.value.code == "invalid-option"
+    assert "list" in (refused.value.fix or "")
+
+
+def test_an_array_option_accepts_a_list(registry: models.Registry) -> None:
+    checked = registry.check(
+        "fal-ai/gpt-image-1.5/edit", {"prompt": "x", "image_urls": ["https://x/a"]}
+    )
+
+    assert checked["image_urls"] == ["https://x/a"]

@@ -13,6 +13,7 @@ actually say.
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from importlib import resources
@@ -28,6 +29,20 @@ CONCEPTS = ("prompt", "image", "seconds", "size", "seed")
 
 #: Fal serves one of these per endpoint, unauthenticated.
 SCHEMA_URL = "https://fal.ai/api/openapi/queue/openapi.json?endpoint_id={endpoint}"
+
+#: A schema document is tens of kilobytes. `read()` with no argument is how a response that
+#: is hostile — or merely enormous — becomes this process's memory.
+MAX_SCHEMA_BYTES = 4 * 1024 * 1024
+
+#: Per socket operation, not wall clock: a server trickling a byte every nine seconds keeps
+#: every `recv` under this and never finishes. `load` bounds the whole fetch instead.
+SOCKET_TIMEOUT = 10.0
+
+#: The deadline that actually stops the trickle, across every model in one call.
+FETCH_BUDGET_SECONDS = 20.0
+
+#: No model has hundreds of options. A live schema past this is not a model's input schema.
+MAX_PROPERTIES = 200
 
 Fetcher = Callable[[str], dict[str, Any] | None]
 
@@ -131,16 +146,60 @@ def _shipped(name: str) -> dict[str, Any]:
     return data
 
 
+def input_schema_of(document: dict[str, Any], endpoint: str) -> dict[str, Any] | None:
+    """The request-body schema for this endpoint, followed rather than guessed.
+
+    `scripts/fetch_model_schemas.py` already walks `paths → post → requestBody → $ref`, and
+    that is the algorithm because the shortcut is wrong: `components.schemas` on a real
+    FastAPI document holds `HTTPValidationError` and `ValidationError` too, both of which
+    have `properties` and one of which sorts first. Taking the first match returns the
+    error schema, `load` marks it authoritative, and every real option is then "unknown" —
+    a failure that only appears when the network is *reachable*, which is the normal case.
+    """
+    try:
+        path = document["paths"][f"/{endpoint}"]
+        ref = path["post"]["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+        found = document["components"]["schemas"][ref.rsplit("/", 1)[-1]]
+    except (KeyError, TypeError, AttributeError):
+        return None
+    return found if isinstance(found, dict) and "properties" in found else None
+
+
+def plausible(schema: dict[str, Any]) -> bool:
+    """Whether a live schema is worth believing over the shipped one.
+
+    The fetched schema *is* the acceptance check that stops a money leak, so a response that
+    is empty or absurd is a reason to fall back rather than a new set of rules to obey. This
+    does not make a hostile response safe — a subtly wider `maximum` is indistinguishable
+    from a real one — and `design.md` says so. It bounds the shapes that are obviously not a
+    model's input schema.
+    """
+    properties = schema.get("properties")
+    return isinstance(properties, dict) and 0 < len(properties) <= MAX_PROPERTIES
+
+
 def fetch_from_provider(endpoint: str) -> dict[str, Any] | None:
     """The default fetcher. Injected everywhere else, so no test reaches the network."""
+    import urllib.parse
     import urllib.request
 
-    with urllib.request.urlopen(SCHEMA_URL.format(endpoint=endpoint), timeout=10) as response:
-        document: dict[str, Any] = json.loads(response.read().decode("utf-8"))
-    for path in document.get("components", {}).get("schemas", {}).values():
-        if isinstance(path, dict) and "properties" in path:
-            return path
-    return None
+    url = SCHEMA_URL.format(endpoint=urllib.parse.quote(endpoint, safe=""))
+    if urllib.parse.urlparse(url).scheme != "https":
+        # Belt and braces: `urlopen` will open `file://` quite happily, and the one thing
+        # this function must never do is read a local path because a string looked like one.
+        return None
+
+    with urllib.request.urlopen(url, timeout=SOCKET_TIMEOUT) as response:
+        # Bounded, and one byte over the cap so the difference between "big" and "exactly at
+        # the limit" is visible. `read()` with no argument is how a hostile response — or an
+        # honest but enormous one — becomes this process's memory.
+        raw = response.read(MAX_SCHEMA_BYTES + 1)
+    if len(raw) > MAX_SCHEMA_BYTES:
+        return None
+
+    document: dict[str, Any] = json.loads(raw.decode("utf-8"))
+    found = input_schema_of(document, endpoint)
+    return found if found is not None and plausible(found) else None
 
 
 @dataclass(frozen=True)
@@ -250,7 +309,10 @@ class Registry:
 
 
 def _check_value(model: Model, option: Option, value: Any) -> None:
-    if option.allowed is not None and value not in option.allowed:
+    if option.allowed is not None and (
+        isinstance(value, bool) is not any(isinstance(item, bool) for item in option.allowed)
+        or value not in option.allowed
+    ):
         raise UsageError(
             "invalid-option",
             f"{model.endpoint}.{option.name} does not take {value!r}",
@@ -273,6 +335,18 @@ def _check_value(model: Model, option: Option, value: Any) -> None:
             "invalid-option",
             f"{model.endpoint}.{option.name} is a string and got {value!r}",
             fix="pass text",
+        )
+    if option.type == "array" and not isinstance(value, list):
+        raise UsageError(
+            "invalid-option",
+            f"{model.endpoint}.{option.name} is a list and got {value!r}",
+            fix="pass a list, even for one item",
+        )
+    if option.type == "object" and not isinstance(value, dict):
+        raise UsageError(
+            "invalid-option",
+            f"{model.endpoint}.{option.name} is an object and got {value!r}",
+            fix="pass an object",
         )
     if option.type == "boolean" and not isinstance(value, bool):
         raise UsageError(
@@ -302,18 +376,35 @@ def load(*, fetch: Fetcher | None = None) -> Registry:
     unreachable must not stop a caller inspecting what it knows.
     """
     shipped = _shipped("models.json")
-    core = _shipped("core.json").get("models", {})
+    declared = _shipped("core.json")
+    core = declared.get("models", {})
+
+    # Two records of one fact drift, and the copy is the one that goes stale — so the file's
+    # own list of concepts is checked against this module's rather than merely sitting there.
+    stated = tuple(declared.get("concepts") or ())
+    if stated != CONCEPTS:
+        raise SscError(
+            "registry-invalid",
+            f"core.json declares concepts {stated} and the code has {CONCEPTS}",
+            fix="make them match; they are one decision recorded twice",
+        )
+
     fetcher = fetch_from_provider if fetch is None else fetch
+    deadline = time.monotonic() + FETCH_BUDGET_SECONDS
 
     built: list[Model] = []
     for described in shipped.get("models", []):
         endpoint = str(described["endpoint_id"])
         schema = described.get("input_schema") or {}
         source = "package"
-        try:
-            live = fetcher(endpoint)
-        except Exception:
-            live = None
+        live = None
+        # One budget for the whole load rather than a timeout each: six models times a
+        # per-socket timeout is a minute of hanging on a command that reads a schema.
+        if time.monotonic() < deadline:
+            try:
+                live = fetcher(endpoint)
+            except Exception:
+                live = None
         if live:
             schema, source = live, "provider"
         built.append(

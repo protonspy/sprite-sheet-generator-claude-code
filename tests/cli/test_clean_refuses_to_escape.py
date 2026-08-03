@@ -67,7 +67,11 @@ def test_clean_will_not_load_a_record_that_points_outside(
     result = CliRunner().invoke(main, ["clean", "--json"], catch_exceptions=False)
 
     assert result.exit_code == 1
-    assert json.loads(result.output)["error"]["code"] == "meta-invalid"
+    error = json.loads(result.output)["error"]
+    assert error["code"] == "meta-invalid"
+    # The reason, not just a count: an operator told to fix a file by hand needs to
+    # know which field is wrong.
+    assert "files.0.path" in error["message"]
     assert (victim / "paid-for.png").exists()
 
 

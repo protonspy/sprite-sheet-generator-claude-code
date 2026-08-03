@@ -46,6 +46,13 @@ def check_name(value: str, what: str) -> str:
             "invalid-name",
             f"{what} {value!r} is a reserved device name on Windows",
         )
+    if value.endswith("."):
+        # Windows silently strips it, so `hero.` and `hero` are one directory there and
+        # two names in `meta.json`. Today the duplicate is caught by the existence check
+        # that Windows normalises the same way; relying on that holding for every future
+        # code path — including `\\?\` long paths, which do not normalise — is not worth
+        # the character.
+        raise UsageError("invalid-name", f"{what} {value!r} ends in a dot")
     return value
 
 

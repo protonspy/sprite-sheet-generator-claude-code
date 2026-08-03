@@ -33,6 +33,7 @@ def test_an_ordinary_name_is_accepted(value: str) -> None:
         "hero ",
         "a" * 65,
         "héro",
+        "hero.",
     ],
 )
 def test_anything_that_is_not_a_single_plain_segment_is_refused(value: str) -> None:

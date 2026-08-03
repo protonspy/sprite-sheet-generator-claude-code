@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+import click
 from click.testing import CliRunner
 
 from ssc.cli.errors import GatePending, SscError, UsageError
@@ -80,3 +81,18 @@ def test_a_failure_without_json_goes_to_stderr() -> None:
 def test_bad_arguments_are_invalid_usage() -> None:
     """click's own parse failures already exit 2, which is the code R4.2 gives them."""
     assert CliRunner().invoke(ok_command, ["--nope"]).exit_code == 2
+
+
+@click.option("--extra", default="x")
+@ssc_command("above")
+def above_command(*, dry_run: bool, extra: str) -> Result:
+    return Result("above", f"got {extra}")
+
+
+def test_a_command_may_declare_its_options_either_side_of_the_decorator() -> None:
+    """Stated because a comment here once claimed the opposite: click's `_param_memo`
+    appends to a built Command's `params` as readily as to a function's
+    `__click_params__`, so the convention is readability, not a constraint."""
+    result = CliRunner().invoke(above_command, ["--extra", "hello"])
+    assert result.exit_code == 0
+    assert result.output.strip() == "got hello"

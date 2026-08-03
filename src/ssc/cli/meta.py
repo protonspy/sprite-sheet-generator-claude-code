@@ -152,10 +152,16 @@ def load(asset_dir: Path) -> AssetMeta:
         # A record ssc will not act on beats a record it half-believes: `clean` deletes
         # what this file names, so a malformed one stops the command rather than being
         # repaired into something plausible.
+        # The reason is in hand; reporting only a count would send an operator to "fix it
+        # against the schema" without saying what in the schema is wrong.
+        problems = "; ".join(
+            f"{'.'.join(str(part) for part in problem['loc'])}: {problem['msg']}"
+            for problem in invalid.errors()
+        )
         raise SscError(
             "meta-invalid",
-            f"{target} is not a valid {META_NAME}: {invalid.error_count()} problem(s)",
-            fix="fix it by hand against the schema, or restore it from git",
+            f"{target} is not a valid {META_NAME}: {problems}",
+            fix="fix it by hand, or restore it from git",
         ) from invalid
 
 

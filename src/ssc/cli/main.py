@@ -26,9 +26,10 @@ def ssc_command(
     refusal for a missing one is identical everywhere (R1.5). Commands that work off
     `--in`/`--out` leave it alone (R1.6).
 
-    **A command's own `@click.option` and `@click.argument` go below this decorator**, so
-    they are applied to the function first and this one wraps the result. The other order
-    puts them on the already-built `click.Command` and they are silently ignored.
+    A command's own `@click.option` and `@click.argument` go **below** this decorator by
+    convention, so the whole signature reads in one place. Either order works — click's
+    `_param_memo` appends to a `Command`'s `params` and to a plain function's
+    `__click_params__` alike — so this is readability, not a constraint.
     """
 
     def decorate(fn: Callable[..., Result]) -> click.Command:

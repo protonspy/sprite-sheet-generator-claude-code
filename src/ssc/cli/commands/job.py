@@ -108,8 +108,9 @@ def job_wait(
     # Not `<= 0`: every comparison against `nan` is False, so `--timeout nan` walked
     # through that guard, made the deadline `nan`, and left the poll loop running forever —
     # a command that never returns, which inside a harness is exactly what `wait` exists to
-    # avoid looking like.
-    if not timeout > 0 or not poll > 0 or timeout == float("inf"):
+    # avoid looking like. `inf` is refused for both, and on the poll side for a second
+    # reason: `time.sleep(inf)` is an `OverflowError`, not a long sleep.
+    if not timeout > 0 or not poll > 0 or float("inf") in (timeout, poll):
         raise SscError(
             "invalid-wait",
             "--timeout and --poll are durations, and both have to be above zero",

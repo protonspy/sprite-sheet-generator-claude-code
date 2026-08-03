@@ -297,7 +297,9 @@ def test_resume_without_a_provider_reports_the_record(space: Path) -> None:
     assert payload["asked_provider"] is False
 
 
-@pytest.mark.parametrize("argv", [["--timeout", "nan"], ["--poll", "nan"], ["--timeout", "inf"]])
+@pytest.mark.parametrize(
+    "argv", [["--timeout", "nan"], ["--poll", "nan"], ["--timeout", "inf"], ["--poll", "inf"]]
+)
 def test_a_duration_that_is_not_a_number_is_refused_rather_than_looping_forever(
     argv: list[str], space: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -41,11 +41,16 @@ SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH", re
 # deliberately so. That one is matched against environment variable names, where a substring
 # is the right test. This one is matched against the keys of output this project builds,
 # where `key` is a domain word — an asset's key — and blanking it would empty a field every
-# listing depends on. So a bare `key` is not a secret and `fal_key` is, which is the entire
-# difference between the two patterns.
+# listing depends on. So `key` is not a secret here and `api_key` is.
+#
+# There is deliberately no "anything ending in _key" branch either. It was tried, and it
+# blanks `cache_key` — a real field in this project's listing output — the moment a command
+# populates one. A field has to name a *credential*, not merely end in a word that sometimes
+# introduces one. The environment's `FAL_KEY` is still caught, by value, wherever it appears.
 SECRET_FIELD = re.compile(
-    r"^(?:(?:.*[-_])?(?:api[-_]?keys?|access[-_]?keys?|secret[-_]?keys?|private[-_]?keys?"
-    r"|tokens?|secrets?|passwords?|passwd|credentials?|authorization|auth)|.+[-_]keys?)$",
+    r"^(?:.*[-_])?"
+    r"(?:api[-_]?keys?|access[-_]?keys?|secret[-_]?keys?|private[-_]?keys?"
+    r"|tokens?|secrets?|passwords?|passwd|credentials?|authorization|auth)$",
     re.IGNORECASE,
 )
 

@@ -166,10 +166,16 @@ class Job:
         # then fail far away, inside the sort in `every` — which turned one hand-edited file
         # into "no job in this workspace lists", the exact opposite of what R1.4 promises.
         # Every check here is one that keeps a bad record local to itself.
-        arguments = data.get("arguments") or {}
+        # `data.get(field) or default` is the shape that looks right and is not: it swaps a
+        # *falsy* value — `0`, `False`, `""`, an empty list — for the default before the check
+        # can see it, so a record with `"history": 0` is accepted with its history quietly
+        # emptied rather than reported. `is None` is the question actually being asked.
+        arguments = data.get("arguments")
+        arguments = {} if arguments is None else arguments
         if not isinstance(arguments, dict):
             raise ValueError("a job record's arguments are an object")
-        history = data.get("history") or []
+        history = data.get("history")
+        history = [] if history is None else history
         if not isinstance(history, list) or not all(
             isinstance(entry, dict) and {"state", "at"} <= set(entry) for entry in history
         ):

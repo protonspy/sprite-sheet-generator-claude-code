@@ -264,6 +264,9 @@ def test_a_history_of_the_wrong_shape_is_refused_rather_than_half_read(
         ("request_id", {"id": 1}),
         ("error", 7),
         ("history", [{"state": "submitted"}]),
+        ("history", 0),
+        ("arguments", []),
+        ("arguments", ""),
     ],
 )
 def test_a_field_of_the_wrong_type_keeps_the_bad_record_local_to_itself(

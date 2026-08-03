@@ -1,40 +1,90 @@
 # Frame recovery — design
 
-<!-- The design must fit the decision being made. Every heading below except
-     "What changes" is OPTIONAL: delete the ones this change does not decide.
-
-     A heading filled with "N/A", or with prose written to satisfy the heading, is
-     worse than an absent heading — the next session reads invented architecture as
-     a decision somebody made, and honors it. Filler becomes binding.
-
-     Delete this comment too. -->
-
 ## What changes
 
-Serves R1.1.
+Serves R1.2, R1.8, R2.1, R3.1, R3.2, R3.3, R3.4.
 
-<!-- Required. What changes, where, and why. For a change that decides nothing
-     structural, this section is the whole design and that is the correct outcome.
+- **`core/recover.py`** — pure: the three detectors, the grid detection, and the filters.
+  Takes an `ndarray` and a params dataclass, returns a list of rectangles. It returns
+  **rectangles, not images**, which is what lets the grid detector be tested against an 8×8
+  array and what keeps the two bindings from each cropping their own way.
+- **`core/curate.py`** — the redundancy measure, also pure.
+- **`cli/commands/recover.py`** — `tool cut`, `tool slice` and `tool curate`. A new module
+  rather than a fifth, sixth and seventh command in `convert.py`: these three write *into a
+  workspace* when there is one, which is a different shape from the four that only ever take
+  `--in`/`--out`, and that is the boundary `convert.py`'s own docstring says to split on.
 
-     Keep the "Serves" line above and make it real: the design has to name the
-     requirements it answers, or the trace from what to how is unreadable — and
-     `scc spec validate` says so. -->
+## The two bindings
 
-## Boundaries and contracts <!-- optional -->
+`cut` and `slice` are the same detector with different output bindings, and the difference
+is entirely in what gets written:
 
-<!-- Only if this change moves a boundary or an external contract, and only for the
-     parts that actually move. -->
+| | `cut` | `slice` |
+|---|---|---|
+| result | one asset, N frames | N assets, one image each |
+| on disk | `frames/001.png …` under the asset | `assets/<kind>/<key>-01/` … |
+| lineage | every frame derives from the sheet | every asset's first file derives from the sheet |
 
-## Data <!-- optional -->
+Keeping them one leaf keeps the three detection modes in one place. Splitting them by
+binding would have produced the same detector twice, and the second copy is the one that
+drifts.
 
-<!-- Only if a data shape changes. -->
+## Detecting a grid
 
-## Alternatives considered <!-- optional -->
+R1.2 is the requirement that makes a sheet of unknown origin usable, and the plan put it
+here rather than in `sheet-doctor` on purpose: `doctor`'s `check_bleed` takes the grid as a
+parameter and says so in a comment, precisely so that two detectors could not disagree.
+This is the one that detects.
 
-<!-- Only where there were real alternatives with trade-offs. Say which won and why.
-     If the decision is hard to reverse, write an ADR under docs/adr/ and cite it
-     here instead of arguing it twice. -->
+The method is projection profiles. Sum the alpha (or the not-key mask) along each axis; a
+run of zero-valued columns is a gutter between cells, and a run of non-zero is a cell. From
+those runs come the margin, the cell size and the spacing, and the count follows. It handles
+both of R2.2's cases because a sheet with no spacing is the same measurement with
+zero-length gutters — the cell boundaries then come from the regular pitch of the content
+runs rather than from the gaps.
 
-## Risks <!-- optional -->
+**It reports the grid it can see, which is not always the grid somebody drew** — and
+writing the test first is what surfaced that. A sprite does not fill its cell to the edge, so
+a sheet of 10px cells with 4px gutters and a 1px inset presents as runs of 8 separated by
+gaps of 6. Nothing in the image distinguishes that from 8px cells with 6px gutters: the cell
+boundary is simply not observable where no content touches it. So the report is the
+observable one — cells tight around the content, spacing being the gap actually measured —
+which is self-consistent, tiles back to the image, and is what `cut` needs anyway, since
+cropping to it yields the sprite rather than the sprite plus its padding.
 
-<!-- What could go wrong that the task list does not already cover. -->
+R2.2's two cases collapse into that one measurement: cells that abut differ from cells that
+are spaced only in how wide the gaps are, and a sheet with no gaps at all in either axis is
+one solid block, which is not a layout and is refused.
+
+This is a detector, so it can be wrong, and R1.3 is what that costs: it refuses and names
+the flag rather than guessing a layout and cutting a sheet into nonsense. **Silently
+returning a plausible wrong grid is the failure mode to design against** — every frame after
+it would be off by a few pixels, and nothing downstream would notice. That is why regularity
+is checked rather than assumed (R2.4): three blobs at unrelated positions are not a 3x1
+sheet, and calling them one would cut somebody's illustration into thirds.
+
+## Writing into a workspace, or not
+
+R3.3 and R3.4 are one decision, and it is carried by **which destination was named**, not
+by a mode flag: `--asset <kind>/<key>` records the way every other writer does, `--out
+<path>` writes plain files exactly as `snap` and `pixelart` do, and exactly one of the two
+is required (R3.6).
+
+The first draft of this said the choice was discovered from whether a workspace was found.
+That does not survive contact: a command standing in a workspace still has to be told *which
+asset* to record into, so the workspace's presence answers only half the question and the
+flag would have had to exist anyway. Naming the destination once is honest; discovering half
+of it and flagging the other half is not.
+
+A `cut` into an asset records **one** file entry whose path is `frames/` — the only
+subdirectory `workspace-foundation` permits inside an asset — rather than one entry per
+frame, because a stage is unique per asset and N frames are one stage. That is also why
+`asset-listing` reports such a record as `unclassified`: it has no extension, which is the
+seam that leaf named and left visible rather than hiding.
+
+## Risks
+
+**`slice` invents keys.** N assets need N keys, and they come from the source key plus an
+index. A collision with an asset that already exists has to refuse rather than merge, which
+is `workspace-foundation`'s R2.3 and comes for free by going through the same path `asset
+new` does.

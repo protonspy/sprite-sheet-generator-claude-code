@@ -12,6 +12,7 @@ from ssc.cli.commands.convert import bgremove, board, pixelart, snap
 from ssc.cli.commands.doctor import doctor
 from ssc.cli.commands.init import init
 from ssc.cli.commands.media import image, video
+from ssc.cli.commands.recover import curate, cut, slice_sheet
 from ssc.cli.main import main, tool
 
 main.add_command(init)
@@ -25,5 +26,8 @@ tool.add_command(snap)
 tool.add_command(pixelart)
 tool.add_command(board)
 tool.add_command(bgremove)
+tool.add_command(cut)
+tool.add_command(slice_sheet)
+tool.add_command(curate)
 
 __all__ = ["main"]

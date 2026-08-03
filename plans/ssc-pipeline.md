@@ -12,8 +12,8 @@ pixels, a transparent background, and metadata the engine can read — a charact
 spritesheet, but equally an icon atlas, a seamless tileset, a nine-slice UI panel, a
 banner. Image and video models produce art that is not game-ready, and the defects are
 systematic rather than accidental: fake pixel art, frame bleeding, drift, opaque
-backgrounds, palette drift, flicker between frames, visible tiling seams, broken
-cycles. Each command repairs one of those, is either deterministic or explicitly
+backgrounds, palette drift, flicker between frames, silhouettes that stop reading at the
+size they are played at, visible tiling seams, broken cycles. Each command repairs one of those, is either deterministic or explicitly
 expensive, and writes a new file — nothing ever mutates its input.
 
 The plan closes when M6 ships: an agent starts from a base image, generates the poses

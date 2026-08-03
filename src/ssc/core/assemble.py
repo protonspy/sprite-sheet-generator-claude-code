@@ -248,7 +248,6 @@ def pack(
     *,
     columns: int,
     cell: tuple[int, int] | None = None,
-    anchor_at: tuple[int, int] | None = None,
     mode: Place = "feet",
 ) -> tuple[np.ndarray, Layout]:
     """Lay a set out in equal cells (R4.1-R4.4).
@@ -284,6 +283,6 @@ def pack(
         columns=columns,
         rows=rows,
         cell=size,
-        anchor=anchor_at or measured or (size[0] // 2, size[1] - 1),
+        anchor=measured or (size[0] // 2, size[1] - 1),
         aligned=agreed,
     )

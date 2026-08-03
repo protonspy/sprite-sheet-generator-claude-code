@@ -49,6 +49,7 @@ command is what turns an invisible step into a recorded one.
 - **R4.3** If a frame does not fit the cell, then the `ssc` CLI shall write nothing and exit `2`.
 - **R4.4** When it packs, the `ssc` CLI shall report the cell, the columns, the rows and the anchor within the cell, measured from the frames.
 - **R4.6** If the frames do not share one anchor, then the `ssc` CLI shall report that they do not.
+- **R4.7** The `ssc` CLI shall accept the anchor `pack` measures, and shall report from `align` the one it used.
 - **R4.5** If a sheet would be larger than the canvas ceiling on either side, then the `ssc` CLI shall write nothing and exit `2`.
 
 ## Out of scope

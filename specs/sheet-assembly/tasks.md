@@ -29,4 +29,4 @@ covers the module these commands join. All were run green before this work start
 - [x] 4.1 (Unit) Build `ssc tool expand` and `ssc tool mirror` — R1.1, R1.5, R2.2
 - [x] 4.2 (Unit) Build `ssc tool align`, with the onion skin — R3.1, R3.5
 - [x] 4.3 (Unit) Build `ssc tool pack`, reporting the cell, the grid and the anchor — R4.4
-- [x] 4.4 (Unit) Carry the anchor mode from `align` to `pack`, so the two measure the same thing — R3.1, R4.6
+- [x] 4.4 (Unit) Carry the anchor mode from `align` to `pack`, so the two measure the same thing — R4.6, R4.7

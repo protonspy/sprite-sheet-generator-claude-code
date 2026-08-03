@@ -1,40 +1,143 @@
 # Workspace foundation — design
 
-<!-- The design must fit the decision being made. Every heading below except
-     "What changes" is OPTIONAL: delete the ones this change does not decide.
-
-     A heading filled with "N/A", or with prose written to satisfy the heading, is
-     worse than an absent heading — the next session reads invented architecture as
-     a decision somebody made, and honors it. Filler becomes binding.
-
-     Delete this comment too. -->
-
 ## What changes
 
-Serves R1.1.
+Serves R1.1–R1.6, R2.1–R2.5, R3.1–R3.6, R4.1–R4.5, R5.1–R5.3, R6.1–R6.3.
 
-<!-- Required. What changes, where, and why. For a change that decides nothing
-     structural, this section is the whole design and that is the correct outcome.
+`src/ssc/` today is an empty package. This leaf fills it with the two layers every later
+command plugs into, plus the three commands that exercise them end to end: `ssc init`,
+`ssc asset new`, `ssc clean`. Resolving a stage to a file lands as a function rather than a
+command, because the command that exposes it is `specs/asset-listing/`'s.
 
-     Keep the "Serves" line above and make it real: the design has to name the
-     requirements it answers, or the trace from what to how is unreadable — and
-     `scc spec validate` says so. -->
+```
+src/ssc/
+  core/           pure: ndarray in, ndarray out, no IO
+    resize.py       the one resampler (R4.4)
+  cli/            impure: filesystem, cache, lineage, JSON
+    errors.py       SscError and the exit codes (R4.2, R4.5)
+    output.py       one result object, rendered as JSON or as prose (R4.1)
+    atomic.py       temp-plus-rename writes (R3.6)
+    workspace.py    finding the root, ssc.yaml (R1.1–R1.6)
+    meta.py         the asset record: files, stages, classes (R2, R3, R6)
+    cache.py        content-addressed results (R5)
+    main.py         the click group and the shared options
+    commands/       init.py · asset.py · clean.py
+tests/                mirrors src/, plus test_no_other_resampler.py
+```
 
-## Boundaries and contracts <!-- optional -->
+The layer boundary is **purity, not user interface** — which is why `workspace.py` and
+`cache.py` sit under `cli/` despite having nothing to do with argument parsing.
+`.claude/rules/project.md` draws the line there deliberately: `core/` is what can be tested
+against an 8×8 array with no directory in sight, and everything else is the other side.
 
-<!-- Only if this change moves a boundary or an external contract, and only for the
-     parts that actually move. -->
+## Boundaries and contracts
 
-## Data <!-- optional -->
+**Everything a command prints is one object.** A command builds a `Result` and returns it;
+`main.py` renders it — as JSON when `--json` is given, as prose otherwise — and maps it to
+an exit code. Commands never call `print`, and nothing writes to stdout except that final
+render, which is what makes R4.1's "and nothing else" enforceable rather than aspirational.
 
-<!-- Only if a data shape changes. -->
+**Errors are values with a fix.** `SscError` carries `code` (stable, machine-readable),
+`message`, an optional `fix` naming the command that resolves it, and an exit code. The
+`fix` field is the same shape a `doctor` finding will carry and the same shape a `gen`
+refusal will carry, so a harness learns it once.
 
-## Alternatives considered <!-- optional -->
+| Exit | Meaning | Raised as |
+|---|---|---|
+| `0` | success | no error |
+| `1` | error — the command ran and failed | `SscError` |
+| `2` | invalid usage — the command should not have been called this way | `UsageError` |
+| `3` | a gate is pending | reserved; nothing here raises it |
 
-<!-- Only where there were real alternatives with trade-offs. Say which won and why.
-     If the decision is hard to reverse, write an ADR under docs/adr/ and cite it
-     here instead of arguing it twice. -->
+**Nearest neighbour is enforced, not documented.** `core.resize()` is the only function
+permitted to resample, and a test walks the AST of `src/` and fails on any other `resize`
+call. The plan is explicit that one careless bilinear resize undoes all of M1 and that the
+damage is invisible until 4× zoom — so this is a test, not a review convention.
 
-## Risks <!-- optional -->
+**Nothing overwrites.** Every write goes through a helper that refuses an existing path
+(R3.5). Combined with "every command writes a new file", the recovery story for any mistake
+is `git checkout`, and there is no state to unwind.
 
-<!-- What could go wrong that the task list does not already cover. -->
+## Data
+
+**`ssc.yaml`** — the workspace root marker, and deliberately almost empty. Kind profiles,
+budget and palette belong to later leaves; what this one owns is the schema version.
+
+```yaml
+schema: 1
+```
+
+**`meta.json`**, one per asset, at `assets/<kind>/<key>/meta.json`:
+
+```json
+{
+  "schema": 1,
+  "key": "hero",
+  "kind": "character",
+  "created_at": "2026-08-02T21:00:00Z",
+  "files": [
+    {
+      "path": "001_anchor_s.png",
+      "stage": "anchor",
+      "class": "source",
+      "sha256": "…",
+      "produced_by": {"command": "gen image", "params": {}, "cache_key": null},
+      "derived_from": [],
+      "written_at": "2026-08-02T21:00:00Z"
+    }
+  ]
+}
+```
+
+- `path` is relative to the asset directory, so an asset survives being moved.
+- `stage` is the address (R3.3), and it is unique within an asset (R3.4).
+- `class` decides deletability (R6) and is the only field `ssc clean` reads.
+- `derived_from` names paths inside the same asset, which is what makes the chain
+  reconstructible without parsing filenames.
+
+**Filenames** are `<NNN>_<label>.<ext>`, where `NNN` is the next unused three-digit prefix
+and `label` accumulates the stages applied so far: `001_anchor_s.png` →
+`002_anchor_s.snap.png` → `003_anchor_s.nobg.png`. The prefix orders one `ls`; it is never
+an address (R2.4), because inserting a step in the middle would otherwise renumber
+everything downstream and break every script that hard-coded `003`.
+
+**The cache key** is `sha256` over a canonical JSON document:
+
+```json
+{"command": "tool snap", "params": {}, "inputs": ["<sha256 per input file>"], "salt": {}}
+```
+
+`params` is sorted and holds only what changes the result. `salt` exists because two later
+leaves must join the key without redesigning it — `model-registry` adds the model id,
+`cv-runtime` adds the execution provider — and the plan is explicit that a cache
+conflating those is worse than no cache. Entries live at `cache/<key[:2]>/<key>`, so
+`cache/` is a content-addressed store with no index to corrupt and no migration when its
+shape changes: deleting it is always safe (R5.3).
+
+## Alternatives considered
+
+**Grouping by stage rather than by kind** — `images/`, `videos/`, `frames/`, `sprites/`,
+with the key underneath — was the original design document's layout, and this leaf reverses
+it. It answers "where are the videos" well and "what exists of kind `tile`" badly, and the
+second is the question an operator and an agent actually ask. Kind-first also keeps an
+extensible kind system honest: a project-defined kind gets a directory rather than a
+special case. This is the hardest thing in the plan to change later, so it is
+`adr:0007-group-assets-by-kind-then-key`.
+
+**Addressing files by their numbered prefix** was rejected for the renumbering reason
+above: the stage name is the address, the prefix is presentation.
+
+**A cache index** — SQLite, or a JSON manifest — was rejected because it is a second source
+of truth about what is cached, and its failure mode is an index that disagrees with the
+directory, which survives unnoticed. Content addressing makes the filename the index.
+
+## Risks
+
+- **`meta.json` is rewritten whole on every write.** At the scale this tool works at — tens
+  of files per asset — that is irrelevant, and it is what makes the atomic write trivial.
+  It stops being irrelevant if something ever records 200 frames as 200 separate entries;
+  a frame set is one entry with a directory in it, and `specs/frame-recovery/` has to keep
+  it that way.
+- **`salt` is a guess about the future**, shaped from two known needs. If a third arrives
+  that does not fit "extra fields folded into the key", the key function changes and every
+  cached entry misses — wasteful, not wrong.

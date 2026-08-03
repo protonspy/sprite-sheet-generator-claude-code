@@ -48,6 +48,8 @@ and not listed here is an undecided dependency.
 - **ruff** — lint and format in one tool, fast enough to run per task.
 - **mypy** — checks `src/`, `strict`. The JSON contracts are typed; a schema that drifts
   from its dataclass is a defect tests will not catch.
+- **types-PyYAML** — `pyyaml` ships no annotations, so under `strict` every `ssc.yaml`
+  read would otherwise be `Any` at exactly the boundary where the shape is in doubt.
 - **hatchling** — build backend. Chosen for handling the `src/` layout with no
   configuration beyond naming the package.
 

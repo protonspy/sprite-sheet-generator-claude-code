@@ -7,7 +7,9 @@ name = "sprite-sheet-generator-claude-code"
 version = "0.1.0"
 description = "Turn AI-generated art into game-ready 2D assets"
 readme = "README.md"
-requires-python = ">=3.11"
+# 3.12, not 3.11: numpy's own type stubs use `type` statements, so a 3.11 floor is one
+# this project cannot type-check. See docs/adr/0001-python-and-uv.md.
+requires-python = ">=3.12"
 license = { file = "LICENSE" }
 dependencies = [
     "click>=8.1",
@@ -28,10 +30,11 @@ dependencies = [
 cv = ["onnxruntime>=1.18", "rembg>=2.0"]
 cv-gpu = ["onnxruntime-gpu>=1.18", "rembg>=2.0"]
 
-# [project.scripts] lands with specs/workspace-foundation/, together with ssc.cli:main.
+[project.scripts]
+ssc = "ssc.cli.app:main"
 
 [dependency-groups]
-dev = ["pytest>=8.2", "ruff>=0.5", "mypy>=1.10"]
+dev = ["pytest>=8.2", "ruff>=0.5", "mypy>=1.10", "types-PyYAML>=6.0"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ssc"]
@@ -45,7 +48,10 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.mypy]
 files = ["src"]
-python_version = "3.11"
+# meta.json is the public contract, so its models are pydantic; the plugin is what
+# lets mypy see the fields those models generate.
+plugins = ["pydantic.mypy"]
+python_version = "3.12"
 strict = true
 
 [tool.pytest.ini_options]

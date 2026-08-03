@@ -11,7 +11,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from ssc.cli import kinds
+from ssc.cli import config, kinds
 from ssc.cli import workspace as ws
 from ssc.cli.app import main
 from ssc.cli.errors import SscError
@@ -303,7 +303,7 @@ def test_anchors_and_aliases_are_refused(tmp_path: Path) -> None:
 
 def test_a_config_past_the_size_ceiling_is_refused_before_it_is_parsed(tmp_path: Path) -> None:
     space = ws.create(tmp_path)
-    space.config_path.write_text("schema: 1\n# " + "x" * kinds.MAX_CONFIG_BYTES, encoding="utf-8")
+    space.config_path.write_text("schema: 1\n# " + "x" * config.MAX_CONFIG_BYTES, encoding="utf-8")
     with pytest.raises(SscError) as refused:
         kinds.every(space)
     assert refused.value.code == "invalid-config"

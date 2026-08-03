@@ -74,6 +74,13 @@ class Job:
     request_id: str | None = None
     cost_usd: float | None = None
     error: str | None = None
+    #: What the producer would store the result under, if it stores results at all. Nullable
+    #: because the store does not know what a cache is: a producer that keys nothing simply
+    #: leaves it unset, the same way a subscription-metered provider leaves `cost_usd` unset.
+    #: It is here rather than reconstructed at collection time because the key covers inputs
+    #: — the digests of the images sent — that the record does not otherwise carry, so a
+    #: collector deriving it would be deriving it from less than the submitter had.
+    cache_key: str | None = None
     history: list[dict[str, str]] = field(default_factory=list)
 
     @classmethod
@@ -86,6 +93,7 @@ class Job:
         model: str,
         arguments: dict[str, Any],
         at: str,
+        cache_key: str | None = None,
     ) -> Job:
         return cls(
             id=id,
@@ -93,6 +101,7 @@ class Job:
             application=application,
             model=model,
             arguments=dict(arguments),
+            cache_key=cache_key,
             history=[{"state": "submitted", "at": at}],
         )
 
@@ -147,6 +156,7 @@ class Job:
             # force it to lie with a zero.
             "cost_usd": self.cost_usd,
             "error": self.error,
+            "cache_key": self.cache_key,
             "history": self.history,
         }
 
@@ -189,6 +199,9 @@ class Job:
         error = data.get("error")
         if error is not None and not isinstance(error, str):
             raise ValueError("a job record's error is a string or null")
+        cached_under = data.get("cache_key")
+        if cached_under is not None and not isinstance(cached_under, str):
+            raise ValueError("a job record's cache_key is a string or null")
 
         return cls(
             id=str(data["id"]),
@@ -200,6 +213,7 @@ class Job:
             request_id=request_id,
             cost_usd=None if cost is None else float(cost),
             error=error,
+            cache_key=cached_under,
             history=[dict(entry) for entry in history],
         )
 

@@ -25,6 +25,16 @@ assumes.
 - **R1.3** The `ssc` CLI shall record, for each job, its own id, the provider, the application, the provider's request id, the arguments as resolved, the model, its state, its cost, and when it entered each state it has been in.
 - **R1.4** If a file under the jobs directory cannot be read as a job record, then the `ssc` CLI shall report that file and continue with the others.
 - **R1.5** The `ssc` CLI shall replace a credential-shaped argument with `***` before writing a job record, as well as before reporting one.
+- **R1.6** (ADDED) Where a producer stores what a job returns, the `ssc` CLI shall record the key it will be stored under, as part of that job's record.
+
+> **R1.6, added by `specs/gen-fal/`.** A job says what was paid for; the key the result is
+> kept under is part of that, and it cannot be derived later. The key covers the inputs to
+> the call — for `gen`, the digests of the images sent — and the record deliberately elides
+> those to stay readable, so a collector reconstructing the key would be working from less
+> than the submitter had. Without it, `gen --no-wait` followed by `gen collect` files the
+> result and caches nothing, and the next identical call is billed for bytes already on
+> disk. Nullable, and for the same reason `cost_usd` is: the store does not know what a
+> cache is, and a producer that keys nothing leaves it unset.
 
 ## R2 · The states
 

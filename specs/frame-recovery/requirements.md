@@ -5,31 +5,60 @@ ci: wait
 
 # Frame recovery — requirements
 
-<!-- EARS, numbered R<group>.<item>. All five patterns are valid; use the one the
-     requirement actually is, and do not invent a trigger for something that is
-     simply always true:
-
-       The <system> shall <response>                                  ubiquitous
-       While <precondition>, the <system> shall <response>          state-driven
-       When <trigger>, the <system> shall <response>                event-driven
-       Where <feature>, the <system> shall <response>           optional feature
-       If <trigger>, then the <system> shall <response>       unwanted behavior
-
-     Omit, don't fill: specify what this feature decides, and nothing else.
-     Over-specification measurably makes generated code worse, not just longer.
-     Delete this comment. -->
-
 ## Purpose
 
-<!-- One paragraph: what this feature is for, and who it is for. -->
+Getting N pieces out of one image, in three modes, and binding them two ways.
 
-## R1 · <group name>
+`ssc tool cut` binds the pieces as the frames of one animation; `ssc tool slice` binds them
+as N distinct assets, each with its own key and its own lineage. They are the same detector
+with different output bindings, which is why they are one leaf: splitting them by binding
+would have produced the same three detection modes twice.
 
-- **R1.1** The <system> shall <response>
-- **R1.2** When <trigger>, the <system> shall <response>
-- **R1.3** If <trigger>, then the <system> shall <response>
+**This is how existing material gets in**, and that is why it is M1. Without `slice`, M1's
+promise — "repairs a sheet you already have" — only holds for somebody whose asset is
+already cut apart, which is nobody. And a sheet of unknown origin has to be cuttable without
+the caller already knowing its layout, which is why grid auto-detection is here rather than
+deferred.
+
+## R1 · Finding the pieces
+
+- **R1.1** Where `--grid <cols>x<rows>` is given, the `ssc` CLI shall cut the image into that many equal cells.
+- **R1.2** Where no mode is given, the `ssc` CLI shall detect the grid from the image.
+- **R1.3** If no grid can be detected, then the `ssc` CLI shall exit `1` and report that the layout has to be given.
+- **R1.4** Where `--mode chroma` is given, the `ssc` CLI shall take each piece as the bounding box of a region that is not the key colour.
+- **R1.5** Where `--mode islands` is given, the `ssc` CLI shall take each piece as the bounding box of one connected opaque region.
+- **R1.6** Where `--min-size` is given, the `ssc` CLI shall discard a piece smaller than it on either side.
+- **R1.7** Where `--max-aspect` is given, the `ssc` CLI shall discard a piece whose longer side exceeds its shorter side by more than that ratio.
+- **R1.8** The `ssc` CLI shall order the pieces top to bottom, then left to right.
+
+## R2 · Detecting a grid
+
+- **R2.1** When it detects a grid, the `ssc` CLI shall report the columns, rows, cell size, margin and spacing it observed.
+- **R2.2** The `ssc` CLI shall report a cell that encloses the content it found, and a spacing that is the gap between one cell and the next.
+- **R2.3** Where the image has margins around the grid, the `ssc` CLI shall exclude them from every cell.
+- **R2.4** If the content it finds is not laid out regularly, then the `ssc` CLI shall report no grid.
+
+## R3 · Binding the pieces
+
+- **R3.1** When `ssc tool cut` runs, the `ssc` CLI shall write the pieces as the numbered frames of one animation.
+- **R3.2** When `ssc tool slice` runs, the `ssc` CLI shall write each piece as its own asset, each carrying its own key.
+- **R3.3** While it runs inside a workspace, the `ssc` CLI shall record each piece's provenance, its stage and its class.
+- **R3.4** Where it runs outside a workspace, the `ssc` CLI shall write the pieces as plain files and record nothing.
+- **R3.5** When it writes pieces, the `ssc` CLI shall report how many it found and where each went.
+
+## R4 · Curating
+
+- **R4.1** When `ssc tool curate` runs, the `ssc` CLI shall report which frames are redundant.
+- **R4.2** The `ssc` CLI shall treat a frame as redundant when it differs from the frame before it by less than the given threshold.
+- **R4.3** Where `--drop` is given, the `ssc` CLI shall write only the frames it kept.
+- **R4.4** The `ssc` CLI shall keep the first frame of a set always.
 
 ## Out of scope
 
-<!-- What a reader might reasonably expect here and will not find, so nobody
-     builds it by accident. Delete the heading if there is nothing to say. -->
+- **Deciding how many frames an animation should have.** `curate` reports and, when asked,
+  drops on a measured threshold. Which frames an action actually needs is a judgement, and
+  it belongs to `sprite-animation` in M4.
+- **Putting the pieces back.** `expand`, `mirror`, `align` and `pack` are
+  `specs/sheet-assembly/`, which follows this leaf because it assembles what this produces.
+- **Detecting the sheet's chroma for the caller.** The key is given, exactly as in
+  `specs/background-removal/`, and for the same reason: a wrong guess eats the sprite.

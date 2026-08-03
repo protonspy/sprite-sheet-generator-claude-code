@@ -14,8 +14,14 @@ from typing import Any
 
 
 class Check(StrEnum):
-    """The seven `doctor` ships with. `seam` and `nineslice` arrive with the tile and UI
-    kinds, as deltas against this spec rather than as a second detector."""
+    """The seven `doctor` ships with, plus what the later kinds add.
+
+    `seam` arrived with `specs/tile-assets/`, as a delta against this spec rather than as a
+    second detector — which is what this docstring anticipated. `nineslice` arrives the same
+    way with the UI kind. Those two differ from the seven in one respect worth knowing: they
+    are meaningless outside their kind, so they run only where they were asked for, and
+    report `skipped` everywhere else.
+    """
 
     PIXEL_GRID = "pixel_grid"
     BLEED = "bleed"
@@ -24,6 +30,7 @@ class Check(StrEnum):
     PALETTE = "palette"
     FLICKER = "flicker"
     SILHOUETTE = "silhouette"
+    SEAM = "seam"
 
 
 class Status(StrEnum):

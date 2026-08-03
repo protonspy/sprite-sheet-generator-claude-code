@@ -345,3 +345,60 @@ def check_bleed(sheet: np.ndarray, params: BleedParams | None = None) -> Finding
     if touching:
         return defect(Check.BLEED, fix="ssc tool cut --mode bbox", **measurement)
     return ok(Check.BLEED, **measurement)
+
+
+# ── seam ──────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class SeamParams:
+    #: How many times the image's own neighbouring-line difference the wrap may differ by
+    #: before it reads as a seam. Relative, not absolute, because the number that matters is
+    #: "is this boundary unusual for this image" — a noisy tile differs by 40 everywhere and
+    #: a flat one differs by 2 at a seam nobody can miss on a floor.
+    max_ratio: float = 1.5
+
+    #: Below this, an image is flat enough that the denominator is noise. A constant tile has
+    #: zero interior difference, so any wrap difference at all divides to infinity; this is
+    #: what keeps a one-level rounding artefact from reporting as an unbounded seam.
+    floor: float = 0.5
+
+
+def _wrap_ratio(image: np.ndarray, axis: int) -> float:
+    """How far the wrap boundary differs, over how far neighbours ordinarily differ.
+
+    Both halves are mean absolute differences over the same axis and the same channels, so
+    the units cancel and the answer is dimensionless: about 1 when the boundary is as
+    ordinary as any other adjacency, far above it when it is not.
+    """
+    values = _rgb(image).astype(np.int16)
+    lines = values if axis == 0 else np.swapaxes(values, 0, 1)
+    interior = float(np.abs(np.diff(lines, axis=0)).mean()) if lines.shape[0] > 1 else 0.0
+    across = float(np.abs(lines[-1].astype(np.int16) - lines[0].astype(np.int16)).mean())
+    return across / max(interior, SeamParams.floor)
+
+
+def check_seam(image: np.ndarray, params: SeamParams | None = None) -> Finding:
+    """Whether this tile meets itself (R2.1, R2.2, R2.3).
+
+    Measured per axis, because a tile may wrap one way and not the other, and one combined
+    number would hide it.
+    """
+    params = params or SeamParams()
+    height, width = image.shape[:2]
+    if height < 2 or width < 2:
+        return skipped(
+            Check.SEAM,
+            f"a {width}x{height} image has no wrap: an edge and its opposite are one pixel",
+        )
+
+    vertical = _wrap_ratio(image, axis=0)
+    horizontal = _wrap_ratio(image, axis=1)
+    measurement = {
+        "horizontal": round(horizontal, 3),
+        "vertical": round(vertical, 3),
+        "max_ratio": params.max_ratio,
+    }
+    if max(horizontal, vertical) > params.max_ratio:
+        return defect(Check.SEAM, fix="ssc tool tile", **measurement)
+    return ok(Check.SEAM, **measurement)

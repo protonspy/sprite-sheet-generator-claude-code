@@ -18,6 +18,7 @@ into and must stay green.
 - [x] 2.2 (Unit) Measure `halo` as the count of pixels whose alpha is neither 0 nor 255 — R2.4
 - [x] 2.3 (Unit) Measure `palette` as distinct opaque colours, the pixels outside a given palette, and a colour budget — R2.5
 - [x] 2.4 (Unit) Measure `silhouette` on the mask reduced to `--cell`: enclosed background regions, and separate opaque regions — R2.7
+- [x] 2.5 (Unit) Measure `seam` per axis as the wrap difference over the image's own neighbouring-line difference, added as `specs/tile-assets/`'s delta — R2.8
 
 ## 3 · The checks that need more than one image
 

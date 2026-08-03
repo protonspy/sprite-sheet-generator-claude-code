@@ -22,7 +22,12 @@ def checks(payload: dict[str, object]) -> dict[str, dict[str, object]]:
 
 
 def test_all_seven_checks_appear_in_every_report() -> None:
-    """R1.1 — and a check that did not apply says so rather than being left out."""
+    """R1.1 — and a check that did not apply says so rather than being left out.
+
+    `seam` is in the report too, and skipped. It arrived as `specs/tile-assets/`'s delta and
+    is meaningful only on something meant to tile, so it is asked for rather than run — but
+    *present and skipped* is the same contract every other inapplicable check already has.
+    """
     _, payload = run("--in", str(FIXTURES / "pixel-grid-clean.png"))
     assert set(checks(payload)) == {
         "pixel_grid",
@@ -32,7 +37,10 @@ def test_all_seven_checks_appear_in_every_report() -> None:
         "palette",
         "flicker",
         "silhouette",
+        "seam",
     }
+    assert checks(payload)["seam"]["status"] == "skipped"
+    assert checks(payload)["seam"]["reason"]
 
 
 def test_a_skipped_check_carries_its_reason_and_no_measurement() -> None:

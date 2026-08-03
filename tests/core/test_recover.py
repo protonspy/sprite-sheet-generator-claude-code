@@ -189,3 +189,14 @@ def test_a_mask_past_the_piece_ceiling_is_refused() -> None:
 
 def test_bounds_of_nothing_is_nothing() -> None:
     assert bounds_of(np.zeros((8, 8), dtype=bool)) == []
+
+
+def test_a_tall_piece_does_not_bridge_two_rows_into_one() -> None:
+    """Banding on the running maximum of a band's bottoms is transitive: one tall piece in
+    the middle joins two rows that never overlap each other. Pieces of differing sizes are
+    the normal case for the islands and chroma modes, so this is not a corner."""
+    first = Rect(0, 0, 6, 10)
+    tall = Rect(20, 8, 6, 32)
+    third = Rect(0, 30, 6, 15)
+
+    assert in_reading_order([third, tall, first]) == [first, tall, third]

@@ -32,13 +32,14 @@ deferred.
 - **R1.8** The `ssc` CLI shall order the pieces top to bottom, then left to right.
 - **R1.9** If an image yields more separate regions than the piece ceiling, then the `ssc` CLI shall find no pieces in it and exit `1`.
 - **R1.10** If a stated grid is more cells than the cell ceiling, then the `ssc` CLI shall cut nothing and exit `2`.
+- **R1.11** If a piece filter is given where the pieces come from a grid, then the `ssc` CLI shall cut nothing and exit `2`.
 
 ## R2 · Detecting a grid
 
 - **R2.1** When it detects a grid, the `ssc` CLI shall report the columns, rows, cell size, margin and spacing it observed.
 - **R2.2** The `ssc` CLI shall report a cell that encloses the content it found, and a spacing that is the gap between one cell and the next.
 - **R2.3** Where the image has margins around the grid, the `ssc` CLI shall exclude them from every cell.
-- **R2.4** If the content it finds is not laid out regularly, then the `ssc` CLI shall report no grid.
+- **R2.4** If the content it finds is not laid out regularly, or does not occupy every cell of the layout it read, then the `ssc` CLI shall report no grid.
 
 ## R3 · Binding the pieces
 
@@ -53,7 +54,7 @@ deferred.
 ## R4 · Curating
 
 - **R4.1** When `ssc tool curate` runs, the `ssc` CLI shall report which frames are redundant.
-- **R4.2** The `ssc` CLI shall treat a frame as redundant when it differs from the frame before it by less than the given threshold.
+- **R4.2** The `ssc` CLI shall treat a frame as redundant when it differs from the last frame it kept by less than the given threshold.
 - **R4.3** Where `--drop` is given, the `ssc` CLI shall write only the frames it kept.
 - **R4.4** The `ssc` CLI shall keep the first frame of a set always.
 

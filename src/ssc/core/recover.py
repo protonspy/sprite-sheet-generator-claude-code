@@ -134,13 +134,46 @@ def detect_grid(image: np.ndarray, mask: np.ndarray | None = None) -> GridSpec |
 
     columns, cell_width, margin_x, spacing_x = across
     rows, cell_height, margin_y, spacing_y = down
-    return GridSpec(
+    found = GridSpec(
         columns=columns,
         rows=rows,
         cell=(cell_width, cell_height),
         margin=(margin_x, margin_y),
         spacing=(spacing_x, spacing_y),
     )
+
+    # Both axes reading as regular is not enough, and this is the check that says so. Two
+    # blobs placed diagonally on a blank canvas are regular across *and* down — two runs
+    # each way — and are emphatically not a 2x2 sheet. A grid is only a grid if something
+    # actually occupies every cell of it (R2.4).
+    if not all(
+        occupied[rect.y : rect.bottom, rect.x : rect.right].any() for rect in rects_from(found)
+    ):
+        return None
+    return found
+
+
+def rects_from(spec: GridSpec) -> list[Rect]:
+    """The rectangles a measured layout describes, using the cell it measured.
+
+    Separate from `grid_rects` because the two answer different questions. `grid_rects`
+    divides an image into N equal parts, which is right when a caller *states* a layout.
+    A detected layout already knows its cell, its margin and its spacing, and re-deriving
+    the cell by dividing the width silently assumes the far margin equals the near one —
+    which is the miscrop this leaf exists to avoid: a sheet padded 5px on the left and 15px
+    on the right came back with 9px cells where 6px were measured, dropping content off one
+    edge of every piece and pulling in the neighbour's.
+    """
+    return [
+        Rect(
+            x=spec.margin[0] + column * (spec.cell[0] + spec.spacing[0]),
+            y=spec.margin[1] + row * (spec.cell[1] + spec.spacing[1]),
+            width=spec.cell[0],
+            height=spec.cell[1],
+        )
+        for row in range(spec.rows)
+        for column in range(spec.columns)
+    ]
 
 
 def grid_rects(
@@ -281,7 +314,11 @@ def in_reading_order(rects: list[Rect]) -> list[Rect]:
     bands: list[list[Rect]] = []
     for rect in sorted(rects, key=lambda item: (item.y, item.x)):
         for band in bands:
-            if rect.y < max(other.bottom for other in band):
+            # Against the band's *first* piece — the topmost, since the input is sorted —
+            # and not against the running maximum of its bottoms. Chaining on the maximum
+            # is transitive: one tall piece in the middle bridges two rows that never
+            # overlap each other, and all three come out in one band.
+            if rect.y < band[0].bottom:
                 band.append(rect)
                 break
         else:

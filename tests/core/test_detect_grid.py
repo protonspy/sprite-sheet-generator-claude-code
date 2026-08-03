@@ -120,3 +120,51 @@ def test_irregular_content_is_not_forced_into_a_grid() -> None:
     image[13:37, 9:31, 3] = 255
     image[4:8, 33:39, 3] = 255
     assert detect_grid(image) is None
+
+
+# The three the review found, each with the scene that exposes it.
+
+
+def test_an_asymmetric_margin_does_not_shift_every_cell() -> None:
+    """The blocker. `grid_rects` re-derives the cell by dividing the width, which assumes
+    the far margin equals the near one; a sheet padded 5px left and 15px right came back
+    with 9px cells where 6px were measured, dropping content off one edge of every piece
+    and pulling in its neighbour's. Asserted on pixels, not on a count — a count was green
+    the whole time this was broken.
+    """
+    from ssc.core.recover import crop, rects_from
+
+    image = np.zeros((20, 5 + 3 * 6 + 2 * 4 + 15, 4), dtype=np.uint8)
+    for index in range(3):
+        x = 5 + index * (6 + 4)
+        image[6:14, x : x + 6, 3] = 255
+        image[6:14, x : x + 6, 0] = 60 + index * 60  # a different red per piece
+
+    found = detect_grid(image)
+    assert found is not None
+    assert found.cell[0] == 6
+
+    pieces = [crop(image, rect) for rect in rects_from(found)]
+    assert len(pieces) == 3
+    for index, piece in enumerate(pieces):
+        opaque = piece[piece[..., 3] > 0]
+        assert opaque.size > 0, f"piece {index} is empty"
+        assert set(np.unique(opaque[:, 0]).tolist()) == {60 + index * 60}, (
+            f"piece {index} holds pixels from another piece"
+        )
+
+
+def test_two_blobs_on_a_diagonal_are_not_a_two_by_two_grid() -> None:
+    """Regular across and regular down, and still not a sheet: nothing occupies the other
+    two cells of the layout those two axes describe."""
+    image = np.zeros((40, 40, 4), dtype=np.uint8)
+    image[2:10, 2:10, 3] = 255
+    image[25:33, 25:33, 3] = 255
+    assert detect_grid(image) is None
+
+
+def test_a_full_two_by_two_is_still_detected() -> None:
+    """The other half of the occupancy check: it must not refuse a real grid."""
+    found = detect_grid(drawn(2, 2, cell=10, spacing=2))
+    assert found is not None
+    assert (found.columns, found.rows) == (2, 2)

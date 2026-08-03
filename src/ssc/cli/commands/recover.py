@@ -35,6 +35,7 @@ from ssc.core.recover import (
     in_reading_order,
     island_rects,
     keep,
+    rects_from,
 )
 
 FRAMES_STAGE = "frames"
@@ -79,6 +80,13 @@ def find_pieces(
     """
     height, width = image.shape[:2]
 
+    if mode is None and (min_size or max_aspect):
+        raise UsageError(
+            "filter-without-mode",
+            "--min-size and --max-aspect filter found pieces, and a grid's cells are given",
+            fix="use them with --mode chroma or --mode islands",
+        )
+
     if grid is not None:
         columns, rows = parse_grid(grid)
         try:
@@ -96,10 +104,8 @@ def find_pieces(
                 "no regular layout could be read from this image",
                 fix="give the layout with --grid COLSxROWS, or pick --mode chroma|islands",
             )
-        rects = grid_rects(
-            width, height, found.columns, found.rows, margin=found.margin, spacing=found.spacing
-        )
-        return rects, {"mode": "detected", "grid": found.as_dict()}
+        # The measured cell, not one re-derived by dividing the width — see `rects_from`.
+        return rects_from(found), {"mode": "detected", "grid": found.as_dict()}
 
     try:
         rects = (

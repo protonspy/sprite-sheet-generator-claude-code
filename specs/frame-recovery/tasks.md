@@ -14,11 +14,12 @@ covers the record both bindings write. All were run green before this work start
 - [x] 1.2 (Unit) Take pieces by chroma bounding box and by connected island — R1.4, R1.5
 - [x] 1.3 (Unit) Discard a piece below `--min-size` or past `--max-aspect` — R1.6, R1.7
 - [x] 1.4 (Unit) Bound the pieces a mask and a grid may produce, and take the bounding boxes in one pass — R1.9, R1.10
+- [x] 1.5 (Unit) Cut a detected layout with the cell it measured, and refuse a filter a grid ignores — R1.11
 
 ## 2 · Detecting a grid
 
 - [x] 2.1 (TDD) Detect columns, rows, cell, margin and spacing from the projection profiles — R1.2, R2.1, R2.2, R2.3
-- [x] 2.3 (Unit) Refuse a layout that is not regular — R2.4
+- [x] 2.3 (Unit) Refuse a layout that is not regular, or that nothing occupies every cell of — R2.4
 - [x] 2.2 (Unit) Refuse rather than guess when no grid is there — R1.3
 
 ## 3 · The two bindings

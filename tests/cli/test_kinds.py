@@ -242,10 +242,13 @@ def test_a_config_that_is_not_a_map_is_refused(tmp_path: Path, document: str) ->
     assert refused.value.code == "invalid-config"
 
 
-@pytest.mark.parametrize("value", ["5", "true", "[1, 2]"])
+@pytest.mark.parametrize("value", ["5", "true", "[1, 2]", "0", "false", '""', "[]"])
 def test_a_kind_declared_as_something_other_than_a_map_is_refused(
     tmp_path: Path, value: str
 ) -> None:
+    """The falsy cases are the ones the first version missed: `every` reached `merge` with
+    `.get(name) or {}`, so `character: 0` became an empty declaration and resolved silently
+    to the built-in defaults instead of being refused."""
     space = ws.create(tmp_path)
     space.config_path.write_text(f"schema: 1\nkinds:\n  character: {value}\n", encoding="utf-8")
     with pytest.raises(SscError) as refused:

@@ -217,6 +217,11 @@ deliverable on its own: M1 already repairs a sheet you have today, with no API k
       `assets/<kind>/` makes it create a directory and write `meta.json` outside the
       workspace; `check_layout` is defined and called from nowhere. Both found while
       auditing `asset-listing`, both that leaf's to fix rather than this one's
+- [ ] 0.11 (Unit) Guard the catch-all's message before `gen-fal` lands — it puts an
+      exception's `str()` verbatim into structured output, and HTTP clients routinely embed
+      the full URL, sometimes with a credential in the query string. Nothing leaks today
+      because nothing in `src/` touches a secret; the guard has to exist before the first
+      one does, not after
 - [x] 0.10 (Unit) Decide what `cli/main.py` does with an exception that is not an `SscError`,
       as a delta against `workspace-foundation` — it catches `SscError` and nothing else, so
       anything unexpected leaves the command as a Python traceback rather than the one JSON
@@ -225,8 +230,11 @@ deliverable on its own: M1 already repairs a sheet you have today, with no API k
       making is what a catch-all reports without swallowing the diagnosis a traceback carries.
       **Done in `asset-kinds`**: four reviews of that one leaf found four different uncaught
       exception types, each reaching the user as a traceback, so the general case stopped
-      being deferrable. A catch-all reports `internal-error` with the exception's type and
-      message in the object — more than a traceback gives a program, and enough for a person
+      being deferrable. A catch-all reports `internal-error` as JSON on stdout *and* prints
+      the traceback to stderr — the machine gains an envelope without the developer losing
+      the file and the line. It covers the command and the rendering; **click's own argument
+      parsing still exits before any of it runs**, so a missing argument is still plain text
+      and exit 2, which would need wrapping at the group's `standalone_mode`
 
 ## Notes
 

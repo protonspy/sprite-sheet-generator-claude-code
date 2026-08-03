@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import traceback
 from collections.abc import Callable
 from typing import Any
 
@@ -48,6 +49,11 @@ def ssc_command(
                 payload = error.as_dict()
                 code = error.exit_code
             except Exception as unexpected:
+                # The diagnosis a person needs goes to stderr, where it cannot pollute the
+                # one object on stdout. Discarding it was the wrong half of the trade: the
+                # machine gains a parseable envelope and the developer loses the file and
+                # the line, which is exactly what four review rounds of this leaf needed.
+                click.echo(traceback.format_exc(), err=True)
                 # Every command emits one JSON object (R4.1), and that has to hold for the
                 # failures nobody anticipated too — otherwise the one caller this tool is
                 # built for gets a traceback on stderr and nothing it can parse. Four
@@ -64,9 +70,26 @@ def ssc_command(
                 ).as_dict()
                 code = EXIT_ERROR
 
+            # Rendering is inside the guard too, because it is where the JSON is actually
+            # produced: `json.dumps` raises on a `set`, a `Path`, a numpy scalar, and
+            # `Result.data` is built from numpy-backed computations in three commands
+            # already. A catch-all that stops before the encoder does not cover R4.1.
+            try:
+                text = render(payload, as_json=as_json)
+            except Exception as unrenderable:
+                click.echo(traceback.format_exc(), err=True)
+                payload = SscError(
+                    "internal-error",
+                    f"this command built a result that cannot be rendered: {unrenderable}",
+                    fix="this is a bug in ssc; the code and message above are what to report",
+                ).as_dict()
+                code = EXIT_ERROR
+                # Plain strings, so this one cannot fail the same way.
+                text = render(payload, as_json=as_json)
+
             # With --json, stdout carries the object and nothing else — including when the
             # object describes a failure. Without it, an error belongs on stderr.
-            click.echo(render(payload, as_json=as_json), err=not as_json and not payload["ok"])
+            click.echo(text, err=not as_json and not payload["ok"])
             raise SystemExit(code)
 
         return click.command(name=name, help=help)(inner)

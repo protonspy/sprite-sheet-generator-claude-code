@@ -113,10 +113,39 @@ def test_an_unexpected_exception_is_still_one_json_object() -> None:
         raise KeyError("a key nobody checked")
 
     result = CliRunner().invoke(boom, ["--json"], catch_exceptions=False)
-    payload = json.loads(result.output)
+    # stdout, not output: the traceback goes to stderr, so the one JSON object on stdout
+    # stays exactly that — which is the half of R4.1 that is easy to lose while fixing the
+    # other half.
+    payload = json.loads(result.stdout)
 
     assert result.exit_code == 1
     assert payload["ok"] is False
     assert payload["error"]["code"] == "internal-error"
-    # The diagnosis is not swallowed — the type and the message are in the object.
     assert "KeyError" in payload["error"]["message"]
+    # And the diagnosis a person needs is not swallowed either — it is on stderr, where it
+    # cannot pollute the object.
+    assert "Traceback" in result.stderr
+    assert "test_main.py" in result.stderr
+
+
+def test_a_result_that_cannot_be_rendered_is_still_one_json_object() -> None:
+    """The catch-all has to cover the encoder, not stop before it: `json.dumps` raises on a
+    set, a Path, a numpy scalar — and three commands build `Result.data` from numpy-backed
+    computations already."""
+    import json
+
+    from click.testing import CliRunner
+
+    from ssc.cli.main import ssc_command
+    from ssc.cli.output import Result
+
+    @ssc_command("unrenderable", help="Return something json cannot encode.")
+    def unrenderable(*, dry_run: bool) -> Result:
+        return Result("unrenderable", "ok", {"weird": {1, 2, 3}})
+
+    result = CliRunner().invoke(unrenderable, ["--json"], catch_exceptions=False)
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 1
+    assert payload["error"]["code"] == "internal-error"
+    assert "cannot be rendered" in payload["error"]["message"]

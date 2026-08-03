@@ -179,18 +179,20 @@ def declared(workspace: Workspace | None) -> dict[str, dict[str, Any]]:
     if workspace is None or not workspace.config_path.is_file():
         return {}
 
-    size = workspace.config_path.stat().st_size
-    if size > MAX_CONFIG_BYTES:
-        raise SscError(
-            "invalid-config",
-            f"{workspace.config_path} is {size:,} bytes, over the {MAX_CONFIG_BYTES:,} ceiling",
-            fix="a workspace config is a few dozen lines; check what is in there",
-        )
-
     try:
-        document = yaml.load(  # StrictLoader is SafeLoader with aliases refused
-            workspace.config_path.read_bytes().decode("utf-8"), Loader=StrictLoader
-        )
+        # One open, and at most the ceiling plus a byte. `stat()` then `read_bytes()` bounds
+        # what the stat reported an instant earlier rather than what is read — and this
+        # project anticipates concurrent writers to this exact file, so the window is not
+        # hypothetical.
+        with workspace.config_path.open("rb") as handle:
+            raw = handle.read(MAX_CONFIG_BYTES + 1)
+        if len(raw) > MAX_CONFIG_BYTES:
+            raise SscError(
+                "invalid-config",
+                f"{workspace.config_path} is over the {MAX_CONFIG_BYTES:,}-byte ceiling",
+                fix="a workspace config is a few dozen lines; check what is in there",
+            )
+        document = yaml.load(raw.decode("utf-8"), Loader=StrictLoader)
     except (yaml.YAMLError, RecursionError, UnicodeDecodeError) as broken:
         # RecursionError as well: deeply nested flow collections blow the stack inside
         # PyYAML's own scanner, and it is not a YAMLError, so it escaped as a traceback.
@@ -329,7 +331,11 @@ def every(workspace: Workspace | None) -> dict[str, Resolved]:
     """Every kind available here, built-in and declared (R2.1)."""
     stated = declared(workspace)
     names = sorted(set(BUILT_INS) | set(stated))
-    return {name: merge(name, stated.get(name) or {}) for name in names}
+    # `.get(name, {})`, not `.get(name) or {}` — the identical short-circuit was removed
+    # from `declared` in the same commit that left it here, one function away. A falsy
+    # wrong type (`character: 0`) became `{}` and resolved silently to the built-in
+    # defaults, so `merge`'s own isinstance guard never fired.
+    return {name: merge(name, stated.get(name, {})) for name in names}
 
 
 def resolve(name: str, workspace: Workspace | None) -> Resolved:

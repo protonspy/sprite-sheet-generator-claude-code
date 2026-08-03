@@ -1,40 +1,78 @@
 # Background removal — design
 
-<!-- The design must fit the decision being made. Every heading below except
-     "What changes" is OPTIONAL: delete the ones this change does not decide.
-
-     A heading filled with "N/A", or with prose written to satisfy the heading, is
-     worse than an absent heading — the next session reads invented architecture as
-     a decision somebody made, and honors it. Filler becomes binding.
-
-     Delete this comment too. -->
-
 ## What changes
 
-Serves R1.1.
+Serves R1.3, R2.1, R2.3, R3.1, R3.2.
 
-<!-- Required. What changes, where, and why. For a change that decides nothing
-     structural, this section is the whole design and that is the correct outcome.
+One new pure module, `core/bgremove.py`, and one command added to the existing
+`cli/commands/convert.py` — which already holds the other three `--in`/`--out` commands and
+already carries the frame-set reading, the output refusal and the size ceilings this one
+needs. A second module for a fourth command of the same shape would be a file boundary
+drawn where no design boundary is.
 
-     Keep the "Serves" line above and make it real: the design has to name the
-     requirements it answers, or the trace from what to how is unreadable — and
-     `scc spec validate` says so. -->
+The pipeline per frame, in order, each step optional except the first two:
 
-## Boundaries and contracts <!-- optional -->
+```
+key mask  →  flood or global  →  despeckle  →  edge trim  →  edge pass  →  binary alpha
+```
 
-<!-- Only if this change moves a boundary or an external contract, and only for the
-     parts that actually move. -->
+The order is the design, and `despeckle` before `edge-trim` is the part worth the paragraph:
+**the threshold has to be measured against the sizes the caller can see.** Run the trim
+first and every group has already been eroded, so `--despeckle 5` deletes things that were
+far larger than five pixels when the caller looked at them.
 
-## Data <!-- optional -->
+Measured, on a 4×4 subject beside a 3×3 speck with `--despeckle 5 --edge-trim 1`:
 
-<!-- Only if a data shape changes. -->
+| order | survives |
+|---|---|
+| despeckle → trim | the subject, and one pixel of the speck |
+| trim → despeckle | **nothing** — the trim shrank the subject to 4px and the despeckle then ate it |
 
-## Alternatives considered <!-- optional -->
+`edge-pass` is last because it reads the final silhouette to decide which pixels border the
+transparent region.
 
-<!-- Only where there were real alternatives with trade-offs. Say which won and why.
-     If the decision is hard to reverse, write an ADR under docs/adr/ and cite it
-     here instead of arguing it twice. -->
+## Flood, and why it is the default
 
-## Risks <!-- optional -->
+Matching every pixel of the key colour is the failure this leaf exists to avoid: a green gem
+inside a character is not the background, and `global` eats it. `flood` labels the
+key-coloured region, keeps only the labels touching the border, and leaves anything enclosed
+by the subject alone.
 
-<!-- What could go wrong that the task list does not already cover. -->
+This came from reading a competitor's tool documentation rather than from first principles —
+their chroma key has exactly this Global/Flood split, and ours would have shipped with only
+the global behaviour. `docs/wiki/prior-art.md` carries that.
+
+`global` stays because it is right when the subject genuinely has no enclosed key-coloured
+region and the background is not connected — several disconnected patches of backdrop behind
+a spread pose, for instance, where a flood from the border reaches only some of them.
+
+## Binary alpha, and what `--edge-pass` therefore is
+
+R3.1 forces alpha to 0 or 255, so `--edge-pass` cannot be about alpha. What it removes is
+**colour spill**: the pixels that were partly key-coloured keep a green or magenta cast in
+their RGB after the alpha decision, and that fringe is what reads as a halo to a human even
+when `doctor` sees clean alpha.
+
+So the edge pass clamps the key's dominant channel on border pixels down to the strongest of
+the other two — the standard despill, and the reason it is a flag rather than the default is
+that it changes colours the caller may have wanted.
+
+`doctor`'s `halo` check names `ssc tool bgremove --edge-pass` as its fix and did so before
+this leaf existed. That string is a promise this spec is obliged to keep, and it is why the
+flag could not be called anything else.
+
+## Alternatives considered
+
+**Distance in RGB rather than in a chroma-separated space.** Real chroma keying separates
+luma from chroma so a shadowed green and a lit green are one colour. Plain RGB distance is
+worse at that, and it is what this ships: the input is a model's flat backdrop or a
+generated board, not filmed footage, and the tolerance is a caller's dial rather than an
+inference. If a real backdrop turns out to need it, the change is inside `key_mask` and
+touches nothing else — which is the reason to keep that function alone in the first place.
+
+## Risks
+
+**`--tol` interacts with everything downstream.** Too low leaves a speckled background that
+`despeckle` then has to clean; too high eats the subject and `edge-trim` makes it worse.
+Nothing here can detect that, which is what `tool doctor` is for — `halo`, `silhouette` and
+`palette` all read the result — and eventually what `tool sweep` is for.

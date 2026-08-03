@@ -4,6 +4,10 @@ These tests do not exercise `ssc tool snap` — that command belongs to
 `specs/pixel-art-conversion/`. They prove the thing task 0.1 of `plans/ssc-pipeline.md`
 was blocked on: that `vendor/pixel-snapper.wasm` loads under `wasmtime` with nothing but
 WASI to satisfy, and that it snaps a fixture.
+
+The `Snapper` class they drive used to live here. It moved into `ssc.cli.snapper` when
+`ssc tool snap` needed it, and these tests import it rather than keeping a second copy: the
+binary's ABI gets one reader, so a change to it fails here as well as in the command.
 """
 
 from __future__ import annotations
@@ -16,7 +20,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 from PIL import Image
-from wasmtime import Engine, Linker, Module, Store, WasiConfig
+from wasmtime import Engine, Module
+
+from ssc.cli.errors import SscError
+from ssc.cli.snapper import Snapper
 
 REPO = Path(__file__).resolve().parent.parent
 WASM = REPO / "vendor/pixel-snapper.wasm"
@@ -29,59 +36,9 @@ FIXTURE = REPO / "tests/fixtures/fake-pixels-8x8-at-12x.png"
 DETECTED_SIZE = (10, 10)
 
 
-class Snapper:
-    """One instantiation of the module, driving the flat ABI in wasm/README.md."""
-
-    def __init__(self) -> None:
-        engine = Engine()
-        self.module = Module.from_file(engine, str(WASM))
-        linker = Linker(engine)
-        linker.define_wasi()
-        self.store = Store(engine)
-        self.store.set_wasi(WasiConfig())
-        self.exports = linker.instantiate(self.store, self.module).exports(self.store)
-        self.memory = self.exports["memory"]
-
-    def _read(self, ptr: int, length: int) -> bytes:
-        return bytes(self.memory.read(self.store, ptr, ptr + length))
-
-    def snap(
-        self,
-        png: bytes,
-        k_colors: int = 16,
-        pixel_size: float = 0.0,
-        palette: str = "",
-    ) -> bytes:
-        """Return the snapped PNG, or raise with the module's own message."""
-        in_ptr = self.exports["ssc_alloc"](self.store, len(png))
-        self.memory.write(self.store, png, in_ptr)
-        pal = palette.encode()
-        pal_ptr = self.exports["ssc_alloc"](self.store, len(pal)) if pal else 0
-        if pal:
-            self.memory.write(self.store, pal, pal_ptr)
-        try:
-            rc = self.exports["ssc_snap"](
-                self.store, in_ptr, len(png), k_colors, pixel_size, pal_ptr, len(pal)
-            )
-            if rc != 0:
-                message = self._read(
-                    self.exports["ssc_error_ptr"](self.store),
-                    self.exports["ssc_error_len"](self.store),
-                )
-                raise RuntimeError(message.decode())
-            return self._read(
-                self.exports["ssc_result_ptr"](self.store),
-                self.exports["ssc_result_len"](self.store),
-            )
-        finally:
-            self.exports["ssc_dealloc"](self.store, in_ptr, len(png))
-            if pal:
-                self.exports["ssc_dealloc"](self.store, pal_ptr, len(pal))
-
-
 @pytest.fixture(scope="module")
 def snapper() -> Iterator[Snapper]:
-    yield Snapper()
+    yield Snapper(WASM)
 
 
 @pytest.fixture(scope="module")
@@ -127,7 +84,7 @@ def test_snapping_recovers_the_grid(snapper: Snapper, fake_pixels: bytes) -> Non
 
 
 def test_snapping_honours_the_colour_budget(snapper: Snapper, fake_pixels: bytes) -> None:
-    out = Image.open(io.BytesIO(snapper.snap(fake_pixels, k_colors=4)))
+    out = Image.open(io.BytesIO(snapper.snap(fake_pixels, colors=4)))
     opaque = np.array(out.convert("RGBA")).reshape(-1, 4)
     opaque = opaque[opaque[:, 3] > 0]
     assert len(np.unique(opaque[:, :3], axis=0)) <= 4
@@ -151,13 +108,13 @@ def test_a_palette_constrains_the_output(snapper: Snapper, fake_pixels: bytes) -
 
 def test_a_bad_palette_is_an_error_not_a_trap(snapper: Snapper, fake_pixels: bytes) -> None:
     """The module reports failure through the ABI; the instance stays usable."""
-    with pytest.raises(RuntimeError, match="palette"):
+    with pytest.raises(SscError, match="palette"):
         snapper.snap(fake_pixels, palette="not-a-colour")
     assert snapper.snap(fake_pixels)
 
 
 def test_empty_input_is_an_error_not_a_trap(snapper: Snapper) -> None:
-    with pytest.raises(RuntimeError, match="no input bytes"):
+    with pytest.raises(SscError, match="no input bytes"):
         snapper.snap(b"")
 
 
@@ -165,9 +122,9 @@ def test_a_failed_call_clears_the_previous_result(snapper: Snapper, fake_pixels:
     """One instance serves many frames, so a failure must not leave the previous frame
     readable — a caller that ignored the return code would otherwise get stale output."""
     assert snapper.snap(fake_pixels)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(SscError):
         snapper.snap(b"not an image at all")
-    assert snapper.exports["ssc_result_len"](snapper.store) == 0
+    assert snapper.result_len() == 0
 
 
 def test_the_instance_is_reusable_across_frames(snapper: Snapper, fake_pixels: bytes) -> None:

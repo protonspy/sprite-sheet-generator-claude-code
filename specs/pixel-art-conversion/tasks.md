@@ -1,25 +1,40 @@
 # Pixel art conversion — tasks
 
-<!-- Grammar, per task, all four parts required:
+**What already covers these paths:** `tests/test_pixel_snapper_wasm.py` covers the vendored
+module and the flat ABI this leaf binds to — including that one instance serves many frames
+and that a failed call leaves it usable — and it is the test that must stay green when the
+`Snapper` class moves out of it into `src/`. `tests/core/test_resize.py` and
+`tests/test_no_other_resampler.py` cover the only resampler, which R2.2 and R2.4 both call.
+`tests/cli/test_cache.py` covers the store R2.7 uses. `tests/core/doctor/test_checks.py`
+covers `detect_pixel_size` and the mask helpers this leaf reuses for R3.6 and R3.7. All were
+run green before this work started.
 
-       - [ ] <number> (Unit|TDD) <description> — <requirement ids>
+## 1 · The frame set
 
-     (Unit) writes the code, then a unit test per function, immediately, asserting
-     the requirement rather than the implementation. (TDD) writes the failing test
-     first and watches it fail — mandatory for money, complex algorithms, and
-     hypothesis validation.
+- [x] 1.1 (Unit) Read `--in` as one image or an ordered frame set, and refuse an `--out` that already exists — R1.1, R1.2, R1.3, R1.4
+- [x] 1.2 (Unit) Bound a whole set, not just one frame: refuse past the set ceiling from the headers, and sample the palette per frame rather than after concatenating — R1.5
 
-     A task is the right size when it can be verified on its own.
+## 2 · `snap`
 
-     Every requirement must reach at least one task, and every task must cite a
-     requirement that exists. `scc spec validate` checks both directions.
-     Delete this comment. -->
+- [x] 2.1 (Unit) Move the flat-ABI binding into `cli/snapper.py`, one instance per set, failures as `SscError` — R2.1, R2.6
+- [x] 2.2 (Unit) Resolve one grid across a set and bring every frame onto it — R2.2, R2.3
+- [x] 2.3 (Unit) Build `ssc tool snap`: `--grid` against the return to the arrival size, and the colour constraints — R2.4, R2.5
+- [x] 2.4 (Unit) Key a snapped frame by its content, its grid and its parameters — R2.7
+- [x] 2.5 (Unit) Treat the module's null pointer as the refusal it is, and turn a trap into this project's error contract — R2.8, R2.9
 
-## 1 · <group name>
+## 3 · `pixelart`
 
-- [ ] 1.1 (Unit) <description> — R1.1
-- [ ] 1.2 (TDD) <description> — R1.2, R1.3
+- [x] 3.1 (TDD) Compute one palette across a frame set and map every frame onto it, leaving alpha alone — R3.1, R3.2, R3.3
+      **RED observed** — `tests/core/test_pixelart.py` was written first and failed to
+      collect (`ModuleNotFoundError: No module named 'ssc.core.pixelart'`), then went green
+      on nine tests once the module existed. The test carrying the requirement is
+      `test_a_region_that_did_not_move_is_identical_across_frames`: the same static region
+      in two frames must come back byte-identical, which is what per-frame quantization
+      cannot do.
+- [x] 3.2 (Unit) Ordered and Floyd-Steinberg dithering against a fixed palette, and neither by default — R3.4, R3.5
+- [x] 3.3 (Unit) Orphan-cluster cleanup, and one-pixel outline emphasis — R3.6, R3.7
+- [x] 3.4 (Unit) Build `ssc tool pixelart` over the four — R3.1, R3.4, R3.6, R3.7
 
-## 2 · <group name>
+## 4 · `board`
 
-- [ ] 2.1 (Unit) <description> — R1.1
+- [x] 4.1 (Unit) Generate the checkerboard and the pose board, each reporting the layout it wrote — R4.1, R4.2, R4.3

@@ -20,6 +20,7 @@ from ssc.cli.commands.convert import (
     tile_wrap,
 )
 from ssc.cli.commands.doctor import doctor
+from ssc.cli.commands.gen import gen_group
 from ssc.cli.commands.init import init
 from ssc.cli.commands.job import job
 from ssc.cli.commands.kind import kind
@@ -44,6 +45,7 @@ main.add_command(job)
 main.add_command(model)
 main.add_command(image)
 main.add_command(video)
+main.add_command(gen_group)
 main.add_command(tool)
 tool.add_command(doctor)
 tool.add_command(snap)

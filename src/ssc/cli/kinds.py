@@ -14,8 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, fields
 from typing import Any
 
-import yaml
-
+from ssc.cli import config
 from ssc.cli.errors import SscError, UsageError
 from ssc.cli.names import check_name
 from ssc.cli.workspace import Workspace
@@ -33,31 +32,6 @@ ANCHORS = ANCHOR_MODES
 #: What `atlas-packing` will know how to do. Declared here because the field is declared
 #: here; a layout nobody implements is a promise to a caller that nothing keeps.
 LAYOUTS = ("grid", "bin")
-
-#: A configuration file is a few dozen lines. The ceiling is here because everything below
-#: it — the parse, the alias expansion, the map of maps — is work proportional to the file,
-#: and `ssc.yaml` is a file that survives hand-editing by an agent.
-MAX_CONFIG_BYTES = 1 << 20
-
-
-class StrictLoader(yaml.SafeLoader):
-    """`safe_load` without anchors.
-
-    `safe_load` refuses to construct arbitrary objects but does **not** bound alias
-    expansion: six levels of `&a: [*b, *b, ...]` is a kilobyte on disk and hundreds of
-    millions of nodes in memory, and it hangs every kind-aware command in the workspace.
-    A configuration file has no legitimate use for an anchor, so the answer is to refuse
-    them rather than to count them.
-    """
-
-    def compose_node(self, parent: Any, index: Any) -> Any:
-        if self.check_event(yaml.events.AliasEvent):  # type: ignore[no-untyped-call]
-            event = self.peek_event()  # type: ignore[no-untyped-call]
-            raise yaml.YAMLError(
-                f"anchors and aliases are not allowed in ssc.yaml "
-                f"(line {event.start_mark.line + 1})"
-            )
-        return super().compose_node(parent, index)
 
 
 @dataclass(frozen=True)
@@ -190,43 +164,19 @@ def parse_cell(value: Any, name: str) -> tuple[int, int]:
 
 
 def declared(workspace: Workspace | None) -> dict[str, dict[str, Any]]:
-    """The `kinds:` map from `ssc.yaml`, or nothing outside a workspace."""
-    if workspace is None or not workspace.config_path.is_file():
+    """The `kinds:` map from `ssc.yaml`, or nothing outside a workspace.
+
+    The read itself is `config.document`. It moved there when `models:` became the second
+    setting read from this file: two readers would mean two ceilings, two loaders and two
+    answers to what a malformed config does, which is the divergence this project has
+    already paid for once elsewhere. What stays here is the part that is about kinds.
+    """
+    if workspace is None:
+        # `config.document` answers the same for `None`; this is here so the refusals below
+        # can name the file they are about, which outside a workspace does not exist.
         return {}
 
-    try:
-        # One open, and at most the ceiling plus a byte. `stat()` then `read_bytes()` bounds
-        # what the stat reported an instant earlier rather than what is read — and this
-        # project anticipates concurrent writers to this exact file, so the window is not
-        # hypothetical.
-        with workspace.config_path.open("rb") as handle:
-            raw = handle.read(MAX_CONFIG_BYTES + 1)
-        if len(raw) > MAX_CONFIG_BYTES:
-            raise SscError(
-                "invalid-config",
-                f"{workspace.config_path} is over the {MAX_CONFIG_BYTES:,}-byte ceiling",
-                fix="a workspace config is a few dozen lines; check what is in there",
-            )
-        document = yaml.load(raw.decode("utf-8"), Loader=StrictLoader)
-    except (yaml.YAMLError, RecursionError, UnicodeDecodeError) as broken:
-        # RecursionError as well: deeply nested flow collections blow the stack inside
-        # PyYAML's own scanner, and it is not a YAMLError, so it escaped as a traceback.
-        raise SscError(
-            "invalid-config",
-            f"{workspace.config_path} is not valid YAML: {broken}",
-            fix="fix it by hand, or restore it from git",
-        ) from broken
-
-    if document is None:
-        return {}
-    if not isinstance(document, dict):
-        raise SscError(
-            "invalid-config",
-            f"{workspace.config_path} is a {type(document).__name__}, not a map of settings",
-            fix="the file is `schema: 1` and settings under it",
-        )
-
-    found = document.get("kinds")
+    found = config.document(workspace).get("kinds")
     if found is None:
         return {}
     # Not `or {}`: that short-circuits on every falsy wrong type — `kinds: 0`, `kinds: ""`,

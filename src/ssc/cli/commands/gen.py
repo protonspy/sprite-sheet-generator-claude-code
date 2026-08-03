@@ -1,0 +1,384 @@
+"""`ssc gen image|video|expand|bgremove|collect` — the half of the tool that bills.
+
+Every command here is the same pipeline in `cli/gen.py` with different defaults: which media,
+which model, which core options, and what the produced file's stage is called. What lives in
+this module is the CLI surface and the two things a surface owes — reading `--from-stage` or
+`--in` into bytes, and refusing a duration that is not one.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import click
+
+from ssc.cli import fal, gen, listing
+from ssc.cli.errors import UsageError
+from ssc.cli.main import ssc_command
+from ssc.cli.output import Result
+from ssc.cli.workspace import Workspace
+
+#: Registered here rather than in `cli/fal.py`, so importing that module has no side effect.
+#: This module is what `cli/app.py` loads, which makes this the moment `ssc job status` starts
+#: being able to reach a provider.
+fal.register()
+
+
+@click.group("gen", help="Paid. Everything under `gen` bills; everything under `tool` is free.")
+def gen_group() -> None:
+    """The verb carries the guarantee. An agent scanning the command list can tell which
+    calls burn credit without inspecting a single flag — see `docs/wiki/`'s reasoning on why
+    `gen bgremove` is `gen` even though it plainly does not generate anything."""
+
+
+def provider() -> fal.Fal:
+    return fal.Fal()
+
+
+def parse_size(value: str | None) -> tuple[int, int] | None:
+    if value is None:
+        return None
+    parts = value.lower().split("x")
+    if len(parts) != 2 or not all(part.strip().isdigit() for part in parts):
+        raise UsageError(
+            "invalid-size",
+            f"{value!r} is not a size like 1024x1024",
+            fix="write it as WxH — ssc tool board reports the size a layout needs",
+        )
+    return int(parts[0]), int(parts[1])
+
+
+def check_wait(timeout: float, poll: float) -> None:
+    """The same guard `ssc job wait` needs, for the same reason.
+
+    `--timeout nan` walks through every `<= 0` check, because comparing against `nan` is
+    always False — and the command then never returns, which inside a harness is exactly what
+    a timeout exists to prevent. `inf` is refused for both, and on the poll side twice over:
+    `time.sleep(inf)` is an `OverflowError` rather than a long sleep.
+    """
+    if not timeout > 0 or not poll > 0 or float("inf") in (timeout, poll):
+        raise UsageError(
+            "invalid-wait",
+            "--timeout and --poll are durations, and both have to be above zero",
+            fix="leave them out for the defaults",
+        )
+
+
+def source_image(
+    workspace: Workspace, asset: str, stage: str | None, source: Path | None
+) -> gen.Image:
+    """The image being sent, from a stage of the asset or from a loose file (R2.2).
+
+    Exactly one of the two, because naming neither is a call with nothing to work from and
+    naming both is two answers to one question.
+    """
+    if (stage is None) == (source is None):
+        raise UsageError(
+            "no-input",
+            "give exactly one of --from-stage <stage> and --in <path>",
+            fix="--from-stage reads the asset's own chain; --in takes any file",
+        )
+    if source is not None:
+        return gen.image_at(source)
+
+    # Held across the record *and* the file it names: the bytes being paid to transform have
+    # to come through the binding the address was checked against, so closing it once the
+    # record was in hand would have bound the half that costs nothing (R3.7).
+    held, record = listing.resolve(workspace, asset)
+    with held:
+        entry = record.stage(str(stage))
+        return gen.image_in(held, entry.path)
+
+
+def shared(command: Any) -> Any:
+    """The options every paid command has. Declared once: four copies of `--no-wait` is four
+    chances for one of them to mean something slightly different — the shape `recover.py`
+    already uses for the options `cut` and `slice` share."""
+    for option in reversed(
+        [
+            click.option("--asset", required=True, help="Record into this <kind>/<key>."),
+            click.option("--stage", default=None, help="Name the stage the result becomes."),
+            click.option("--model", default=None, help="Override the configured model."),
+            click.option(
+                "--opt",
+                "options",
+                multiple=True,
+                help="A raw model option as key=value. Repeatable, checked against the "
+                "model's schema.",
+            ),
+            click.option(
+                "--upload",
+                is_flag=True,
+                help="Put the input image on fal's storage instead of inlining it.",
+            ),
+            click.option(
+                "--no-wait", is_flag=True, help="Submit and report the job; collect later."
+            ),
+            click.option(
+                "--timeout",
+                type=float,
+                default=gen.DEFAULT_TIMEOUT,
+                help="Seconds to wait for the job.",
+            ),
+            click.option(
+                "--poll", type=float, default=gen.POLL_SECONDS, help="Seconds between asks."
+            ),
+        ]
+    ):
+        command = option(command)
+    return command
+
+
+@ssc_command("image", help="Generate an image into an asset. Costs money.", needs_workspace=True)
+@shared
+@click.option("--seed", type=int, default=None, help="Where the model supports one.")
+@click.option("--size", default=None, help="The size the layout needs, as WxH.")
+@click.option("--ref", "reference", default=None, type=click.Path(path_type=Path))
+@click.option("--from-stage", default=None, help="Use this stage of the asset as the reference.")
+@click.option("--prompt", required=True, help="What to generate.")
+def gen_image(
+    asset: str,
+    prompt: str,
+    from_stage: str | None,
+    reference: Path | None,
+    size: str | None,
+    seed: int | None,
+    stage: str | None,
+    model: str | None,
+    options: tuple[str, ...],
+    upload: bool,
+    no_wait: bool,
+    timeout: float,
+    poll: float,
+    *,
+    dry_run: bool,
+    workspace: Workspace,
+) -> Result:
+    """R1.1, R1.2, R2.1, R3.1 — and the reference, which moves the call to `/edit` (R2.6)."""
+    check_wait(timeout, poll)
+    image = (
+        source_image(workspace, asset, from_stage, reference)
+        if (from_stage is not None or reference is not None)
+        else None
+    )
+    ask = gen.Ask(
+        verb="gen image",
+        media="image",
+        stage=stage or "gen",
+        prompt=prompt,
+        image=image,
+        size=parse_size(size),
+        seed=seed,
+        model=model,
+        options=gen.parse_options(options),
+        upload=upload,
+    )
+    return gen.run(
+        workspace,
+        ask,
+        asset,
+        provider=provider(),
+        dry_run=dry_run,
+        wait=not no_wait,
+        timeout=timeout,
+        poll=poll,
+    )
+
+
+@ssc_command("video", help="Animate an image into a clip. Costs money.", needs_workspace=True)
+@shared
+@click.option("--seconds", type=int, default=None, help="Clip length, where the model takes one.")
+@click.option("--in", "source", default=None, type=click.Path(path_type=Path))
+@click.option("--from-stage", default=None, help="Which stage of the asset to animate.")
+@click.option("--prompt", required=True, help="What the subject does.")
+def gen_video(
+    asset: str,
+    prompt: str,
+    from_stage: str | None,
+    source: Path | None,
+    seconds: int | None,
+    stage: str | None,
+    model: str | None,
+    options: tuple[str, ...],
+    upload: bool,
+    no_wait: bool,
+    timeout: float,
+    poll: float,
+    *,
+    dry_run: bool,
+    workspace: Workspace,
+) -> Result:
+    """One template and no board, whatever the asset's kind — the kind had its say when the
+    image this animates was generated. Video length stays a per-model fact: nothing here
+    defaults `--seconds`, because the sources disagree head-on about what loops well."""
+    check_wait(timeout, poll)
+    ask = gen.Ask(
+        verb="gen video",
+        media="video",
+        stage=stage or "video",
+        prompt=prompt,
+        template=gen.VIDEO_TEMPLATE,
+        image=source_image(workspace, asset, from_stage, source),
+        seconds=seconds,
+        model=model,
+        options=gen.parse_options(options),
+        upload=upload,
+    )
+    return gen.run(
+        workspace,
+        ask,
+        asset,
+        provider=provider(),
+        dry_run=dry_run,
+        wait=not no_wait,
+        timeout=timeout,
+        poll=poll,
+    )
+
+
+@ssc_command(
+    "expand", help="Outpaint an image to a larger canvas. Costs money.", needs_workspace=True
+)
+@shared
+@click.option("--size", default=None, help="The canvas to reach, as WxH.")
+@click.option("--in", "source", default=None, type=click.Path(path_type=Path))
+@click.option("--from-stage", default=None, help="Which stage of the asset to expand.")
+@click.option("--prompt", required=True, help="What belongs in the new area.")
+def gen_expand(
+    asset: str,
+    prompt: str,
+    from_stage: str | None,
+    source: Path | None,
+    size: str | None,
+    stage: str | None,
+    model: str | None,
+    options: tuple[str, ...],
+    upload: bool,
+    no_wait: bool,
+    timeout: float,
+    poll: float,
+    *,
+    dry_run: bool,
+    workspace: Workspace,
+) -> Result:
+    """A model invents the new area, which is the whole difference from `tool expand` — that
+    one pads a canvas, deterministically and for free. One name for both would hide the price
+    behind a flag."""
+    check_wait(timeout, poll)
+    ask = gen.Ask(
+        verb="gen expand",
+        media="image",
+        stage=stage or "expand",
+        prompt=prompt,
+        image=source_image(workspace, asset, from_stage, source),
+        size=parse_size(size),
+        model=model,
+        options=gen.parse_options(options),
+        upload=upload,
+    )
+    return gen.run(
+        workspace,
+        ask,
+        asset,
+        provider=provider(),
+        dry_run=dry_run,
+        wait=not no_wait,
+        timeout=timeout,
+        poll=poll,
+    )
+
+
+@ssc_command(
+    "bgremove",
+    help="Take the background out with a hosted model. Costs money.",
+    needs_workspace=True,
+)
+@shared
+@click.option("--in", "source", default=None, type=click.Path(path_type=Path))
+@click.option("--from-stage", default=None, help="Which stage of the asset to key.")
+def gen_bgremove(
+    asset: str,
+    from_stage: str | None,
+    source: Path | None,
+    stage: str | None,
+    model: str | None,
+    options: tuple[str, ...],
+    upload: bool,
+    no_wait: bool,
+    timeout: float,
+    poll: float,
+    *,
+    dry_run: bool,
+    workspace: Workspace,
+) -> Result:
+    """`gen` and not `tool`, and it plainly does not generate anything: the verb means the
+    provider does it and charges, which is the property an agent can act on. The free path is
+    still `ssc tool bgremove`, by chroma."""
+    check_wait(timeout, poll)
+    ask = gen.Ask(
+        verb="gen bgremove",
+        media="image",
+        stage=stage or "nobg",
+        role="background-removal",
+        image=source_image(workspace, asset, from_stage, source),
+        model=model,
+        options=gen.parse_options(options),
+        upload=upload,
+    )
+    return gen.run(
+        workspace,
+        ask,
+        asset,
+        provider=provider(),
+        dry_run=dry_run,
+        wait=not no_wait,
+        timeout=timeout,
+        poll=poll,
+    )
+
+
+@ssc_command(
+    "collect", help="File the result of a job that is already paid for.", needs_workspace=True
+)
+@click.option("--poll", type=float, default=gen.POLL_SECONDS, help="Seconds between asks.")
+@click.option(
+    "--timeout", type=float, default=gen.DEFAULT_TIMEOUT, help="Seconds to wait for the job."
+)
+@click.option("--stage", default="gen", help="Name the stage the result becomes.")
+@click.option("--asset", required=True, help="Record into this <kind>/<key>.")
+@click.argument("job_id")
+def gen_collect(
+    job_id: str,
+    asset: str,
+    stage: str,
+    timeout: float,
+    poll: float,
+    *,
+    dry_run: bool,
+    workspace: Workspace,
+) -> Result:
+    """R1.5 — the reason `--no-wait` is safe, and the reason a crash costs nothing but time.
+
+    The destination is named here rather than read from the job, because a job record is a
+    provider-shaped pair of identifiers and a workspace path in it is the first thing a second
+    provider could not honour.
+    """
+    check_wait(timeout, poll)
+    return gen.collect_job(
+        workspace,
+        job_id,
+        asset,
+        provider=provider(),
+        stage=stage,
+        dry_run=dry_run,
+        timeout=timeout,
+        poll=poll,
+    )
+
+
+gen_group.add_command(gen_image)
+gen_group.add_command(gen_video)
+gen_group.add_command(gen_expand)
+gen_group.add_command(gen_bgremove)
+gen_group.add_command(gen_collect)

@@ -10,12 +10,14 @@ a provider answering `running` about a job we already collected would re-open it
 from __future__ import annotations
 
 import json
+import re
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from ssc.cli import jobs, workspace
+from ssc.cli import fal, jobs, workspace
 from ssc.cli.errors import SscError, UsageError
 
 AT = "2026-08-03T10:00:00Z"
@@ -54,7 +56,29 @@ def test_a_job_records_everything_a_later_process_needs(space: workspace.Workspa
     assert loaded.arguments == {"prompt": "a knight"}
     assert loaded.state == "submitted"
     assert loaded.cost_usd is None
+    assert loaded.cache_key is None
     assert loaded.history == [{"state": "submitted", "at": AT}]
+
+
+def test_the_key_a_producer_will_store_its_result_under_survives_the_round_trip(
+    space: workspace.Workspace,
+) -> None:
+    """R1.6 — `specs/gen-fal/`'s delta. The store keeps it and never reads it: what the key
+    means belongs to whoever computed it."""
+    jobs.save(space, replace(a_job(), cache_key="sha256-of-the-call"))
+    assert jobs.load(space, "j-0001").cache_key == "sha256-of-the-call"
+
+
+def test_a_record_written_before_the_key_existed_still_loads(
+    space: workspace.Workspace,
+) -> None:
+    """Nullable is not decoration: job files on disk predate this field, and a store that
+    refused them would lose exactly the paid results the record exists to recover."""
+    older = a_job().as_dict()
+    del older["cache_key"]
+    (jobs.directory(space) / "j-0001.json").write_text(json.dumps(older), encoding="utf-8")
+
+    assert jobs.load(space, "j-0001").cache_key is None
 
 
 def test_the_request_id_starts_empty_and_is_recorded_when_it_arrives(
@@ -216,10 +240,29 @@ def test_an_id_cannot_escape_the_jobs_directory(space: workspace.Workspace) -> N
 # R3.7 — the registry that starts empty.
 
 
-def test_no_provider_ships_with_the_store() -> None:
-    """`specs/gen-fal/` registers the first one. The job is the contract; generation is one
-    producer of it, and building them the other way round makes the store fal's."""
-    assert jobs.provider_for("fal") is None
+def test_the_store_names_no_provider_of_its_own() -> None:
+    """The job is the contract; generation is one producer of it, and building them the other
+    way round makes the store fal's.
+
+    This was `provider_for("fal") is None` until `specs/gen-fal/` registered the first one —
+    an assertion about an empty dict, which stopped being true the moment anything imported
+    the adapter, and which was never the thing worth protecting. What is worth protecting is
+    the direction of the dependency: the store must not know what a provider is called. So
+    the delta asserts that `jobs` reaches for nothing under `ssc.cli`, which is what "ships
+    empty" was standing in for and what a second provider would otherwise quietly break.
+    """
+    source = Path(jobs.__file__).read_text(encoding="utf-8")
+    reached_for = set(re.findall(r"^from ssc\.cli\.(\w+)", source, re.MULTILINE))
+    assert "fal" not in reached_for
+
+
+def test_a_provider_arrives_by_registration(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`fal.register()` is what puts the adapter in the store's registry — nothing in `jobs`
+    does, which is what keeps the store's shape independent of the one provider it has."""
+    monkeypatch.setattr(jobs, "PROVIDERS", {})
+    assert jobs.provider_for(fal.PROVIDER) is None
+    fal.register()
+    assert isinstance(jobs.provider_for(fal.PROVIDER), fal.Fal)
 
 
 def test_a_registered_provider_is_found_by_name(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -263,6 +306,7 @@ def test_a_history_of_the_wrong_shape_is_refused_rather_than_half_read(
         ("cost_usd", "free"),
         ("request_id", {"id": 1}),
         ("error", 7),
+        ("cache_key", 123),
         ("history", [{"state": "submitted"}]),
         ("history", 0),
         ("arguments", []),

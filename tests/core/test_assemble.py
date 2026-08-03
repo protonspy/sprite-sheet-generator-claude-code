@@ -241,3 +241,52 @@ def test_onion_layers_the_opaque_pixels_over_each_other() -> None:
     assert alpha_mask(stacked)[0, 0]
     assert alpha_mask(stacked)[4, 4]
     assert int(alpha_mask(stacked).sum()) == 8
+
+
+# R1.6, R3.6, R4.5 — every canvas bounded on the result, not on the flag.
+
+
+def test_expand_refuses_a_canvas_past_the_ceiling() -> None:
+    """`--by` is doubled by the time it becomes a canvas, so bounding the flag alone left
+    the result at twice the ceiling every sibling command is held to."""
+    from ssc.core.assemble import MAX_CANVAS, CanvasTooLarge
+
+    with pytest.raises(CanvasTooLarge, match="past"):
+        expand(figure(4, 4, 0, 0), by=MAX_CANVAS)
+
+
+def test_pack_refuses_a_sheet_past_the_ceiling() -> None:
+    """`--cols` widens the sheet whether or not there are frames to fill it."""
+    from ssc.core.assemble import CanvasTooLarge
+
+    with pytest.raises(CanvasTooLarge, match="the sheet"):
+        pack([figure(256, 256, 0, 0)], columns=4096)
+
+
+def test_align_refuses_a_canvas_the_anchors_would_demand() -> None:
+    """Sized from the content, which no read-side ceiling bounds."""
+    from ssc.core.assemble import CanvasTooLarge
+
+    frames = [figure(9000, 8, 0, 0, 2, 4), figure(9000, 8, 8990, 0, 2, 4)]
+    with pytest.raises(CanvasTooLarge, match="aligning"):
+        plan_alignment(frames, "feet")
+
+
+def test_a_canvas_at_the_ceiling_is_allowed() -> None:
+    """The other half: the cap must not refuse what it was sized to permit."""
+    from ssc.core.assemble import MAX_CANVAS
+
+    assert expand(figure(4, 4, 0, 0), to=(MAX_CANVAS, 4)).shape[1] == MAX_CANVAS
+
+
+@pytest.mark.parametrize("mode", ["feet", "bottom", "centre"])
+def test_pack_measures_the_same_anchor_align_used(mode: str) -> None:
+    """The fourth instance of the class, found by the re-review: measuring `feet` on a set
+    aligned by `centre` gives the wrong pixel *and* falsely calls the set unaligned. The
+    mode cannot be derived from the frames, so it travels between the two commands."""
+    frames = [figure(20, 20, 3, 8, 2, 6), figure(24, 18, 9, 4, 5, 9)]
+    placed = plan_alignment(frames, mode)
+    _, layout = pack(placed.frames, columns=2, mode=mode)
+
+    assert layout.anchor == placed.anchor
+    assert layout.aligned is True

@@ -39,7 +39,15 @@ measured.
 
 ## Risks
 
-**`align` can grow a canvas a lot.** A set whose anchors are far apart needs a canvas
-covering all of them, and nothing here caps that. The set ceilings in `cli/frames.py` bound
-what comes in, not what alignment produces from it, so the packed sheet is bounded and the
-intermediate is not.
+**`align` can grow a canvas a lot**, and the read-side ceilings do not bound it: they bound
+what comes in, not what alignment produces from it. Two frames anchored near opposite
+corners need a canvas covering both, and every frame in the set gets one. `MAX_CANVAS` caps
+it (R3.6), on the *result* rather than on any flag — which is the only place a cap works,
+because all three of these multiply: `--cols` by the cell, `--by` by two, and the anchor
+spread by nothing at all.
+
+**`align` and `pack` have to agree on which anchor they mean.** `pack` measures the anchor
+its frames share, and measuring `feet` on a set aligned by `centre` gives the wrong pixel
+*and* falsely reports the set unaligned. `align` emits the mode it used and `pack --anchor`
+takes it; there is no way for the two to derive it from the frames alone, so it travels
+between them as a value.

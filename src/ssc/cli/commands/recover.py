@@ -25,7 +25,7 @@ from ssc.cli.frames import Frame, encode, load_image, read_frames, write_frames,
 from ssc.cli.listing import under_assets
 from ssc.cli.main import ssc_command
 from ssc.cli.output import Result
-from ssc.core.assemble import expand, flip, onion, pack, plan_alignment
+from ssc.core.assemble import CanvasTooLarge, expand, flip, onion, pack, plan_alignment
 from ssc.core.curate import differences
 from ssc.core.recover import (
     Rect,
@@ -474,6 +474,10 @@ def expand_canvas(
             )
             for frame in frames
         ]
+    except CanvasTooLarge as refused:
+        raise UsageError(
+            "canvas-too-large", str(refused), fix="expand to less, or in stages"
+        ) from refused
     except ValueError as refused:
         raise UsageError("invalid-target", str(refused), fix="expand never crops") from refused
 
@@ -515,7 +519,7 @@ def align(source: Path, out: Path, mode: str, onion_out: Path | None, *, dry_run
     frames = read_frames(source)
     try:
         placed = plan_alignment([frame.image for frame in frames], mode)
-    except ValueError as refused:
+    except CanvasTooLarge as refused:
         raise UsageError(
             "canvas-too-large",
             str(refused),
@@ -533,6 +537,9 @@ def align(source: Path, out: Path, mode: str, onion_out: Path | None, *, dry_run
         {
             "frames": len(moved),
             "anchor": {"x": placed.anchor[0], "y": placed.anchor[1]},
+            # Reported so a caller can hand it to `pack`, which measures the anchor and has
+            # to measure the same *kind* of anchor or it reports the wrong pixel.
+            "mode": mode,
             "size": {"width": width, "height": height},
             "empty": placed.empty,
             "written": [str(path) for path in written],
@@ -542,11 +549,20 @@ def align(source: Path, out: Path, mode: str, onion_out: Path | None, *, dry_run
 
 
 @ssc_command("pack", help="Lay a set out as a sheet of equal cells.")
+@click.option(
+    "--anchor",
+    "mode",
+    type=click.Choice(["feet", "bottom", "centre"]),
+    default="feet",
+    help="Which anchor to measure. Must match the one `align` used.",
+)
 @click.option("--cell", default=None, help="Cell size as WxH. Defaults to the largest frame.")
 @click.option("--cols", "columns", type=int, default=0, help="Columns. Defaults to one row.")
 @click.option("--out", required=True, type=click.Path(path_type=Path))
 @click.option("--in", "source", required=True, type=click.Path(path_type=Path))
-def pack_sheet(source: Path, out: Path, columns: int, cell: str | None, *, dry_run: bool) -> Result:
+def pack_sheet(
+    source: Path, out: Path, columns: int, cell: str | None, mode: str, *, dry_run: bool
+) -> Result:
     frames = read_frames(source)
     if columns < 0 or columns > MAX_CELLS:
         raise UsageError("invalid-cols", f"--cols {columns} is out of range", fix="use 1 or more")
@@ -555,7 +571,12 @@ def pack_sheet(source: Path, out: Path, columns: int, cell: str | None, *, dry_r
             [frame.image for frame in frames],
             columns=columns or len(frames),
             cell=parse_size(cell, "cell") if cell else None,
+            mode=mode,
         )
+    except CanvasTooLarge as refused:
+        raise UsageError(
+            "canvas-too-large", str(refused), fix="use fewer --cols, or a smaller cell"
+        ) from refused
     except ValueError as refused:
         raise UsageError("invalid-cell", str(refused), fix="use a cell that fits") from refused
 

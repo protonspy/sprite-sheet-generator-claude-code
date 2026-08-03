@@ -453,3 +453,54 @@ def test_a_cell_that_does_not_fit_is_refused(tmp_path: Path) -> None:
     assert code == 2
     assert payload["error"]["code"] == "invalid-cell"
     assert not (tmp_path / "s.png").exists()
+
+
+@pytest.mark.parametrize(
+    ("argv", "code"),
+    [
+        (("expand", "--by", "8192"), "canvas-too-large"),
+        (("pack", "--cols", "4000"), "canvas-too-large"),
+    ],
+)
+def test_a_canvas_past_the_ceiling_is_its_own_refusal(
+    tmp_path: Path, argv: tuple[str, ...], code: str
+) -> None:
+    """Its own code and its own fix: `expand` and `pack` each raise several refusals, and a
+    caller acting on the wrong one's `fix` is sent in the wrong direction."""
+    exit_code, payload = run(
+        "tool", *argv, "--in", str(a_set(tmp_path)), "--out", str(tmp_path / "o.png")
+    )
+    assert exit_code == 2
+    assert payload["error"]["code"] == code
+    assert "past" in payload["error"]["message"]
+
+
+def test_align_reports_the_mode_so_pack_can_be_given_it(tmp_path: Path) -> None:
+    code, payload = run(
+        "tool",
+        "align",
+        "--anchor",
+        "centre",
+        "--in",
+        str(a_set(tmp_path)),
+        "--out",
+        str(tmp_path / "out"),
+    )
+    assert code == 0
+    assert payload["mode"] == "centre"
+
+    packed_code, packed = run(
+        "tool",
+        "pack",
+        "--anchor",
+        "centre",
+        "--cols",
+        "2",
+        "--in",
+        str(tmp_path / "out"),
+        "--out",
+        str(tmp_path / "s.png"),
+    )
+    assert packed_code == 0
+    assert packed["aligned"] is True
+    assert packed["anchor"] == payload["anchor"]

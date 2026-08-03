@@ -23,9 +23,19 @@ Place = str
 MAX_CANVAS = 8192
 
 
+class CanvasTooLarge(ValueError):
+    """A result past `MAX_CANVAS`.
+
+    Its own type, because `expand` and `pack` each raise two or three different refusals
+    through one handler, and a caller acting on the `fix` of the wrong one is sent in the
+    wrong direction — "expand never crops" says nothing useful about a canvas that was
+    simply too big.
+    """
+
+
 def check_canvas(width: int, height: int, what: str) -> None:
     if width > MAX_CANVAS or height > MAX_CANVAS:
-        raise ValueError(f"{what} would be {width}x{height}, past {MAX_CANVAS} on a side")
+        raise CanvasTooLarge(f"{what} would be {width}x{height}, past {MAX_CANVAS} on a side")
 
 
 @dataclass(frozen=True)

@@ -1,0 +1,20 @@
+[package]
+name = "ssc-pixel-snapper"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+# The upstream crate is not vendored as source. `wasm/build.py` clones it at the pinned
+# commit into `wasm/.build/upstream`, applies `wasm/upstream.patch`, and builds from
+# there — so this path only exists during a build.
+[dependencies]
+spritefusion-pixel-snapper = { path = "../.build/upstream" }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true

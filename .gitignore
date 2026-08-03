@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# The pixel-snapper build tree (wasm/README.md); the artifact itself is committed.
+wasm/.build/

@@ -1,0 +1,10 @@
+# Line endings are normalised in the repository and converted on checkout — except where
+# that would break the file. CI checks out on Linux and Windows, so this is not academic.
+* text=auto
+
+# `git apply` fails on a patch whose line endings do not match the source it patches.
+wasm/upstream.patch -text
+
+# Build artifacts and fixtures with measured defects: byte-for-byte, always.
+*.wasm binary
+*.png binary

@@ -121,3 +121,78 @@ def test_strings_are_scrubbed_at_any_depth(monkeypatch: pytest.MonkeyPatch) -> N
 def test_values_that_are_not_strings_survive_unchanged() -> None:
     payload = {"ok": True, "count": 7, "sizes": [32, 64], "cached": False, "cell": None}
     assert redact.scrubbed(payload) == payload
+
+
+# A key names its value, and the two are separate strings in a dict.
+
+
+def test_a_secret_under_a_credential_shaped_key_is_replaced() -> None:
+    """`api_key=sk-live-…` is caught because the name and the secret are one string. In
+    `{"api_key": "sk-live-…"}` they are two, and a value judged alone looks unremarkable —
+    which is exactly the shape a resolved provider call carries."""
+    payload = {
+        "arguments": {
+            "prompt": "a knight",
+            "api_key": "sk-live-9999",
+            "authorization": "Bearer sk-xyz",
+            "password": "hunter22222",
+        }
+    }
+
+    out = redact.scrubbed(payload)["arguments"]
+
+    assert out["api_key"] == redact.PLACEHOLDER
+    assert out["authorization"] == redact.PLACEHOLDER
+    assert out["password"] == redact.PLACEHOLDER
+    assert out["prompt"] == "a knight"
+
+
+def test_a_list_under_a_credential_shaped_key_goes_too() -> None:
+    assert redact.scrubbed({"tokens": ["one", "two"]})["tokens"] == [
+        redact.PLACEHOLDER,
+        redact.PLACEHOLDER,
+    ]
+
+
+def test_an_ordinary_key_still_gets_the_by_shape_rules() -> None:
+    payload = {"summary": "called https://fal.run/x?api_key=sk-live-9999"}
+
+    assert "sk-live-9999" not in redact.scrubbed(payload)["summary"]
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["key", "kind", "stage", "id", "monkey", "keyframe", "cache_key", "sort_key", "keys"],
+)
+def test_an_ordinary_field_name_is_not_treated_as_a_credential(field: str) -> None:
+    """`key` is this project's word for an asset's name. Matching it as a secret blanks a
+    field every listing depends on — which is how the first version of this rule broke four
+    tests in `test_media.py`."""
+    assert redact.scrubbed({field: "hero"}) == {field: "hero"}
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "api_key",
+        "apikey",
+        "fal_api_key",
+        "access_token",
+        "client_secret",
+        "authorization",
+        "passwd",
+    ],
+)
+def test_a_credential_shaped_field_name_is(field: str) -> None:
+    assert redact.scrubbed({field: "sk-live-9999"}) == {field: redact.PLACEHOLDER}
+
+
+def test_a_field_named_only_for_the_variable_that_holds_it_is_caught_by_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`FAL_KEY` as a *field name* is not matched, on purpose: the branch that would catch it
+    also blanks `cache_key`, which this project really emits. The by-value rule covers it —
+    which is the point of having two rules that fail differently."""
+    monkeypatch.setenv("FAL_KEY", "sk-live-9999")
+
+    assert redact.scrubbed({"FAL_KEY": "sk-live-9999"}) == {"FAL_KEY": redact.PLACEHOLDER}

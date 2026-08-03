@@ -5,31 +5,51 @@ ci: wait
 
 # Job store — requirements
 
-<!-- EARS, numbered R<group>.<item>. All five patterns are valid; use the one the
-     requirement actually is, and do not invent a trigger for something that is
-     simply always true:
-
-       The <system> shall <response>                                  ubiquitous
-       While <precondition>, the <system> shall <response>          state-driven
-       When <trigger>, the <system> shall <response>                event-driven
-       Where <feature>, the <system> shall <response>           optional feature
-       If <trigger>, then the <system> shall <response>       unwanted behavior
-
-     Omit, don't fill: specify what this feature decides, and nothing else.
-     Over-specification measurably makes generated code worse, not just longer.
-     Delete this comment. -->
-
 ## Purpose
 
-<!-- One paragraph: what this feature is for, and who it is for. -->
+Everything under `gen` is paid at submission and collected later, which means the process
+that spent the money can die before it gets anything back — a crash, a timeout, a closed
+laptop, a session that ran out of context. The result is sitting on the provider's side,
+already billed, addressable only by an id. This feature is the disk that id lives on: one
+file per job, written before the call is made, and a set of commands that let a *different*
+process ask about, collect, or cancel work it never submitted.
 
-## R1 · <group name>
+See `adr:0005-a-job-always-exists` for why there is no synchronous path that skips this, and
+`adr:0006-job-store-rides-the-fal-client-handle-surface` for the provider capability it
+assumes.
 
-- **R1.1** The <system> shall <response>
-- **R1.2** When <trigger>, the <system> shall <response>
-- **R1.3** If <trigger>, then the <system> shall <response>
+## R1 · The record
+
+- **R1.1** The `ssc` CLI shall write a job's record to disk before the provider call it describes is made.
+- **R1.2** The `ssc` CLI shall write a job record atomically, leaving either the previous record or the new one after an interrupted write.
+- **R1.3** The `ssc` CLI shall record, for each job, its own id, the provider, the application, the provider's request id, the arguments as resolved, the model, its state, its cost, and when it entered each state it has been in.
+- **R1.4** If a file under the jobs directory cannot be read as a job record, then the `ssc` CLI shall report that file and continue with the others.
+- **R1.5** The `ssc` CLI shall replace a credential-shaped argument with `***` before writing a job record, as well as before reporting one.
+
+## R2 · The states
+
+- **R2.1** The `ssc` CLI shall hold each job in exactly one of `submitted`, `running`, `done`, `failed` and `cancelled`.
+- **R2.2** When a provider reports a job's state, the `ssc` CLI shall record that state and the moment it was recorded.
+- **R2.3** If a state change would move a job out of `done`, `failed` or `cancelled`, then the `ssc` CLI shall refuse it and keep the record it has.
+
+## R3 · The commands
+
+- **R3.1** The `ssc` CLI shall list every job with its state, most recently submitted first.
+- **R3.2** When `ssc job status` runs against a job that is not finished, the `ssc` CLI shall ask the provider and record what it says.
+- **R3.3** When `ssc job wait` runs, the `ssc` CLI shall keep asking until the job finishes or a given deadline passes, and shall say which of the two happened.
+- **R3.4** When `ssc job cancel` runs, the `ssc` CLI shall ask the provider to cancel and shall record the outcome.
+- **R3.5** When `ssc job resume` runs, the `ssc` CLI shall collect a finished job's result using only what the record holds.
+- **R3.6** If a command names a job that does not exist, then the `ssc` CLI shall exit `2` and say so.
+- **R3.7** Where no provider is available for a job's provider name, the `ssc` CLI shall report what it has on disk and say why it could go no further.
 
 ## Out of scope
 
-<!-- What a reader might reasonably expect here and will not find, so nobody
-     builds it by accident. Delete the heading if there is nothing to say. -->
+**Submitting anything.** No provider ships here, and nothing in this leaf spends money. The
+store is built and tested against a provider interface; `specs/gen-fal/` supplies the first
+implementation of it. That order is deliberate — the job is the contract and generation is
+one producer of it.
+
+**Deleting old jobs.** `jobs/` accumulates, and a retention policy is a decision about
+somebody's disk that nobody has asked for yet. `ssc clean` deliberately does not touch it:
+its rule is that it deletes `derived` files, and a job record is neither derived nor an
+asset.

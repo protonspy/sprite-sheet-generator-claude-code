@@ -37,6 +37,23 @@ PLACEHOLDER = "***"
 # An environment variable whose name reads like it holds a credential.
 SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH", re.IGNORECASE)
 
+# A *field* whose name says its value is a credential — stricter than `SECRET_NAME`, and
+# deliberately so. That one is matched against environment variable names, where a substring
+# is the right test. This one is matched against the keys of output this project builds,
+# where `key` is a domain word — an asset's key — and blanking it would empty a field every
+# listing depends on. So `key` is not a secret here and `api_key` is.
+#
+# There is deliberately no "anything ending in _key" branch either. It was tried, and it
+# blanks `cache_key` — a real field in this project's listing output — the moment a command
+# populates one. A field has to name a *credential*, not merely end in a word that sometimes
+# introduces one. The environment's `FAL_KEY` is still caught, by value, wherever it appears.
+SECRET_FIELD = re.compile(
+    r"^(?:.*[-_])?"
+    r"(?:api[-_]?keys?|access[-_]?keys?|secret[-_]?keys?|private[-_]?keys?"
+    r"|tokens?|secrets?|passwords?|passwd|credentials?|authorization|auth)$",
+    re.IGNORECASE,
+)
+
 # Below this, a value is not distinctive enough to match on: `LANG=C` would redact every
 # `C` in the output, which is worse than the leak it prevents. A real credential is long.
 MIN_SECRET_LEN = 8
@@ -100,11 +117,26 @@ def scrubbed(value: Any) -> Any:
     Every string is a candidate, not just the error message: a command that reports the
     call it made — which is exactly what `gen --dry-run` is specified to do — carries the
     URL in `data`, and a guard that covered only `error.message` would miss it.
+
+    **A dict's key is part of its value's context.** `CREDENTIAL_PAIR` catches
+    `api_key=sk-live-…` because the name and the secret are one string; in
+    `{"api_key": "sk-live-…"}` they are two, and a value judged alone is an unremarkable
+    string. That second shape is what a resolved provider call actually carries — a job
+    records its arguments as a dict — so the key is consulted here rather than left to
+    every caller that happens to build one.
     """
+    return _scrubbed(value, key=None)
+
+
+def _scrubbed(value: Any, *, key: str | None) -> Any:
     if isinstance(value, str):
+        if key is not None and SECRET_FIELD.match(key):
+            return PLACEHOLDER
         return scrub(value)
     if isinstance(value, dict):
-        return {scrubbed(key): scrubbed(item) for key, item in value.items()}
+        return {scrub(str(name)): _scrubbed(item, key=str(name)) for name, item in value.items()}
     if isinstance(value, (list, tuple)):
-        return type(value)(scrubbed(item) for item in value)
+        # The key carries down: `{"tokens": ["a", "b"]}` leaks exactly as much as
+        # `{"token": "a"}`, and an element has no name of its own to be judged by.
+        return type(value)(_scrubbed(item, key=key) for item in value)
     return value

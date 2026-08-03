@@ -47,7 +47,7 @@ much, for an agent driving `ssc` with no eyes on the directory.
 - **R4.3** When `--dry-run` is given, the `ssc` CLI shall write nothing and report what it would have written.
 - **R4.4** Where a command resizes an image, the `ssc` CLI shall resample with nearest neighbour.
 - **R4.5** The `ssc` CLI shall report an error as a JSON object carrying a stable code, a message, and the command that fixes it where one exists.
-- **R4.6** (ADDED) If a value held by an environment variable whose name reads like a credential, or a credential carried in a URL, a `key=value` pair or an authorization scheme, would appear in what a command emits, then the `ssc` CLI shall replace it with `***` on both stdout and stderr.
+- **R4.6** (MODIFIED) If a value held by an environment variable whose name reads like a credential, or a credential carried in a URL, a `key=value` pair, an authorization scheme, or a field whose *name* says its value is a credential, would appear in what a command emits, then the `ssc` CLI shall replace it with `***` on both stdout and stderr.
 
 ## R5 · The cache
 

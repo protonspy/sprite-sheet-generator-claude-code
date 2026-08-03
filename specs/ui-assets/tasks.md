@@ -12,6 +12,7 @@ All were run green before this work started.
 - [x] 1.1 (Unit) Derive guides from the art's pixel size, and snap given ones onto it — R1.2, R1.3
 - [x] 1.2 (Unit) Report the four guides and the nine region sizes — R1.1, R1.5
 - [x] 1.3 (Unit) Refuse a guide outside the image, or two on one axis that meet or cross — R1.4
+- [x] 1.4 (Unit) Refuse a guide list that is not four plain whole numbers, before it reaches the arithmetic — R1.6
 
 ## 2 · The check
 
@@ -23,6 +24,7 @@ All were run green before this work started.
 
 - [x] 3.1 (Unit) `ssc tool states` — one sheet in a fixed order, each state's name and rectangle — R3.1
 - [x] 3.2 (Unit) Refuse an unknown state name and a set of differing sizes, naming what it found — R3.2, R3.3
+- [x] 3.3 (Unit) Refuse two files that name one state, rather than letting the later one replace it — R3.4
 
 ## Notes
 

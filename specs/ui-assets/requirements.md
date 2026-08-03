@@ -24,6 +24,7 @@ The command is `ninepatch` and not `slice`, because `specs/frame-recovery/` alre
 - **R1.3** Where guides are given, the `ssc` CLI shall use them; where none are, it shall derive them from the art's pixel size.
 - **R1.4** If a guide falls outside the image, or the two guides on one axis meet or cross, then the `ssc` CLI shall refuse and report the guides it was given.
 - **R1.5** The `ssc` CLI shall report the size of each of the nine regions.
+- **R1.6** If the guides given are not four whole numbers within the range a distance in pixels may take, then the `ssc` CLI shall refuse them and say how to write them.
 
 ## R2 · Measuring the stretch
 
@@ -37,6 +38,7 @@ The command is `ninepatch` and not `slice`, because `specs/frame-recovery/` alre
 - **R3.1** When `ssc tool states` runs, the `ssc` CLI shall write one sheet holding a control's states in a fixed order, and shall report each state's name and rectangle.
 - **R3.2** If a file names a state it does not know, then the `ssc` CLI shall refuse the set and report the states it knows.
 - **R3.3** If the states are not all one size, then the `ssc` CLI shall refuse and report the sizes it found.
+- **R3.4** If two files name the same state, then the `ssc` CLI shall refuse the set and name both files.
 
 ## Out of scope
 

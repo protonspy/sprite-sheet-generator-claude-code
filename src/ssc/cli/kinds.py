@@ -77,6 +77,7 @@ class Profile:
     checks: tuple[str, ...] = ()
     template: str = "generic"
     normal_map: bool = False
+    layered: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -88,10 +89,11 @@ class Profile:
             "checks": list(self.checks),
             "template": self.template,
             "normal_map": self.normal_map,
+            "layered": self.layered,
         }
 
 
-#: The six the package ships. Defaults, not a frozen table — a project may override any of
+#: The seven the package ships. Defaults, not a frozen table — a project may override any of
 #: them, and `kind show` reports which fields it did.
 BUILT_INS: dict[str, Profile] = {
     "character": Profile(
@@ -133,6 +135,15 @@ BUILT_INS: dict[str, Profile] = {
         atlas_layout="bin",
         checks=("palette",),
         template="banner",
+    ),
+    "background": Profile(
+        name="background",
+        cell=(320, 180),
+        anchor="centre",
+        atlas_layout="bin",
+        checks=("palette",),
+        template="background",
+        layered=True,
     ),
     "map": Profile(
         name="map",
@@ -285,7 +296,7 @@ def merge(name: str, stated: dict[str, Any]) -> Resolved:
                     fix=f"write it as a list under kinds.{name}.checks",
                 )
             values[item] = tuple(value)
-        elif item in {"animates", "normal_map"}:
+        elif item in {"animates", "normal_map", "layered"}:
             if not isinstance(value, bool):
                 raise SscError(
                     "invalid-kind",

@@ -31,8 +31,18 @@ def workspace_with(tmp_path: Path, declared: dict[str, Any]) -> ws.Workspace:
 # R1.1, R1.2 — the six the package ships.
 
 
-def test_the_six_built_ins_are_there() -> None:
-    assert set(kinds.BUILT_INS) == {"character", "icon", "tile", "ui", "banner", "map"}
+def test_the_built_ins_are_there() -> None:
+    assert set(kinds.BUILT_INS) == {
+        "character",
+        "icon",
+        "tile",
+        "ui",
+        "banner",
+        "map",
+        # `background` arrived with `specs/parallax-layers/`, as this spec's own argument
+        # predicts: a kind is an extensible profile, so a seventh is the mechanism working.
+        "background",
+    }
 
 
 def test_every_built_in_declares_every_field() -> None:
@@ -117,7 +127,7 @@ def test_kind_list_reports_built_in_and_declared(tmp_path: Path, monkeypatch) ->
     code, payload = run("kind", "list")
 
     assert code == 0
-    assert payload["count"] == 7
+    assert payload["count"] == 8
     assert "portrait" in {entry["name"] for entry in payload["kinds"]}
 
 

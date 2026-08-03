@@ -8,7 +8,15 @@ from __future__ import annotations
 
 from ssc.cli.commands.asset import asset
 from ssc.cli.commands.clean import clean
-from ssc.cli.commands.convert import bgremove, board, normal_map, pixelart, snap, tile_wrap
+from ssc.cli.commands.convert import (
+    bgremove,
+    board,
+    layers,
+    normal_map,
+    pixelart,
+    snap,
+    tile_wrap,
+)
 from ssc.cli.commands.doctor import doctor
 from ssc.cli.commands.init import init
 from ssc.cli.commands.kind import kind
@@ -45,5 +53,6 @@ tool.add_command(align)
 tool.add_command(pack_sheet)
 tool.add_command(tile_wrap)
 tool.add_command(normal_map)
+tool.add_command(layers)
 
 __all__ = ["main"]

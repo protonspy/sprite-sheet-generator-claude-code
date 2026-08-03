@@ -7,6 +7,7 @@ their answer to it.
 
 from __future__ import annotations
 
+import cv2
 import numpy as np
 
 from ssc.core.resize import ResizeParams, resize
@@ -26,15 +27,6 @@ def alpha_mask(image: np.ndarray) -> np.ndarray:
     if not has_alpha(image):
         return np.ones(image.shape[:2], dtype=bool)
     return image[:, :, 3] > OPAQUE
-
-
-def bounding_box(mask: np.ndarray) -> tuple[int, int, int, int] | None:
-    """`(top, left, bottom, right)`, inclusive, or `None` for an empty mask."""
-    rows = np.flatnonzero(mask.any(axis=1))
-    columns = np.flatnonzero(mask.any(axis=0))
-    if rows.size == 0 or columns.size == 0:
-        return None
-    return int(rows[0]), int(columns[0]), int(rows[-1]), int(columns[-1])
 
 
 def anchor(mask: np.ndarray) -> tuple[float, float] | None:
@@ -87,30 +79,22 @@ def label_regions(mask: np.ndarray) -> tuple[np.ndarray, int]:
 
     4-connected, not 8: two shapes touching only at a corner are two shapes in pixel art,
     where a diagonal is a deliberate step rather than a join.
+
+    `cv2` rather than a hand-rolled flood fill — `docs/stack.md` adopted OpenCV for
+    "connected components, morphology, flood fill, Sobel", and this is the first thing in
+    the project that needed one.
     """
-    height, width = mask.shape
-    labels = np.zeros((height, width), dtype=np.int32)
-    count = 0
-    for start_y in range(height):
-        for start_x in range(width):
-            if not mask[start_y, start_x] or labels[start_y, start_x]:
-                continue
-            count += 1
-            stack = [(start_y, start_x)]
-            labels[start_y, start_x] = count
-            while stack:
-                y, x = stack.pop()
-                for next_y, next_x in ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)):
-                    if not (0 <= next_y < height and 0 <= next_x < width):
-                        continue
-                    if mask[next_y, next_x] and not labels[next_y, next_x]:
-                        labels[next_y, next_x] = count
-                        stack.append((next_y, next_x))
-    return labels, count
+    count, labels = cv2.connectedComponents(mask.astype(np.uint8), connectivity=4)
+    # OpenCV counts the background as label 0, so its total is one more than the number of
+    # regions that are actually `True`.
+    return labels, max(count - 1, 0)
 
 
-def region_sizes(labels: np.ndarray, count: int) -> list[int]:
-    return [int((labels == label).sum()) for label in range(1, count + 1)]
+def region_areas(labels: np.ndarray, count: int) -> np.ndarray:
+    """The pixel count of every label from 1 upward, in one pass."""
+    if count == 0:
+        return np.zeros(0, dtype=np.int64)
+    return np.bincount(labels.ravel(), minlength=count + 1)[1:]
 
 
 def enclosed_regions(mask: np.ndarray) -> int:
@@ -123,5 +107,7 @@ def enclosed_regions(mask: np.ndarray) -> int:
     labels, count = label_regions(~mask)
     if count == 0:
         return 0
-    border = set(labels[0, :]) | set(labels[-1, :]) | set(labels[:, 0]) | set(labels[:, -1])
-    return sum(1 for label in range(1, count + 1) if label not in border)
+    touching_the_border = np.unique(
+        np.concatenate((labels[0, :], labels[-1, :], labels[:, 0], labels[:, -1]))
+    )
+    return int(count - np.count_nonzero(touching_the_border > 0))

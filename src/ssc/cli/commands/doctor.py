@@ -32,12 +32,32 @@ from ssc.core.doctor.finding import skipped
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 
+#: A ceiling on what will be decoded. `doctor` reads art a model produced or somebody
+#: downloaded, so the input is attacker-influenced: a fine checkerboard that is tiny on
+#: disk decodes to hundreds of megabytes and gives every detector tens of millions of
+#: cells to chew through. Pillow's own bomb threshold is both higher and raised as an
+#: exception type this project does not otherwise handle, so the limit is stated here.
+MAX_PIXELS = 64_000_000
+
+#: The same reasoning for `--cell`: the silhouette mask is built at the target size, so an
+#: unbounded cell allocates and labels an unbounded array from an 8x8 input.
+MAX_CELL = 4096
+
 
 def load_image(path: Path) -> np.ndarray:
     try:
         with Image.open(path) as handle:
+            width, height = handle.size
+            if width * height > MAX_PIXELS:
+                raise SscError(
+                    "image-too-large",
+                    f"{path} is {width}x{height}, over the {MAX_PIXELS:,}-pixel ceiling",
+                    fix="scale it down first, or measure a smaller region",
+                )
             return np.array(handle.convert("RGBA"))
-    except OSError as unreadable:
+    except (OSError, Image.DecompressionBombError, Image.DecompressionBombWarning) as unreadable:
+        # DecompressionBombError is a bare Exception, not an OSError, so it would otherwise
+        # leave the command as a traceback rather than as this project's error contract.
         raise SscError(
             "unreadable-image",
             f"{path} could not be read as an image: {unreadable}",
@@ -149,6 +169,12 @@ def doctor(
         if len(parts) != 2 or not all(part.isdigit() for part in parts):
             raise SscError("invalid-cell", f"{cell!r} is not a size like 64x64", fix="use WxH")
         target_cell = (int(parts[0]), int(parts[1]))
+        if not all(0 < side <= MAX_CELL for side in target_cell):
+            raise SscError(
+                "invalid-cell",
+                f"{cell!r} is outside 1..{MAX_CELL}; the mask is built at the target size",
+                fix=f"use a cell up to {MAX_CELL}x{MAX_CELL}",
+            )
 
     grid = (cols, rows) if cols is not None and rows is not None else None
     allowed = tuple(parse_hex(part) for part in palette.split(",")) if palette else ()

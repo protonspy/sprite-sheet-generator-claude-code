@@ -2,19 +2,25 @@
 
 ## What changes
 
-Serves R1.1–R1.5, R2.1–R2.7, R3.1–R3.5, R4.1–R4.2.
+Serves R1.1 to R1.5, R2.1 to R2.7, R3.1 to R3.7, R4.1 and R4.2.
 
 Seven pure detectors under `src/ssc/core/doctor/`, one command over them, and the fixtures
 that prove each one.
 
 ```
 src/ssc/core/doctor/
-  finding.py      Check, Severity, Finding, Report — the shapes every detector returns
-  masks.py        alpha mask, bounding box, anchor, connected components — shared, tested once
-  pixel_grid.py · bleed.py · drift.py · halo.py · palette.py · flicker.py · silhouette.py
+  finding.py      Check, Status, Finding, Report — the shapes every detector returns
+  masks.py        alpha mask, anchor, majority reduction, connected components
+  checks.py       the seven detectors and their params dataclasses
 src/ssc/cli/commands/doctor.py
 tests/fixtures/doctor/     one input carrying each defect, one free of it
 ```
+
+One `checks.py` rather than seven modules: each detector is about a screen, and they
+share the same imports and the same shape, so seven files would have been seven headers
+around thirty lines. `masks.py` is separate because two detectors share it, and the
+point of extracting it was that they cannot answer "which pixels are the body"
+differently.
 
 The detectors are pure — `ndarray` (or a list of them) plus a params dataclass in, a
 `Finding` out — because `specs/asset-listing/` has to call the same measurement without a
@@ -86,7 +92,7 @@ pixel grid, so `pixel_grid` reports it, and where it needs a human it gets one a
 review gate `specs/sweep-and-review/` exists for.
 
 **Mask integrity is adopted, measured at the target cell.** Two exact counts, on the alpha
-mask reduced with nearest neighbour to `--cell`:
+mask reduced to `--cell`:
 
 - **`holes`** — connected background regions fully enclosed by the body. This is
   background removal that took too much, which pairs `silhouette` with `halo` from the
@@ -123,10 +129,34 @@ say *what* pixel size it detected, not only how far off the grid the image is, b
 detected size is what `snap` is then told to use. A measurement object costs a caller
 nothing and carries the value the next command needs.
 
+**A colour budget on `palette`, and a chroma key on `bleed`.** Neither was in the plan's
+sentence for this leaf and both are here, so they are requirements now (R2.5, R3.6)
+rather than undeclared scope. `--chroma` is not optional in practice: M1's promise is
+repairing a sheet somebody already has, and such a sheet has a flat green background and
+no alpha at all, so without it `bleed` could not run on the input the milestone exists
+for. `--colors` is the weaker of the two — it lets `palette` report a defect before a
+full palette is locked, which is what `specs/style-and-palette/` will own. If that leaf
+wants the budget to live with the palette instead, moving it costs one flag.
+
 **Detecting the sheet grid instead of taking `--cols`/`--rows`.** Auto-detection is real
 work and it belongs to `specs/frame-recovery/`, which owns grid detection for exactly this
 reason. Duplicating it here would give the project two detectors that could disagree, and
 the disagreement would surface as a `bleed` number nobody could reproduce.
+
+## Refusing before measuring
+
+`doctor` reads art a model produced or somebody downloaded, so its input is
+attacker-influenced, and it is meant to run unattended in an agent loop. Two ceilings
+(R3.7) keep a crafted file from becoming a stall: a pixel count above which nothing is
+decoded, and a range on `--cell`, because the silhouette mask is built at the *target*
+size rather than the source's — an unbounded cell allocates an unbounded array from an
+8x8 input. Pillow's own bomb guard is not enough alone: its threshold is higher, and it
+raises a bare `Exception` that would leave the command as a traceback rather than as
+this project's error contract.
+
+The detectors are array operations rather than per-pixel Python for the same reason —
+`off_grid_ratio`'s cell count is `(h/p)*(w/p)` with `p` read off the image itself, so a
+fine checkerboard that is small on disk is millions of cells.
 
 ## Risks
 

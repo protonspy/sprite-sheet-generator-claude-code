@@ -121,3 +121,51 @@ def test_doctor_writes_nothing(tmp_path: Path) -> None:
     run("--in", str(target))
     assert target.read_bytes() == before
     assert [path.name for path in tmp_path.iterdir()] == ["copy.png"]
+
+
+def test_an_image_over_the_pixel_ceiling_is_refused_before_it_is_decoded(tmp_path: Path) -> None:
+    """R3.7 — doctor reads art a model produced, unattended. A fine checkerboard that is
+    small on disk decodes to hundreds of megabytes, and every detector then walks it."""
+    from PIL import Image
+
+    from ssc.cli.commands import doctor as command
+
+    huge = tmp_path / "huge.png"
+    Image.new("RGBA", (64, 64)).save(huge)
+    original = command.MAX_PIXELS
+    try:
+        command.MAX_PIXELS = 100
+        code, payload = run("--in", str(huge))
+    finally:
+        command.MAX_PIXELS = original
+    assert code == 1
+    assert payload["error"]["code"] == "image-too-large"  # type: ignore[index]
+
+
+def test_a_cell_past_the_ceiling_is_refused(tmp_path: Path) -> None:
+    """The silhouette mask is built at the *target* size, so an unbounded cell allocates
+    an unbounded array from a tiny input."""
+    code, payload = run("--in", str(FIXTURES / "halo-clean.png"), "--cell", "99999x99999")
+    assert code == 1
+    assert payload["error"]["code"] == "invalid-cell"  # type: ignore[index]
+
+
+def test_a_zero_cell_is_refused() -> None:
+    code, _ = run("--in", str(FIXTURES / "halo-clean.png"), "--cell", "0x8")
+    assert code == 1
+
+
+def test_bleed_keys_on_chroma_where_the_sheet_has_no_alpha(tmp_path: Path) -> None:
+    """R3.6 — M1's promise is repairing a sheet somebody already has, and such a sheet is
+    flat green with no alpha at all."""
+    import numpy as np
+    from PIL import Image
+
+    art = np.zeros((16, 32, 3), dtype=np.uint8)
+    art[:, :] = (0, 255, 0)
+    art[4:12, 3:20] = (200, 60, 70)
+    path = tmp_path / "green.png"
+    Image.fromarray(art, mode="RGB").save(path)
+
+    _, payload = run("--in", str(path), "--cols", "2", "--rows", "1", "--chroma", "00ff00")
+    assert checks(payload)["bleed"]["status"] == "defect"

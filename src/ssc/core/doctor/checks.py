@@ -12,7 +12,7 @@ has to be argued against.
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -24,6 +24,7 @@ from ssc.core.doctor.masks import (
     has_alpha,
     label_regions,
     reduce_mask,
+    region_areas,
 )
 
 
@@ -63,9 +64,12 @@ def detect_pixel_size(image: np.ndarray) -> int:
 def off_grid_ratio(image: np.ndarray, pixel_size: int) -> float:
     """The share of pixels differing from the dominant colour of their own cell."""
     if pixel_size <= 1:
-        # Every pixel is its own cell, so nothing can disagree with itself. Saying 0.0
-        # here would report a blurry image as perfect; the honest answer is that a
-        # one-pixel grid means no grid was found.
+        # Every pixel is its own cell, so nothing can disagree with itself, and the
+        # literal share would be 0.0 — a blurry image reported as perfect. A finished
+        # asset in this pipeline is always nearest-neighbour-upscaled to a real pixel size
+        # (docs/wiki/pixel-snapping.md: 16, 32, 48-64, 96+), so a detected size of one
+        # cannot occur on a legitimate one. Reporting it as maximally off-grid is the
+        # honest reading of that invariant rather than a judgement.
         return 1.0
     height, width = image.shape[:2]
     rows, columns = height // pixel_size, width // pixel_size
@@ -76,12 +80,29 @@ def off_grid_ratio(image: np.ndarray, pixel_size: int) -> float:
     flat = cropped.reshape(rows, pixel_size, columns, pixel_size, -1)
     cells = flat.transpose(0, 2, 1, 3, 4).reshape(rows * columns, pixel_size * pixel_size, -1)
 
-    mismatched = 0
-    for cell in cells:
-        colours, counts = np.unique(cell, axis=0, return_counts=True)
-        mismatched += int(cell.shape[0] - counts.max())
-        del colours
-    return mismatched / float(cells.shape[0] * cells.shape[1])
+    # One pass over every cell at once. A Python loop here is a denial-of-service path:
+    # the cell count is (h/p)*(w/p) with `p` read off the image itself, so a crafted fine
+    # checkerboard produces tens of millions of iterations from a file that is small on
+    # disk.
+    packed = np.zeros(cells.shape[:2], dtype=np.uint64)
+    for channel in range(cells.shape[2]):
+        packed = (packed << np.uint64(8)) | cells[:, :, channel].astype(np.uint64)
+    packed.sort(axis=1)
+    per_cell = packed.shape[1]
+    starts = np.ones_like(packed, dtype=bool)
+    starts[:, 1:] = packed[:, 1:] != packed[:, :-1]
+
+    # Run lengths without a loop: each run ends where the next one starts, except the last
+    # run of a cell, which ends at the cell boundary.
+    cell_index, position = np.nonzero(starts)
+    next_position = np.append(position[1:], per_cell)
+    last_in_cell = np.append(cell_index[1:] != cell_index[:-1], True)
+    lengths = np.where(last_in_cell, per_cell - position, next_position - position)
+
+    dominant = np.zeros(cells.shape[0], dtype=np.int64)
+    np.maximum.at(dominant, cell_index, lengths)
+    mismatched = int((per_cell - dominant).sum())
+    return mismatched / float(cells.shape[0] * per_cell)
 
 
 def check_pixel_grid(image: np.ndarray, params: PixelGridParams | None = None) -> Finding:
@@ -180,9 +201,7 @@ def check_silhouette(image: np.ndarray, params: SilhouetteParams | None = None) 
     reduced = reduce_mask(alpha_mask(image), width=width, height=height)
 
     labels, count = label_regions(reduced)
-    fragments = sum(
-        1 for label in range(1, count + 1) if int((labels == label).sum()) >= params.min_fragment_px
-    )
+    fragments = int((region_areas(labels, count) >= params.min_fragment_px).sum())
     holes = enclosed_regions(reduced)
     measurement = {"holes": holes, "fragments": fragments, "cell": [width, height]}
 
@@ -280,7 +299,6 @@ class BleedParams:
     rows: int
     chroma: tuple[int, int, int] | None = None
     tolerance: int = 16
-    _unused: tuple[()] = field(default=(), repr=False)
 
 
 def _content_mask(sheet: np.ndarray, params: BleedParams) -> np.ndarray:

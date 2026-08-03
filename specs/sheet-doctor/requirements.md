@@ -27,8 +27,8 @@ about whether something "looks right" is not.
 - **R2.2** The `ssc` CLI shall measure `bleed` as the number of cells whose content touches a boundary shared with a neighbouring cell.
 - **R2.3** The `ssc` CLI shall measure `drift` as the largest distance, in pixels, between a frame's anchor and the median anchor of the set.
 - **R2.4** The `ssc` CLI shall measure `halo` as the count of pixels whose alpha is neither 0 nor 255.
-- **R2.5** The `ssc` CLI shall measure `palette` as the count of distinct opaque colours and, where a palette is given, the count of pixels outside it.
-- **R2.6** The `ssc` CLI shall measure `flicker` as the count of pixels changing colour between adjacent frames by less than a stated distance while their alpha is unchanged.
+- **R2.5** The `ssc` CLI shall measure `palette` as the count of distinct opaque colours, the count of pixels outside a given palette, and whether that count exceeds a given colour budget.
+- **R2.6** The `ssc` CLI shall measure `flicker` as the count of pixels changing colour between adjacent frames by no more than a stated distance while their alpha is unchanged.
 - **R2.7** The `ssc` CLI shall measure `silhouette` on the alpha mask reduced to the target cell, as the count of enclosed background regions and the count of separate opaque regions.
 
 ## R3 · Running it
@@ -38,6 +38,8 @@ about whether something "looks right" is not.
 - **R3.3** Where a check needs a target cell or a palette and neither is given, the `ssc` CLI shall skip that check rather than assume one.
 - **R3.4** The `ssc` CLI shall exit `0` once it has measured the input, whether or not it found defects.
 - **R3.5** If `--in` names neither an image nor a directory holding one, then the `ssc` CLI shall exit `1`.
+- **R3.6** Where a sheet carries no alpha, the `ssc` CLI shall take the background for `bleed` from a given chroma colour.
+- **R3.7** The `ssc` CLI shall refuse an input above a stated pixel ceiling, and a target cell outside a stated range, before decoding or measuring it.
 
 ## R4 · Proving the detectors
 

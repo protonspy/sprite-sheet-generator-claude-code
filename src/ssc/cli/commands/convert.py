@@ -5,8 +5,8 @@ caches there — but none of them requires it, because a caller with a directory
 and no `ssc init` is exactly who these are for.
 
 They share a module because they share a shape: `--in`/`--out`, the frame-set reading, the
-refusal to overwrite, and a ceiling on every dial. A fifth command of a different shape is
-the point at which to split this up.
+refusal to overwrite, and a ceiling on every dial whose cost scales with its own value. A
+fifth command of a different shape is the point at which to split this up.
 """
 
 from __future__ import annotations
@@ -52,9 +52,10 @@ MAX_TOLERANCE = 442
 
 #: `cv2.erode` costs one pass per iteration *regardless of image size*, so this is the one
 #: dial whose cost an attacker sets independently of the input: a 1x1 PNG and a large enough
-#: number runs for hours. Every other knob in this file already had a ceiling; this one was
-#: found without one by the security review. A trim wider than the largest sprite anyone
-#: packs has removed the whole silhouette long before it gets here.
+#: number runs for hours. That is what separates it from `--despeckle` and `--min-cluster`,
+#: which take a number but cost one pass over the image whatever it is, and so need no
+#: ceiling. A trim wider than the largest sprite anyone packs has removed the whole
+#: silhouette long before it gets here.
 MAX_TRIM = 512
 
 

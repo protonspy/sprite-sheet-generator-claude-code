@@ -31,6 +31,7 @@ class Check(StrEnum):
     FLICKER = "flicker"
     SILHOUETTE = "silhouette"
     SEAM = "seam"
+    NINESLICE = "nineslice"
 
 
 class Status(StrEnum):

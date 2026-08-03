@@ -38,9 +38,11 @@ def test_every_check_appears_in_every_report() -> None:
         "flicker",
         "silhouette",
         "seam",
+        "nineslice",
     }
     assert checks(payload)["seam"]["status"] == "skipped"
     assert checks(payload)["seam"]["reason"]
+    assert checks(payload)["nineslice"]["status"] == "skipped"
 
 
 def test_a_skipped_check_carries_its_reason_and_no_measurement() -> None:

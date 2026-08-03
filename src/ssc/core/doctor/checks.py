@@ -406,3 +406,67 @@ def check_seam(image: np.ndarray, params: SeamParams | None = None) -> Finding:
     if max(horizontal, vertical) > params.max_ratio:
         return defect(Check.SEAM, fix="ssc tool tile", **measurement)
     return ok(Check.SEAM, **measurement)
+
+
+# ── nineslice ─────────────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class NineSliceParams:
+    #: The four guides, without which there are no regions to measure. `None` is a skip
+    #: rather than a guess: inventing guides to produce a number measures something nobody
+    #: asked about.
+    guides: tuple[int, int, int, int] | None = None
+
+    #: How far a stretched region may vary along the axis it stretches on. In levels, and
+    #: absolute rather than relative: unlike a seam, there is no "ordinary" variation to
+    #: measure against — the correct answer for a stretched region is *none*.
+    max_variation: int = 4
+
+
+def check_nineslice(image: np.ndarray, params: NineSliceParams | None = None) -> Finding:
+    """Whether this panel survives being stretched at its guides (R2.1, R2.2, R2.4).
+
+    An edge region is repeated along one axis, so what matters is whether it is constant
+    *along that axis*. A left edge may be as detailed as it likes horizontally — that
+    direction is never stretched — but any change down its height is smeared across every
+    size the panel is drawn at. A corner is measured on neither axis, because a corner never
+    stretches.
+    """
+    from ssc.core.ninepatch import STRETCHED, bounds
+
+    params = params or NineSliceParams()
+    if params.guides is None:
+        return skipped(
+            Check.NINESLICE,
+            "nineslice needs the four guides; pass them to ssc tool ninepatch",
+        )
+
+    try:
+        cut = bounds(image, params.guides)
+    except ValueError as refused:
+        return skipped(Check.NINESLICE, str(refused))
+
+    values = _rgb(image).astype(np.int16)
+    worst = 0
+    worst_region = None
+    for name, (rows, columns) in cut.items():
+        region = values[rows, columns]
+        if region.size == 0:
+            continue
+        for axis in STRETCHED[name]:
+            # The spread of each line along the stretch axis, taken against that region's own
+            # first line: a region that repeats cleanly has none.
+            lines = region if axis == "y" else np.swapaxes(region, 0, 1)
+            spread = int(np.abs(lines - lines[0]).max())
+            if spread > worst:
+                worst, worst_region = spread, name
+
+    measurement = {
+        "worst": worst,
+        "worst_region": worst_region,
+        "max_variation": params.max_variation,
+    }
+    if worst > params.max_variation:
+        return defect(Check.NINESLICE, fix="ssc tool ninepatch", **measurement)
+    return ok(Check.NINESLICE, **measurement)

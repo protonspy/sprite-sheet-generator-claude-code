@@ -12,6 +12,7 @@ import numpy as np
 
 from ssc.cli import kinds
 from ssc.cli import workspace as ws
+from ssc.cli.args import parse_guides
 from ssc.cli.errors import SscError
 from ssc.cli.frames import load_input
 from ssc.cli.main import ssc_command
@@ -19,6 +20,7 @@ from ssc.cli.output import Result
 from ssc.core.doctor import (
     BleedParams,
     Check,
+    NineSliceParams,
     PaletteParams,
     Report,
     SilhouetteParams,
@@ -26,6 +28,7 @@ from ssc.core.doctor import (
     check_drift,
     check_flicker,
     check_halo,
+    check_nineslice,
     check_palette,
     check_pixel_grid,
     check_seam,
@@ -49,6 +52,8 @@ def measure(
     grid: tuple[int, int] | None = None,
     chroma: tuple[int, int, int] | None = None,
     seam: bool = False,
+    nineslice: tuple[int, int, int, int] | None = None,
+    want_nineslice: bool = False,
 ) -> Report:
     """Every check, in a stable order, on whatever was given.
 
@@ -80,6 +85,12 @@ def measure(
             check_seam(first)
             if seam
             else skipped(Check.SEAM, "seam applies to tiles; ask for it with --check seam"),
+            check_nineslice(first, NineSliceParams(guides=nineslice))
+            if want_nineslice
+            else skipped(
+                Check.NINESLICE,
+                "nineslice applies to panels; ask for it with --check nineslice",
+            ),
         ]
     )
 
@@ -96,12 +107,13 @@ def parse_hex(value: str) -> tuple[int, int, int]:
 
 
 @ssc_command("doctor", help="Measure an asset's defects and name the fix for each.")
-@click.option("--kind", default=None, help="Run the checks this kind's profile declares.")
+@click.option("--guides", default=None, help="left,right,top,bottom — what nineslice needs.")
+@click.option("--kind", default=None, help="Run the checks this kind declares.")
 @click.option(
     "--check",
     "asked_for",
     multiple=True,
-    type=click.Choice([str(Check.SEAM)]),
+    type=click.Choice([str(Check.SEAM), str(Check.NINESLICE)]),
     help="Run a check that is not one of the seven. Repeatable.",
 )
 @click.option("--chroma", default=None, help="Key colour for bleed when there is no alpha.")
@@ -127,6 +139,7 @@ def doctor(
     chroma: str | None,
     asked_for: tuple[str, ...],
     kind: str | None,
+    guides: str | None,
     *,
     dry_run: bool,
 ) -> Result:
@@ -162,6 +175,8 @@ def doctor(
         grid=grid,
         chroma=parse_hex(chroma) if chroma else None,
         seam=str(Check.SEAM) in wanted,
+        want_nineslice=str(Check.NINESLICE) in wanted,
+        nineslice=parse_guides(guides),
     )
 
     if grid is None and (cols is not None or rows is not None):

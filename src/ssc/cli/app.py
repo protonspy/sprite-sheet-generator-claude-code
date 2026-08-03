@@ -11,7 +11,9 @@ from ssc.cli.commands.clean import clean
 from ssc.cli.commands.convert import (
     bgremove,
     board,
+    control_states,
     layers,
+    ninepatch_guides,
     normal_map,
     pixelart,
     snap,
@@ -54,5 +56,7 @@ tool.add_command(pack_sheet)
 tool.add_command(tile_wrap)
 tool.add_command(normal_map)
 tool.add_command(layers)
+tool.add_command(ninepatch_guides)
+tool.add_command(control_states)
 
 __all__ = ["main"]

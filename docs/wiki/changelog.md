@@ -1,5 +1,20 @@
 # Wiki changelog
 
+## 2026-08-02 — what the models accept, and one banned synonym
+
+Task 0.7 of `plans/ssc-pipeline.md` read the four named models' schemas off Fal's
+published OpenAPI documents rather than transcribing them.
+
+- **[[model-parameters]]** — new. The endpoint ids, the fact that the schemas are
+  machine-readable, and the finding the plan needed: none of the three image paths takes a
+  size in pixels, and GPT Image 1.5 offers exactly three shapes, so a 6:1 pose board is
+  unrepresentable rather than merely awkward. Also that `seed` is absent from GPT Image
+  1.5, that it can return alpha directly, and that BiRefNet is six models behind one
+  endpoint.
+- **[[index]]** — links the new page under "Producing the art".
+- **[[prior-art]]** — "sprite sheets" became "sheets"; `docs/glossary.md` now settles
+  **sheet** as the canonical term.
+
 ## 2026-08-02 — review corrections
 
 A review against `plans/ssc-pipeline.md` found the defect vocabulary had drifted from the

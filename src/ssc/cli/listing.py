@@ -54,17 +54,11 @@ class Entry:
 
     kind: str
     key: str
-    directory: Path
     record: FileRecord
 
     @property
     def media(self) -> Media | None:
         return media_of(self.record.path)
-
-    @property
-    def file(self) -> Path:
-        """The file on disk, re-resolved and refused if it leaves the asset (R4.2)."""
-        return inside(self.directory, self.record.path)
 
     def as_dict(self) -> dict[str, Any]:
         """`derived_from` travels raw as well as resolved: a parent path naming no record
@@ -91,10 +85,15 @@ def inside(directory: Path, relative: str) -> Path:
 
     `meta.py` already rejects an escaping path when the record is built or loaded, but it
     validates a *string*: it cannot see that a segment is a symlink pointing somewhere
-    else on disk. So every command that reaches a recorded path re-resolves it here first
-    — `clean` before deleting, and `show` before opening. One validation gap should not be
-    all that stands between a hand-edited `meta.json` and either `shutil.rmtree` on a home
-    directory or a `doctor` report on a file outside the workspace.
+    else on disk. One validation gap should not be all that stands between a hand-edited
+    `meta.json` and `shutil.rmtree` on a home directory.
+
+    `clean`'s pre-flight is the caller left, and it is a *report* rather than the guard:
+    it names every file a sweep would remove before removing any, so a refusal comes with
+    the whole list. The guard is `Directory.delete`, which descends through the binding and
+    refuses the same escape at the moment it acts. `show` used to resolve here too, and no
+    longer does — reading through `Directory.read` makes the containment part of the read
+    instead of a check standing next to one (workspace-foundation R3.7).
     """
     target = (directory / relative).resolve()
     root = directory.resolve()
@@ -113,8 +112,8 @@ def inside(directory: Path, relative: str) -> Path:
     return target
 
 
-def under_assets(workspace: Workspace, directory: Path) -> Path:
-    """Refuse an asset directory that resolved out of `assets/` (R4.1).
+def placed(workspace: Workspace, directory: Path) -> Path:
+    """Refuse an asset directory that is not where its own address says it is (R4.1).
 
     `inside` guards a path recorded *in* a file; this guards the directory that file was
     found in, which is the other half. A linked `<kind>/` or `<key>/` — a symlink, or a
@@ -122,11 +121,22 @@ def under_assets(workspace: Workspace, directory: Path) -> Path:
     tree's assets in this workspace under this workspace's name, and `inside` could not
     tell: it only knows the file stayed inside the directory it was given.
 
-    Every route to an asset directory passes through here, because there are two and
-    guarding one of them is the same as guarding neither.
+    Every route to an asset directory passes through here, because there are several and
+    guarding some of them is the same as guarding none.
 
-    `assets/` itself being a link is fine and deliberately allowed — it is the root both
-    sides resolve against, so a workspace whose art lives on another disk keeps working.
+    **Two properties, because refusing the escape alone left the alias.** The first draft
+    proved only that the directory resolved somewhere *under* `assets/`, which is what its
+    old name said. That admits `assets/character/hero` being a link to `assets/icon/coin`:
+    it never leaves the workspace, so every check there was passed, and the command went on
+    to report `icon/coin`'s record as `character/hero`. The address is the caller's whole
+    statement of which asset it means, so the check is that the directory resolves to
+    exactly the `<kind>/<key>` place naming it — which subsumes the escape and costs
+    nothing legitimate, since a `<kind>/` link pointing off the disk already failed the
+    weaker test.
+
+    `assets/` itself being a link is still fine and deliberately allowed — it is the root
+    both sides resolve against, so a workspace whose art lives on another disk keeps
+    working.
     """
     root = workspace.assets.resolve()
     resolved = directory.resolve()
@@ -136,35 +146,35 @@ def under_assets(workspace: Workspace, directory: Path) -> Path:
             f"{directory} resolves to {resolved}, which is outside {root}",
             fix=f"remove it from {workspace.assets}, or move the asset in for real",
         )
-    return directory
-
-
-def addressed(workspace: Workspace, directory: Path) -> Path:
-    """The asset a caller named, checked as a whole (R4.1, and R2.5).
-
-    Both checks belong to an asset somebody addressed by name and is about to read or
-    write. The escape check is cheap and applies to every route; the layout check is not
-    on `asset_dirs`' scan on purpose, because refusing to *list* a workspace over one
-    asset's stray directory takes down `list`, `clean` and every other asset with it —
-    the read paths in this module skip what they cannot use and report it, they do not
-    abort. Enforcement lands where it changes an outcome: the asset being opened.
-    """
-    under_assets(workspace, directory)
-    if directory.is_dir():
-        meta.check_layout(directory)
+    # Built from the unresolved path, because that is the address: the two components a
+    # caller typed, or the two the scan walked. Comparing it against what those components
+    # actually resolve to is the whole check.
+    expected = root / directory.parent.name / directory.name
+    if resolved != expected:
+        raise SscError(
+            "asset-displaced",
+            f"{directory} resolves to {resolved}, which is not {expected}",
+            fix=f"remove the link at {directory}, or address the asset that is really there",
+        )
     return directory
 
 
 def bound(workspace: Workspace, directory: Path) -> Directory:
-    """`under_assets`, for a caller that is about to *write* — held, then checked (R3.7).
+    """`placed`, for a caller about to read or write it — held, then checked (R3.7).
 
     The order is the whole content of this function, and it is the reverse of the obvious
     one. Checking a path and then opening it leaves the window the check was for: a
-    component swapped in between is followed by the open, and `under_assets` never sees it.
-    So: open first, which pins a directory; then run the check, which resolves the path;
-    then confirm the path that passed names the directory being held. A swap before the
-    open fails the check, a swap after it cannot reach the writes, and a swap in between
-    fails the confirmation.
+    component swapped in between is followed by the open, and `placed` never sees it. So:
+    open first, which pins a directory; then run the check, which resolves the path; then
+    confirm the path that passed names the directory being held. A swap before the open
+    fails the check, a swap after it cannot reach the work, and a swap in between fails the
+    confirmation.
+
+    **Reads go through here too, and did not at first.** The writes were bound a task
+    earlier and the reads left by path, on the reasoning that a lost race under a read
+    costs less than one under a write. It does cost less and it is not nothing: what a
+    swapped read produces is a foreign `meta.json` reported as the asset that was asked
+    for, which nothing downstream can tell from the real one.
 
     The escape gate and not `addressed`, for the reason `addressed` gives itself: `clean`
     writes a record back for every asset in the workspace, so refusing here over one
@@ -176,8 +186,36 @@ def bound(workspace: Workspace, directory: Path) -> Directory:
     """
     handle = Directory.open(directory)
     try:
-        under_assets(workspace, directory)
+        if not handle.bindable:
+            # Measured per volume, not assumed per platform — see `Directory.bindable`. A
+            # guard that cannot tell whether it is working is not one to write under.
+            raise SscError(
+                "no-file-identity",
+                f"{directory} is on a volume that reports no file identity, so ssc cannot "
+                f"prove the directory it checked is the one it acts on",
+                fix="keep the workspace on NTFS, or on any POSIX filesystem",
+            )
+        placed(workspace, directory)
         handle.confirm(directory)
+    except BaseException:
+        handle.close()
+        raise
+    return handle
+
+
+def addressed(workspace: Workspace, directory: Path) -> Directory:
+    """The asset a caller named, checked as a whole and held (R4.1, R2.5, R3.7).
+
+    Both checks belong to an asset somebody addressed by name and is about to read or
+    write. The placement check is cheap and applies to every route; the layout check is not
+    on `asset_dirs`' scan on purpose, because refusing to *list* a workspace over one
+    asset's stray directory takes down `list`, `clean` and every other asset with it —
+    the read paths in this module skip what they cannot use and report it, they do not
+    abort. Enforcement lands where it changes an outcome: the asset being opened.
+    """
+    handle = bound(workspace, directory)
+    try:
+        meta.check_layout(handle)
     except BaseException:
         handle.close()
         raise
@@ -195,7 +233,7 @@ def asset_dirs(workspace: Workspace) -> list[Path]:
         return []
     found = sorted(path.parent for path in workspace.assets.glob(f"*/*/{meta.META_NAME}"))
     for directory in found:
-        under_assets(workspace, directory)
+        placed(workspace, directory)
     return found
 
 
@@ -207,36 +245,55 @@ def chain_order(record: FileRecord) -> tuple[bool, int, str]:
 
 
 def entries(workspace: Workspace) -> list[Entry]:
-    """Every recorded file in the workspace, in listing order."""
+    """Every recorded file in the workspace, in listing order.
+
+    One binding per asset, held only for the load (R3.7). The scan and the read are two
+    acts, and the second is the one that decides what gets reported — so the directory the
+    scan approved is the directory the record comes out of, rather than whatever that path
+    names by the time the loop reaches it.
+    """
     found: list[Entry] = []
     for directory in asset_dirs(workspace):
-        record = meta.load(directory)
+        with bound(workspace, directory) as held:
+            record = meta.load(held)
         for file_record in sorted(record.files, key=chain_order):
-            found.append(Entry(record.kind, record.key, directory, file_record))
+            found.append(Entry(record.kind, record.key, file_record))
     return found
 
 
-def resolve(workspace: Workspace, address: str) -> tuple[Path, AssetMeta]:
-    """Find an asset from `<kind>/<key>` or from a bare `<key>` (R3.2).
+def resolve(workspace: Workspace, address: str) -> tuple[Directory, AssetMeta]:
+    """Find an asset from `<kind>/<key>` or from a bare `<key>`, held open (R3.2, R3.7).
 
     Keys are unique per kind rather than globally, so a bare key can genuinely name two
     assets. Guessing between them would be worse than either answer: the refusal names
     the kinds it matched so the caller can retype one (R3.3).
+
+    The caller closes what comes back. It is handed over rather than closed here because
+    `show` reads the file the record names next, and a binding dropped between the record
+    and the file it describes is a binding that covered the cheaper half.
     """
     parts = address.split("/")
     if len(parts) == 2:
-        # `asset_dir` validates the two names as strings; `under_assets` is what checks
-        # where they actually landed. This branch never touches `asset_dirs`, so skipping
-        # it here would leave `show <kind>/<key>` reading an asset directory that left the
+        # `asset_dir` validates the two names as strings; `placed` is what checks where
+        # they actually landed. This branch never touches `asset_dirs`, so skipping it here
+        # would leave `show <kind>/<key>` reading an asset directory that left the
         # workspace while `list` and `show <key>` both refused it.
-        directory = addressed(workspace, workspace.asset_dir(parts[0], parts[1]))
+        directory = workspace.asset_dir(parts[0], parts[1])
+        # Before `addressed`, because a key nobody has created yet is an ordinary mistake
+        # with a command that fixes it, and `Directory.open` on a path that is not there is
+        # a `FileNotFoundError` that says none of that.
         if not meta.path_of(directory).is_file():
             raise UsageError(
                 "no-asset",
                 f"no asset {address} in this workspace",
                 fix=f"ssc asset new {parts[1]} --kind {parts[0]}",
             )
-        return directory, meta.load(directory)
+        held = addressed(workspace, directory)
+        try:
+            return held, meta.load(held)
+        except BaseException:
+            held.close()
+            raise
 
     if len(parts) != 1:
         raise UsageError(
@@ -258,7 +315,12 @@ def resolve(workspace: Workspace, address: str) -> tuple[Path, AssetMeta]:
             f"{address!r} is an asset of more than one kind: {kinds}",
             fix=f"name the kind, for example {sorted(matches)[0].parent.name}/{address}",
         )
-    return addressed(workspace, matches[0]), meta.load(matches[0])
+    held = addressed(workspace, matches[0])
+    try:
+        return held, meta.load(held)
+    except BaseException:
+        held.close()
+        raise
 
 
 def lineage(record: AssetMeta, entry: FileRecord) -> list[FileRecord]:

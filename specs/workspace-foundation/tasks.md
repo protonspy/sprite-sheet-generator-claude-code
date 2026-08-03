@@ -33,6 +33,10 @@ repeated per task.
 - [x] 4.6 (Unit) Call that rejection where a caller addresses one asset, and the escape check on every route that reaches one, the two that create included — R2.5
 - [x] 4.7 (Unit) Hold the asset directory that was checked and write every file through it — the PNGs, `frames/` and `meta.json` — refusing when the path no longer names it — R3.7, R3.8
 - [x] 4.8 (Unit) Delete through the held directory too, refusing to cross a link on the way to a recorded path — the only command that removes anything removes `frames/`, a directory — R3.7, R3.8, R6.1
+- [x] 4.9 (Unit) Read through the held directory as well — `meta.load` takes it the way `meta.save` does, and `check_layout` lists through it — so a swap under a load cannot answer with another asset's record — R3.7, R3.8, R2.5
+- [x] 4.10 (Unit) Measure whether the volume reports a file identity to bind to, and refuse rather than act under a guard that cannot work — R3.9
+- [x] 4.11 (Unit) Read the bytes `doctor` measures through the held directory too, decoding what was read rather than reopening the path, and delete `Entry.file` so no second route to a recorded file survives — R3.7, R3.8
+- [x] 4.12 (Unit) Bound that read, since binding it cost the laziness that let the pixel ceiling refuse an oversized image from its header, and answer a recorded name that is a directory the same way on both platforms — R3.7
 
 ## 5 · The cache
 

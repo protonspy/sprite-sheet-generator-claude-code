@@ -22,3 +22,5 @@ the `load_input`/`measure` pair `show` calls for R3.8.
 - [x] 2.3 (Unit) Attach `doctor` to a shown image, skip it with a reason otherwise, and honour `--no-doctor` — R3.8, R3.9, R3.10
 - [x] 2.4 (Unit) Wire `image` and `video` onto the CLI from one factory and cover both end to end — R2.1, R2.2, R3.1
 - [x] 2.5 (Unit) Re-resolve an asset directory and a recorded path before reading either, so a symlink cannot move the target after validation — R4.1, R4.2
+- [x] 2.6 (Unit) Check that an asset directory is at the `<kind>/<key>` place its address names rather than merely somewhere under `assets/`, so a link aliasing one valid asset onto another is refused — R4.1
+- [x] 2.7 (Unit) Move R4.2's gate from a resolved path checked beside the read to the read itself, so `show` cannot test one file and open another — R4.2

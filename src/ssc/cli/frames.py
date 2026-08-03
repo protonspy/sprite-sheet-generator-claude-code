@@ -42,6 +42,18 @@ MAX_PIXELS = 64_000_000
 #: can build.
 MAX_SET_PIXELS = 256_000_000
 
+#: And a ceiling on the *bytes* of a single file, for the one reader that cannot be lazy.
+#: `Image.open` on a path reads a header and defers the rest, so `MAX_PIXELS` can refuse an
+#: oversized image without decoding it; a file read through a `Directory` binding is in
+#: memory before anything can look at it, which is the price of binding the read.
+#:
+#: Set above what a `MAX_PIXELS` image occupies uncompressed — 64M pixels of RGBA is 256MB,
+#: and an uncompressed BMP of exactly that size is a legitimate input — so that no file the
+#: pixel ceiling would have accepted is refused by this one. It bounds the peak at the same
+#: order as the decoded array `MAX_PIXELS` already allows, rather than at a smaller number
+#: that would make the two ceilings disagree about the same file.
+MAX_FILE_BYTES = 320_000_000
+
 
 @dataclass(frozen=True)
 class Frame:
@@ -57,16 +69,10 @@ class Frame:
 
 
 def load_image(path: Path) -> np.ndarray:
+    """Decode the image at `path`, for every caller that holds a path and nothing else."""
     try:
         with Image.open(path) as handle:
-            width, height = handle.size
-            if width * height > MAX_PIXELS:
-                raise SscError(
-                    "image-too-large",
-                    f"{path} is {width}x{height}, over the {MAX_PIXELS:,}-pixel ceiling",
-                    fix="scale it down first, or measure a smaller region",
-                )
-            return np.array(handle.convert("RGBA"))
+            return _to_rgba(handle, str(path))
     except (OSError, Image.DecompressionBombError, Image.DecompressionBombWarning) as unreadable:
         # DecompressionBombError is a bare Exception, not an OSError, so it would otherwise
         # leave the command as a traceback rather than as this project's error contract.
@@ -75,6 +81,44 @@ def load_image(path: Path) -> np.ndarray:
             f"{path} could not be read as an image: {unreadable}",
             fix="check the file, or point --in at a PNG",
         ) from unreadable
+
+
+def decode_image(data: bytes, label: str) -> np.ndarray:
+    """Decode bytes a caller already read, and name the errors after `label`.
+
+    The reader for a file inside an asset, which `Directory.read` hands over as bytes so
+    that what is decoded is what was read through the binding rather than whatever the path
+    resolves to a statement later (workspace-foundation R3.7). Bytes have no path to report,
+    so the recorded path travels as `label` — an error naming the temporary nothing or the
+    buffer would be useless to the caller who has to act on it.
+
+    One difference from `load_image` worth stating rather than discovering: `Image.open` is
+    lazy on a path, so the ceiling below refuses an oversized image before it is decoded,
+    while here the bytes are already in memory by construction. That is the price of binding
+    the read and it is bounded by the file on disk; the ceiling still does its real job,
+    which is refusing the *decode* that turns a small file into hundreds of megabytes.
+    """
+    try:
+        with Image.open(io.BytesIO(data)) as handle:
+            return _to_rgba(handle, label)
+    except (OSError, Image.DecompressionBombError, Image.DecompressionBombWarning) as unreadable:
+        raise SscError(
+            "unreadable-image",
+            f"{label} could not be read as an image: {unreadable}",
+            fix="check the file, or remove that record from meta.json",
+        ) from unreadable
+
+
+def _to_rgba(handle: Image.Image, label: str) -> np.ndarray:
+    """The ceiling and the conversion, shared so there is one of each rather than two."""
+    width, height = handle.size
+    if width * height > MAX_PIXELS:
+        raise SscError(
+            "image-too-large",
+            f"{label} is {width}x{height}, over the {MAX_PIXELS:,}-pixel ceiling",
+            fix="scale it down first, or measure a smaller region",
+        )
+    return np.array(handle.convert("RGBA"))
 
 
 def check_set_size(paths: list[Path]) -> int:

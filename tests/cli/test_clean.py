@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 from click.testing import CliRunner
-from conftest import save_meta
+from conftest import load_meta, save_meta
 
 from ssc.cli import meta
 from ssc.cli.app import main
@@ -73,7 +73,7 @@ def test_the_record_follows_the_file(tmp_path: Path, monkeypatch) -> None:  # ty
     monkeypatch.chdir(tmp_path)
     directory = workspace_with_a_chain(tmp_path)
     CliRunner().invoke(main, ["clean"], catch_exceptions=False)
-    stages = {entry.stage for entry in meta.load(directory).files}
+    stages = {entry.stage for entry in load_meta(directory).files}
     assert stages == {"anchor", "sheet"}
 
 
@@ -85,7 +85,7 @@ def test_dry_run_deletes_nothing(tmp_path: Path, monkeypatch) -> None:  # type: 
     assert payload["dry_run"] is True
     assert payload["deleted"] == ["character/hero/002_anchor.snap.png"]
     assert (directory / "002_anchor.snap.png").exists()
-    assert len(meta.load(directory).files) == 3
+    assert len(load_meta(directory).files) == 3
 
 
 def test_a_derived_record_whose_file_already_went_is_still_tidied(
@@ -98,7 +98,7 @@ def test_a_derived_record_whose_file_already_went_is_still_tidied(
     directory = workspace_with_a_chain(tmp_path)
     (directory / "002_anchor.snap.png").unlink()
     CliRunner().invoke(main, ["clean"], catch_exceptions=False)
-    assert {entry.stage for entry in meta.load(directory).files} == {"anchor", "sheet"}
+    assert {entry.stage for entry in load_meta(directory).files} == {"anchor", "sheet"}
 
 
 def test_cleaning_twice_is_not_an_error(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]

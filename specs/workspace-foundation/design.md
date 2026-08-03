@@ -66,8 +66,10 @@ same guard, because stderr is what a CI log keeps. Nothing here holds a secret t
 after the first key reaches somebody's log.
 
 **One gate, not one per route (R2.5, asset-listing R4.1).** An asset directory is validated
-where it is resolved, not where it is used. `under_assets` refuses one that resolved out of
-`assets/` through a link, and every route passes through it — `list`, `show`, `recover`,
+where it is resolved, not where it is used. `placed` refuses one that is not at the
+`<kind>/<key>` place its address names — which subsumes resolving out of `assets/` through a
+link, and also catches the alias that stays inside — and every route passes through it —
+`list`, `show`, `recover`,
 and the two that *create*, `asset new` and `tool slice` — because guarding some of several
 routes is the same as guarding none. The creating routes check twice, before and after
 `mkdir`: the first check runs against a `<kind>/` that may not exist yet, and a missing
@@ -82,7 +84,7 @@ cannot use rather than aborting.
 twice around `mkdir` closed the window the first check could not see, and left a smaller
 one: the write still resolved `assets/<kind>/<key>/` from the path, several statements
 later, and a component swapped in between is followed. So the checked directory is *held* —
-`listing.bound` opens it, then runs `under_assets`, then confirms that the path which
+`listing.bound` opens it, then runs `placed`, then confirms that the path which
 passed names the directory it is holding. Open-then-check rather than check-then-open,
 because the other order leaves exactly the gap it is closing.
 
@@ -91,6 +93,48 @@ PNGs, the `frames/` subdirectory, and `meta.json`. `meta.save` takes that object
 than a path, which is the load-bearing part: a leaf cannot express "check it, then save by
 path" any more, so the next twenty leaves inherit the guarantee from the type instead of
 from remembering.
+
+**And every read, which arrived a task later and should not have.** Binding the writes and
+the deletes left `meta.load`, `meta.check_layout` and `listing`'s scan resolving the asset
+directory a second time. The consequence is quieter than a bad write and reaches further:
+a swap under a read does not corrupt anything, it hands the command a *different asset's*
+record under the name the caller asked for, and nothing downstream can tell it from the
+real one. `Directory.read` and `Directory.subdirectories` are the read half, descending
+exactly as `delete` does, and `meta.load` takes the held directory the way `meta.save`
+does — the same signature argument, so the same failure stays unwritable. Almost every
+command loads a record, which is why the fix is one signature rather than a patch at the
+one call site that prompted it.
+
+**And the bytes, which the first pass at "the reads" left out.** Binding `meta.load` bound
+the *record* and stopped there: `show` went on holding a descriptor for the whole command
+and then read the image it measures through `Entry.file`, a re-resolved path. That is the
+read a caller of `show` actually asked about, and the failure is the one this requirement
+is named after — a swap answers with a different image's `doctor` numbers reported under
+the asset name that was typed. So `measure_or_say_why` takes the binding and reads through
+it, `frames.decode_image` decodes what was read rather than reopening a path, and
+`Entry.file` is deleted instead of left as a second route to the same file. A read helper
+nobody calls is how the next one gets called.
+
+Worth naming as the pattern rather than as three incidents: writes, then deletes, then
+records, then bytes — each round bound what it had named and left the next thing believing
+it was covered. The wording of R3.7 is deliberately about *acting on a file in an asset*
+and not about a list of verbs, because the list is what kept being short.
+
+**Binding a read costs the laziness it replaced, and that has to be paid for.** `Image.open`
+on a path parses a header and defers the rest, so `frames.MAX_PIXELS` refuses an oversized
+image without decoding it. Bytes read through a binding are in memory before anything can
+inspect them, so the same call that closed the swap opened a way to make `show` read an
+arbitrarily large recorded file into memory. `Directory.read` therefore takes an optional
+`max_bytes` and reads one byte past it rather than trusting a `stat` — a second question
+about the file the first was meant to settle is the shape this whole design keeps refusing.
+The ceiling sits above what a `MAX_PIXELS` image occupies uncompressed, so that no file the
+pixel ceiling would have accepted is refused by the byte one; the two must not disagree
+about the same file.
+
+The ordering inside `clean` moved with it: the record is now loaded *through* the binding
+it will delete under, rather than read by path and bound afterwards. The old shape decided
+what to delete from a record it could not prove came from the directory the deletes then
+landed in.
 
 **And the deletes, which is where it matters most.** `clean` was the route that nearly kept
 the old shape, on the reasoning that R3.7 was about writing. It is the only command in `ssc`
@@ -112,6 +156,20 @@ read at open and checked again immediately before each write. That is less: it d
 prevent the swap, it narrows the window to the two statements around one `os.open` and
 turns a lost race into a refusal (R3.8). Both satisfy R3.7's actual promise, which is that
 nothing is written outside the directory that was checked.
+
+**The Windows fallback rests on a number, and the volume decides whether there is one
+(R3.9).** `(st_dev, st_ino)` is a property of the filesystem, not of the platform. NTFS
+reports a real 64-bit file index; FAT32, exFAT and some SMB mounts have none, and Windows
+returns `0` — which makes every directory on the volume identical to every other and turns
+the guard into a comparison that always succeeds. That is the same shape as the dead branch
+below: a hardening reporting success while doing nothing. So it is measured at open and
+`listing.bound` refuses rather than acting under a guard it knows is inert.
+
+The refusal is conservative and is worth naming as such: a volume with no file index also
+has no reparse points, so the swap being defended against cannot be staged there at all.
+What it costs is that a workspace on exFAT stops working on Windows; what it buys is that
+the guard never lies about which case it is in. POSIX is unaffected — a descriptor is the
+binding there, and `bindable` does not consult the number.
 
 **A conditional branch nobody runs is a branch that does not work.** The first version of
 this gated on `os.replace in os.supports_dir_fd`, which is false on every platform — that

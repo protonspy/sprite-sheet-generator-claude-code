@@ -291,7 +291,7 @@ deliverable on its own: M1 already repairs a sheet you have today, with no API k
       platform-conditional hardening needs the other platform run before the PR**, so this
       one was verified under WSL on ext4 as well as on Windows, and `_DIR_FD is True` is now
       an assertion rather than an assumption
-- [ ] 0.13 (Unit) Read a `meta.json` through the directory that was checked, as a delta against
+- [x] 0.13 (Unit) Read a `meta.json` through the directory that was checked, as a delta against
       `workspace-foundation` — 0.12 bound every write and every delete, and left the reads by
       path: `meta.load`, `meta.check_layout` and `listing`'s scan all resolve the asset
       directory again, so a swap in that window feeds a foreign record into the command that
@@ -302,7 +302,56 @@ deliverable on its own: M1 already repairs a sheet you have today, with no API k
       `assets/` and never that it is the `<kind>/<key>` the caller named, so a link aliasing
       one valid asset onto another passes every check there is; and on Windows the identity
       guard rests on `(st_dev, st_ino)`, which NTFS reports honestly and FAT32, exFAT and
-      some network volumes historically do not — worth measuring before trusting
+      some network volumes historically do not — worth measuring before trusting.
+      **Done as `workspace-foundation` R3.7 — widened from "writes or deletes" to "reads,
+      writes or deletes" — plus R3.9, and `asset-listing` R4.1.** `Directory` gained `read`
+      and `subdirectories` descending exactly as `delete` does, and `meta.load` takes the
+      held directory the way `meta.save` does, which is what keeps the unbound read
+      unwritable rather than merely discouraged. `clean`'s ordering moved with it: the record
+      is loaded *through* the binding its deletes will land in, where before it decided what
+      to delete from a record it could not prove came from that directory.
+      **The second finding was a misnamed check, and the name is how the gap survived.**
+      `under_assets` proved a directory resolved somewhere under `assets/`, which admits
+      `assets/character/hero` linked to `assets/icon/coin` — it never leaves the workspace,
+      so every check passed and `show character/hero` reported `icon/coin`'s record under the
+      name that was asked for. The address is the caller's whole statement of which asset it
+      means, so the check is now that the directory is at the `<kind>/<key>` place naming it,
+      and the rename to `placed` is part of the fix. `assets/` itself may still be a link —
+      it is the root both sides resolve against, so art on another disk keeps working.
+      **The third was worth measuring and the measurement changed the answer.** `st_ino` is a
+      property of the volume, not of the platform: FAT32, exFAT and some SMB mounts report
+      `0`, which makes every directory identical to every other and turns the Windows guard
+      into a comparison that always succeeds — the same shape as 0.12's dead branch, a
+      hardening reporting success while doing nothing. So `bindable` is measured at open and
+      refuses rather than acting under a guard it knows is inert. Conservative on purpose: a
+      volume with no file index has no reparse points either, so the swap cannot be staged
+      there at all; what it costs is a workspace on exFAT under Windows, what it buys is that
+      the guard never lies about which case it is in.
+      **And 0.12's lesson was applied rather than re-learned** — the suite was run on ext4
+      under WSL as well as on Windows, with `_DIR_FD` asserted `True` there, before the PR.
+      **Both reviews then found the same thing independently, and it is the pattern rather
+      than the incident that is worth keeping.** "Bind the reads" was read as "bind
+      `meta.load`", so `show` went on holding a descriptor for the whole command and then
+      read the image it measures through `Entry.file`, a re-resolved path — the one read a
+      caller of `show` actually asked about, answering with another image's `doctor` numbers
+      under the asset name that was typed. Fixed here rather than deferred, because R3.7's
+      widened wording would otherwise have been *believed*: `measure_or_say_why` takes the
+      binding, `frames.decode_image` decodes what was read instead of reopening a path, and
+      `Entry.file` is deleted rather than left as a second route to the same file. Four
+      rounds now — writes, deletes, records, bytes — each binding what it had named and
+      leaving the next thing looking covered, which is why R3.7 is worded as *acting on a
+      file in an asset* rather than as a list of verbs that kept coming up one short.
+      **The second review round then found what binding the read had itself cost**: a path
+      handed to `Image.open` is parsed lazily, so the pixel ceiling refuses an oversized
+      image from its header, while bytes read through a binding are in memory before
+      anything can look at them — the fix for a swap had opened a way to read an arbitrarily
+      large recorded file into memory. `Directory.read` now takes a `max_bytes` and reads one
+      byte past it rather than trusting a `stat`, set above what a `MAX_PIXELS` image
+      occupies uncompressed so the two ceilings cannot disagree about one file. And the
+      cross-platform run paid for itself twice: a recorded name that is a *directory* was
+      reported as `path-escapes-asset` on Windows and as an `IsADirectoryError` traceback on
+      POSIX, because a directory opens fine under `O_RDONLY` there and only fails a step
+      later at `fdopen` — caught by the WSL run, not by the reviews, and not by Windows
 
 ## Notes
 

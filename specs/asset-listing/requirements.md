@@ -48,7 +48,7 @@ atlas is an image.
 
 ## R4 · Staying inside the workspace
 
-- **R4.1** If an asset directory resolves outside the workspace's `assets/` directory, then the `ssc` CLI shall report nothing from it and exit `1`.
+- **R4.1** (MODIFIED) If an asset directory resolves anywhere other than the `<kind>/<key>` place under the workspace's `assets/` directory that names it, then the `ssc` CLI shall report nothing from it and exit `1`.
 - **R4.2** If a recorded file resolves outside the asset that records it, then the `ssc` CLI shall not open it and shall exit `1`.
 
 ## Out of scope

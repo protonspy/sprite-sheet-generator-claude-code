@@ -25,6 +25,18 @@ def save_meta(directory: Path, record: meta.AssetMeta) -> Path:
         return meta.save(held, record)
 
 
+def load_meta(directory: Path) -> meta.AssetMeta:
+    """`meta.load` for a test reading back what a command wrote.
+
+    The read counterpart of `save_meta`, and there for the same reason: `meta.load` takes a
+    held directory (R3.7) so that no production caller can check one directory and read
+    another, while a test asserting on a `meta.json` it just watched a command write has
+    nothing to stay faithful to.
+    """
+    with Directory.open(directory) as held:
+        return meta.load(held)
+
+
 @pytest.fixture
 def link_dir() -> Callable[[Path, Path], None]:
     """Make the directory link an unprivileged user can make on this platform.

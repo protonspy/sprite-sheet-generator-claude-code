@@ -26,23 +26,28 @@ def clean(*, dry_run: bool, workspace: Workspace) -> Result:
     deleted: list[str] = []
 
     for directory in asset_dirs(workspace):
-        record = meta.load(directory)
-        removable = [entry for entry in record.files if entry.file_class == "derived"]
-        if not removable:
-            continue
-
-        if dry_run:
-            deleted += [f"{record.kind}/{record.key}/{entry.path}" for entry in removable]
-            continue
-
-        # Held for the whole asset (R3.7). `asset_dirs` checked this directory when it
-        # scanned, and the scan is one loop iteration per asset ago — so both the deletes
-        # and the record that follows them go through the directory rather than through
-        # that path a second time. The deletes especially: this is the only command in
-        # `ssc` that removes anything, and one of the things it removes is `frames/`, a
-        # directory. A path re-resolved through a link turns that into `shutil.rmtree`
-        # somewhere nobody asked for, which is a worse outcome than any write.
+        # Held for the whole asset (R3.7), and held from the *load* rather than from the
+        # first delete. `asset_dirs` checked this directory when it scanned, and the scan
+        # is one loop iteration per asset ago — so the record, the deletes it authorises
+        # and the record written back afterwards all go through one directory rather than
+        # through that path three times. Reading by path and then binding was the earlier
+        # shape and it decided what to delete from a record it could not prove came from
+        # the directory the deletes then landed in.
+        #
+        # The deletes especially: this is the only command in `ssc` that removes anything,
+        # and one of the things it removes is `frames/`, a directory. A path re-resolved
+        # through a link turns that into `shutil.rmtree` somewhere nobody asked for, which
+        # is a worse outcome than any write.
         with bound(workspace, directory) as held:
+            record = meta.load(held)
+            removable = [entry for entry in record.files if entry.file_class == "derived"]
+            if not removable:
+                continue
+
+            if dry_run:
+                deleted += [f"{record.kind}/{record.key}/{entry.path}" for entry in removable]
+                continue
+
             for entry in removable:
                 # Still checked as a string against the record, which is where a
                 # hand-edited `meta.json` is caught; `delete` is what refuses to *cross* a

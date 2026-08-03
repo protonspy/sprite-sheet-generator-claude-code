@@ -16,11 +16,15 @@ from typing import Any
 import numpy as np
 import pytest
 from click.testing import CliRunner
-from conftest import save_meta
+from conftest import load_meta, save_meta
 from PIL import Image
 
 from ssc.cli import meta
 from ssc.cli.app import main
+from ssc.cli.atomic import Directory
+from ssc.cli.commands.media import measure_or_say_why
+from ssc.cli.errors import SscError
+from ssc.cli.listing import Entry
 
 
 def write_png(path: Path) -> bytes:
@@ -33,7 +37,7 @@ def write_png(path: Path) -> bytes:
 
 
 def add(directory: Path, path: str, stage: str, file_class: str, parents: list[str]) -> None:
-    record = meta.load(directory)
+    record = load_meta(directory)
     data = (directory / path).read_bytes() if (directory / path).exists() else b""
     meta.record(
         record,
@@ -324,3 +328,55 @@ def test_show_refuses_a_linked_asset_directory_by_either_address(
 def test_without_json_a_human_gets_one_line(workspace: Path) -> None:
     result = CliRunner().invoke(main, ["image", "list"], catch_exceptions=False)
     assert result.output.strip() == "3 images, 1 unclassified"
+
+
+# workspace-foundation R3.7 — the bytes `doctor` measures come through the binding too,
+# and not only the record. This is the read a caller of `show` actually asked about.
+
+
+def test_the_measurement_follows_the_directory_and_not_the_path(
+    tmp_path: Path, link_dir: Callable[[Path, Path], None]
+) -> None:
+    """The swap, on the file `doctor` measures.
+
+    `show` held a descriptor across the command and then read the image by path anyway, so
+    the binding covered the record and not the bytes reported under the asset's name. What
+    the swap must never produce is a measurement of `elsewhere`'s file labelled as this
+    asset — POSIX keeps reading what it opened, Windows refuses, and neither answers with
+    the wrong file.
+
+    `elsewhere` holds bytes that are not an image at all, which is what makes the outcomes
+    tell each other apart: a read that followed the path would fail to *decode* rather than
+    measure, and that is a third answer distinct from both of the right ones.
+    """
+    checked = tmp_path / "checked"
+    checked.mkdir()
+    write_png(checked / "001_hero.png")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "001_hero.png").write_bytes(b"not an image at all")
+
+    entry = Entry(
+        "character",
+        "hero",
+        meta.FileRecord(
+            path="001_hero.png",
+            stage="anchor",
+            file_class="source",
+            sha256="",
+            produced_by=meta.Provenance(command="test"),
+        ),
+    )
+
+    with Directory.open(checked) as held:
+        checked.rename(tmp_path / "moved")
+        link_dir(checked, elsewhere)
+
+        if sys.platform == "win32":
+            with pytest.raises(SscError) as raised:
+                measure_or_say_why(held, entry, no_doctor=False)
+            assert raised.value.code == "directory-changed"
+        else:
+            report, skipped = measure_or_say_why(held, entry, no_doctor=False)
+            assert skipped is None
+            assert report is not None

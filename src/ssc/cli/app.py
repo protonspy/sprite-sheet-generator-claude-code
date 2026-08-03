@@ -8,11 +8,14 @@ from __future__ import annotations
 
 from ssc.cli.commands.asset import asset
 from ssc.cli.commands.clean import clean
+from ssc.cli.commands.doctor import doctor
 from ssc.cli.commands.init import init
-from ssc.cli.main import main
+from ssc.cli.main import main, tool
 
 main.add_command(init)
 main.add_command(asset)
 main.add_command(clean)
+main.add_command(tool)
+tool.add_command(doctor)
 
 __all__ = ["main"]

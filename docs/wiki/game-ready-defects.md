@@ -71,12 +71,21 @@ answered a prompt with photorealistic rendering produces a blob with no readable
 and background removal that took too much punches holes in the body it was supposed to
 leave alone.
 
-Measured as `silhouette`. **What the number is remains open** — readability of the
-outline at target size and integrity of the alpha mask are both defensible readings of
-the name, and they catch different failures. The plan names the check without settling
-it, so `specs/sheet-doctor/` settles it against the measured fixtures; until then, do not
-assume a metric here. Note that it pairs with `halo` from the opposite side: `halo` is
-background removal leaving too much, this is it taking too much.
+Measured as `silhouette`, and **`specs/sheet-doctor/` settled what that means**: the
+integrity of the alpha mask, reduced to the target cell — the count of background regions
+the body encloses (`holes`) and the count of separate opaque regions (`fragments`).
+Reducing first is what keeps "at the size it is played at" honest: a gap that does not
+survive the reduction was never going to be seen.
+
+Readability of the outline was the other reading and it was **not** adopted. Every
+candidate number for it is a proxy for a person's judgement about whether a shape reads,
+and a check reporting a number nobody defined is a judgement wearing a number's clothes.
+The blob-with-no-outline case it was meant to catch is not left uncovered — such art has
+no pixel grid, so `pixel_grid` reports it, and where it needs a person it gets one at the
+review gate.
+
+It pairs with `halo` from the opposite side: `halo` is background removal leaving too
+much, this is it taking too much.
 
 ## Seam
 

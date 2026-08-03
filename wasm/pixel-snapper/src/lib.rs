@@ -1,4 +1,8 @@
 //! Flat ABI over the vendored pixel snapper, compiled to `wasm32-wasip1`.
+//!
+//! The two buffers below are module-global, which is sound because one wasmtime `Store`
+//! owns one linear memory and drives one call at a time. A caller that pooled one
+//! instance across threads would be sharing them, and that is not a supported use.
 
 use std::alloc::{alloc, dealloc, Layout};
 use std::ptr::addr_of_mut;
@@ -8,7 +12,9 @@ static mut ERROR: Vec<u8> = Vec::new();
 
 #[no_mangle]
 pub extern "C" fn ssc_alloc(len: usize) -> *mut u8 {
-    if len == 0 {
+    // `Layout` is only valid below isize::MAX, and the caller's length is not ours to
+    // trust. A null return is the ABI's way of saying no.
+    if len == 0 || len > isize::MAX as usize {
         return std::ptr::null_mut();
     }
     unsafe { alloc(Layout::from_size_align_unchecked(len, 1)) }

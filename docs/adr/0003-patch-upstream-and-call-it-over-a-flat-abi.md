@@ -58,9 +58,17 @@ The fallback ladder was not needed and is not being kept warm.
   bytes from a different directory. `--check` compares them. What it cannot absorb is a
   different rustc version, and it says so rather than pretending.
 - **CI does not rebuild the module**, because that would need a Rust toolchain and network
-  access on every run to verify a file that changes once a year. CI tests the committed
-  artifact; `--check` is a human act at bump time. A committed binary that nobody
-  re-derives is the standing risk of this decision.
+  access on every run to verify a file that changes once a year — and because `--check`
+  cannot absorb a rustc bump, a scheduled job would go red on GitHub's runner image
+  updates rather than on anything real. CI tests the committed artifact; `--check` is a
+  human act at bump time.
+
+  What CI *can* do without a toolchain is notice the file changing: `build.py` writes
+  `vendor/pixel-snapper.wasm.sha256` and the suite checks the module against it. That does
+  not prove provenance — only a rebuild does — but it turns an unreviewable 350KB binary
+  diff into a one-line digest diff a reviewer can see. **A committed binary that nobody
+  re-derives remains the standing risk of this decision**, and the mitigation is that
+  changing it is visible, not that it is verified.
 - **Upstream bumps cost a patch rebase.** The four `cfg` lines are stable, but the added
   function tracks `process_image`, so an upstream change to its signature is a conflict.
 - **A panic inside the module is a wasm trap, not a return code.** `ssc_snap` reports the

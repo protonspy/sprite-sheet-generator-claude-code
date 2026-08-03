@@ -8,6 +8,7 @@ WASI to satisfy, and that it snaps a fixture.
 
 from __future__ import annotations
 
+import hashlib
 import io
 from collections.abc import Iterator
 from pathlib import Path
@@ -19,6 +20,7 @@ from wasmtime import Engine, Linker, Module, Store, WasiConfig
 
 REPO = Path(__file__).resolve().parent.parent
 WASM = REPO / "vendor/pixel-snapper.wasm"
+DIGEST = REPO / "vendor/pixel-snapper.wasm.sha256"
 FIXTURE = REPO / "tests/fixtures/fake-pixels-8x8-at-12x.png"
 
 # The fixture is an 8x8 sprite bicubic-upscaled to 96x96 — fake pixels with soft edges.
@@ -87,6 +89,15 @@ def fake_pixels() -> bytes:
     return FIXTURE.read_bytes()
 
 
+def test_the_committed_module_matches_its_recorded_digest() -> None:
+    """CI does not rebuild the module, so nothing else here would notice it being
+    replaced. This does not prove the binary came from the pinned source — only
+    `wasm/build.py --check` does that — but it makes swapping it a visible one-line diff
+    rather than 350KB nobody can read."""
+    recorded = DIGEST.read_text(encoding="utf-8").split()[0]
+    assert hashlib.sha256(WASM.read_bytes()).hexdigest() == recorded
+
+
 def test_module_needs_nothing_but_wasi() -> None:
     """wasm-bindgen glue would show up here as a `__wbindgen_*` import."""
     module = Module.from_file(Engine(), str(WASM))
@@ -148,6 +159,15 @@ def test_a_bad_palette_is_an_error_not_a_trap(snapper: Snapper, fake_pixels: byt
 def test_empty_input_is_an_error_not_a_trap(snapper: Snapper) -> None:
     with pytest.raises(RuntimeError, match="no input bytes"):
         snapper.snap(b"")
+
+
+def test_a_failed_call_clears_the_previous_result(snapper: Snapper, fake_pixels: bytes) -> None:
+    """One instance serves many frames, so a failure must not leave the previous frame
+    readable — a caller that ignored the return code would otherwise get stale output."""
+    assert snapper.snap(fake_pixels)
+    with pytest.raises(RuntimeError):
+        snapper.snap(b"not an image at all")
+    assert snapper.exports["ssc_result_len"](snapper.store) == 0
 
 
 def test_the_instance_is_reusable_across_frames(snapper: Snapper, fake_pixels: bytes) -> None:

@@ -32,6 +32,7 @@ PATCH = WASM_DIR / "upstream.patch"
 ARTIFACT = WRAPPER_DIR / "target/wasm32-wasip1/release/ssc_pixel_snapper.wasm"
 VENDOR_WASM = REPO / "vendor/pixel-snapper.wasm"
 VENDOR_LICENSE = REPO / "vendor/LICENSE"
+VENDOR_DIGEST = REPO / "vendor/pixel-snapper.wasm.sha256"
 
 
 def run(cmd: list[str], cwd: Path, env: dict[str, str] | None = None) -> None:
@@ -125,8 +126,12 @@ def main() -> int:
     VENDOR_WASM.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(artifact, VENDOR_WASM)
     shutil.copy2(UPSTREAM_DIR / "LICENSE", VENDOR_LICENSE)
+    # A 350KB binary diff is not reviewable; a one-line digest diff is. Changing the
+    # module without changing this line is what a reviewer can actually catch.
+    VENDOR_DIGEST.write_text(f"{digest(VENDOR_WASM)}  pixel-snapper.wasm\n", encoding="utf-8")
     print(f"wrote {VENDOR_WASM} ({VENDOR_WASM.stat().st_size} bytes, sha256 {digest(VENDOR_WASM)})")
     print(f"wrote {VENDOR_LICENSE}")
+    print(f"wrote {VENDOR_DIGEST}")
     return 0
 
 

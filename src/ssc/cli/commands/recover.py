@@ -19,12 +19,13 @@ import numpy as np
 
 from ssc.cli import meta
 from ssc.cli import workspace as ws
-from ssc.cli.commands.convert import parse_key
+from ssc.cli.commands.convert import MAX_BOARD_SIDE, parse_hex, parse_key, parse_size
 from ssc.cli.errors import SscError, UsageError
 from ssc.cli.frames import Frame, encode, load_image, read_frames, write_frames, write_one
 from ssc.cli.listing import under_assets
 from ssc.cli.main import ssc_command
 from ssc.cli.output import Result
+from ssc.core.assemble import CanvasTooLarge, expand, flip, onion, pack, plan_alignment
 from ssc.core.curate import differences
 from ssc.core.recover import (
     Rect,
@@ -45,6 +46,9 @@ FRAMES_STAGE = "frames"
 #: agent may well derive it from something the image suggested — and `columns * rows` is a
 #: file each. Same ceiling as the detector's, for the same reason.
 MAX_CELLS = 4096
+
+#: `--by` becomes padding on every side, so it is a dial whose cost is its own value.
+MAX_MARGIN = MAX_BOARD_SIDE
 
 
 def parse_grid(value: str) -> tuple[int, int]:
@@ -424,5 +428,163 @@ def curate(
             "differences": [item.as_dict() for item in measured],
             "written": written,
         },
+        dry_run=dry_run,
+    )
+
+
+@ssc_command("expand", help="Pad a canvas. Deterministic and free; gen expand invents.")
+@click.option("--fill", default=None, help="Hex colour for the added area. Transparent if not.")
+@click.option("--place", type=click.Choice(["centre", "bottom"]), default="centre")
+@click.option("--by", type=int, default=0, help="Pixels to add on every side.")
+@click.option("--to", "to_size", default=None, help="Target size as WxH.")
+@click.option("--out", required=True, type=click.Path(path_type=Path))
+@click.option("--in", "source", required=True, type=click.Path(path_type=Path))
+def expand_canvas(
+    source: Path,
+    out: Path,
+    to_size: str | None,
+    by: int,
+    place: str,
+    fill: str | None,
+    *,
+    dry_run: bool,
+) -> Result:
+    if (to_size is None) == (by == 0):
+        raise UsageError(
+            "no-target", "give exactly one of --to WxH and --by N", fix="--to 64x64, or --by 8"
+        )
+    if by < 0 or by > MAX_MARGIN:
+        raise UsageError(
+            "invalid-margin", f"--by {by} is outside 0..{MAX_MARGIN}", fix="pad by less"
+        )
+    target = parse_size(to_size, "size") if to_size else None
+
+    frames = read_frames(source)
+    try:
+        grown = [
+            Frame(
+                frame.name,
+                expand(
+                    frame.image,
+                    to=target,
+                    by=by,
+                    fill=parse_hex(fill) if fill else None,
+                    place=place,
+                ),
+            )
+            for frame in frames
+        ]
+    except CanvasTooLarge as refused:
+        raise UsageError(
+            "canvas-too-large", str(refused), fix="expand to less, or in stages"
+        ) from refused
+    except ValueError as refused:
+        raise UsageError("invalid-target", str(refused), fix="expand never crops") from refused
+
+    written = write_frames(source, out, grown, dry_run=dry_run)
+    height, width = grown[0].image.shape[:2]
+    return Result(
+        "tool expand",
+        f"{len(grown)} frame{'' if len(grown) == 1 else 's'} on {width}x{height}",
+        {
+            "frames": len(grown),
+            "size": {"width": width, "height": height},
+            "written": [str(path) for path in written],
+        },
+        dry_run=dry_run,
+    )
+
+
+@ssc_command("mirror", help="Flip horizontally — the free way to get East from West.")
+@click.option("--out", required=True, type=click.Path(path_type=Path))
+@click.option("--in", "source", required=True, type=click.Path(path_type=Path))
+def mirror(source: Path, out: Path, *, dry_run: bool) -> Result:
+    frames = read_frames(source)
+    flipped = [Frame(frame.name, flip(frame.image)) for frame in frames]
+    written = write_frames(source, out, flipped, dry_run=dry_run)
+    return Result(
+        "tool mirror",
+        f"{len(flipped)} frame{'' if len(flipped) == 1 else 's'} mirrored",
+        {"frames": len(flipped), "mirrored": True, "written": [str(p) for p in written]},
+        dry_run=dry_run,
+    )
+
+
+@ssc_command("align", help="Lock every frame of a set to one anchor.")
+@click.option("--onion", "onion_out", default=None, type=click.Path(path_type=Path))
+@click.option("--anchor", "mode", type=click.Choice(["feet", "bottom", "centre"]), default="feet")
+@click.option("--out", required=True, type=click.Path(path_type=Path))
+@click.option("--in", "source", required=True, type=click.Path(path_type=Path))
+def align(source: Path, out: Path, mode: str, onion_out: Path | None, *, dry_run: bool) -> Result:
+    frames = read_frames(source)
+    try:
+        placed = plan_alignment([frame.image for frame in frames], mode)
+    except CanvasTooLarge as refused:
+        raise UsageError(
+            "canvas-too-large",
+            str(refused),
+            fix="crop or expand the frames so their anchors are not at opposite corners",
+        ) from refused
+    moved = [Frame(frame.name, image) for frame, image in zip(frames, placed.frames, strict=True)]
+    written = write_frames(source, out, moved, dry_run=dry_run)
+    if onion_out is not None:
+        written += write_one(onion_out, onion(placed.frames), dry_run=dry_run)
+
+    height, width = placed.frames[0].shape[:2]
+    return Result(
+        "tool align",
+        f"{len(moved)} frame{'' if len(moved) == 1 else 's'} on {mode}, {width}x{height}",
+        {
+            "frames": len(moved),
+            "anchor": {"x": placed.anchor[0], "y": placed.anchor[1]},
+            # Reported so a caller can hand it to `pack`, which measures the anchor and has
+            # to measure the same *kind* of anchor or it reports the wrong pixel.
+            "mode": mode,
+            "size": {"width": width, "height": height},
+            "empty": placed.empty,
+            "written": [str(path) for path in written],
+        },
+        dry_run=dry_run,
+    )
+
+
+@ssc_command("pack", help="Lay a set out as a sheet of equal cells.")
+@click.option(
+    "--anchor",
+    "mode",
+    type=click.Choice(["feet", "bottom", "centre"]),
+    default="feet",
+    help="Which anchor to measure. Must match the one `align` used.",
+)
+@click.option("--cell", default=None, help="Cell size as WxH. Defaults to the largest frame.")
+@click.option("--cols", "columns", type=int, default=0, help="Columns. Defaults to one row.")
+@click.option("--out", required=True, type=click.Path(path_type=Path))
+@click.option("--in", "source", required=True, type=click.Path(path_type=Path))
+def pack_sheet(
+    source: Path, out: Path, columns: int, cell: str | None, mode: str, *, dry_run: bool
+) -> Result:
+    frames = read_frames(source)
+    if columns < 0 or columns > MAX_CELLS:
+        raise UsageError("invalid-cols", f"--cols {columns} is out of range", fix="use 1 or more")
+    try:
+        sheet, layout = pack(
+            [frame.image for frame in frames],
+            columns=columns or len(frames),
+            cell=parse_size(cell, "cell") if cell else None,
+            mode=mode,
+        )
+    except CanvasTooLarge as refused:
+        raise UsageError(
+            "canvas-too-large", str(refused), fix="use fewer --cols, or a smaller cell"
+        ) from refused
+    except ValueError as refused:
+        raise UsageError("invalid-cell", str(refused), fix="use a cell that fits") from refused
+
+    written = write_one(out, sheet, dry_run=dry_run)
+    return Result(
+        "tool pack",
+        f"{len(frames)} frame{'' if len(frames) == 1 else 's'} as "
+        f"{layout.columns}x{layout.rows} of {layout.cell[0]}x{layout.cell[1]}",
+        {**layout.as_dict(), "frames": len(frames), "written": [str(p) for p in written]},
         dry_run=dry_run,
     )

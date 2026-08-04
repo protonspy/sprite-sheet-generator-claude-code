@@ -29,6 +29,13 @@ here.
 - **medium** — which of the two modalities a file is, image or video, decided by its
   extension. Everything `ssc` writes is one or the other, which is why `image` and `video`
   are the two nouns a caller observes a workspace through.
+- **sidecar** — `asset.yaml`, beside an asset's `meta.json`: the authored half of an asset,
+  holding what nobody can measure. `meta.json` records what commands did; the sidecar records
+  what a person decided. Never recorded in `meta.json`, and so never reachable by `ssc
+  clean`. See `adr:0009-authored-intent-lives-in-a-sidecar`.
+- **index** — `dist/index.json`, the one file describing everything an engine loads out of a
+  workspace: every sheet with its cell, grid, frame rate and anchor, every atlas with a rect
+  per entry, every tileset with its tile size and ids.
 
 ## Geometry
 
@@ -47,6 +54,9 @@ here.
 - **anchor image** — the one image a character's other directions and animations derive
   from. Say it in full wherever "anchor" alone could be read as the registration point.
 - **tile** — one square of a tileset, drawn to repeat against copies of itself.
+- **tileset** — one image holding every tile of a kind in equal cells, each addressed by id
+  and found by column and row. A sheet holds the frames of one animation; a tileset holds
+  the tiles of one kind.
 - **nine-slice** — a panel cut into nine regions so its border survives being stretched to
   any size. `ssc tool ninepatch` is the command; `nineslice` is the `doctor` check.
   Avoid: 9-slice, nine patch
@@ -87,3 +97,8 @@ here.
 - **step** — one entry of a workspace's `pipeline:`, naming the stage it writes and the
   command that writes it. What `ssc run` executes and `ssc status` reports on. Avoid: task,
   phase
+- **playback mode** — how a frame set repeats: `loop`, `ping-pong` or `reverse`. Declared in
+  the sidecar, carried by the index, and baked into the frame order for the engine formats
+  that cannot express it.
+- **section** — a named range of frames inside one animation, both ends inclusive: an
+  attack's windup, hit and recovery are three sections of one set rather than three sets.

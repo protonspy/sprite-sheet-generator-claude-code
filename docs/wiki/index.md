@@ -27,6 +27,11 @@ hold the reasoning behind it.
 - [[pixel-snapping]] — recovering real pixels from fake ones, and why it happens twice.
 - [[frame-normalisation]] — recovering frames, locking the anchor, and repacking.
 
+## Handing it over
+
+- [[into-an-engine]] — what `ssc index` writes into `dist/`, where playback is authored, and
+  what the Pixi, Phaser and Godot formats can and cannot say.
+
 ## Context
 
 - [[prior-art]] — what already exists, what was adopted, what was refused and why.

@@ -48,7 +48,7 @@ run green before this work started — 290 passed, 2 skipped.
 ## 5 · Wiring
 
 - [x] 5.1 (Unit) Register `ssc index` and `ssc preview`, and give the workspace its `dist` path — R1.7
-- [ ] 5.2 (Unit) Record `adr:0009-authored-intent-lives-in-a-sidecar`, the glossary terms this leaf coins, and the wiki page for taking a workspace into an engine — R4.1
+- [x] 5.2 (Unit) Record `adr:0009-authored-intent-lives-in-a-sidecar`, the glossary terms this leaf coins, and the wiki page for taking a workspace into an engine — R4.1
 
 ## Notes
 
@@ -61,3 +61,18 @@ rename; the other three emitters are checked against it. And the playback order 
 algorithm underneath both the emitters and `ssc preview` — `ping-pong` over four frames is
 six frames, not eight, and getting that wrong is invisible until somebody watches the
 animation stutter at the ends.
+
+**1.4 and 4.1 observed the red; 3.2 did not, and that is a deviation rather than a detail.**
+Both of the first two were stubbed to `NotImplementedError`, run, and watched fail before a
+line of either was written. The `pixi` emitter was written before its tests, so 3.2 got the
+Unit cycle under a `(TDD)` annotation. What was salvaged is the part TDD is actually for: the
+assertions are hand-worked from PixiJS's documented `SpritesheetData` and from the constants
+at the top of `tests/cli/test_formats.py`, not read off the emitter's output — and that was
+checked rather than asserted, by emptying `formats.pixi` and confirming all six of its tests
+and four of the shared ones failed. It is recorded here because a `(TDD)` box ticked without
+a red is exactly the claim this practice exists to stop anybody making quietly.
+
+**4.1 was built before group 3, out of order.** The Pixi and Godot emitters bake the playback
+mode into their frame lists, so `core.preview.order` had to exist before 3.2 could be
+written. The alternative was a second ordering inside `formats.py`, which is the divergence
+that function exists to prevent.

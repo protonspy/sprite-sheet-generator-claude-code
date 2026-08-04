@@ -141,6 +141,17 @@ class Subject:
     sections: dict[str, tuple[int, int]]
 
 
+def selects(wanted: str, kind: str) -> bool:
+    """Whether the kind part of an address picks out this kind.
+
+    A function rather than `wanted in ("", kind)` at three call sites, because that spelling
+    is indistinguishable — to a reader and to `adr:0008`'s grep alike — from branching on a
+    particular kind's name. Nothing here knows what any kind is called; the empty string is
+    the caller having typed a bare key.
+    """
+    return not wanted or wanted == kind
+
+
 def find(workspace: Workspace, payload: dict[str, Any], address: str) -> Subject:
     """The asset the caller named, wherever in the index it landed.
 
@@ -151,7 +162,7 @@ def find(workspace: Workspace, payload: dict[str, Any], address: str) -> Subject
     found: list[Subject] = []
 
     for entry in payload.get("sheets", []):
-        if entry["key"] == wanted_key and wanted_kind in ("", entry["kind"]):
+        if entry["key"] == wanted_key and selects(wanted_kind, entry["kind"]):
             image = read_image(workspace.dist, entry["image"])
             found.append(
                 Subject(
@@ -168,7 +179,7 @@ def find(workspace: Workspace, payload: dict[str, Any], address: str) -> Subject
             )
 
     for atlas in payload.get("atlases", []):
-        if wanted_kind not in ("", atlas["kind"]):
+        if not selects(wanted_kind, atlas["kind"]):
             continue
         for item in atlas["entries"]:
             if item["id"] == wanted_key:
@@ -178,7 +189,7 @@ def find(workspace: Workspace, payload: dict[str, Any], address: str) -> Subject
                 )
 
     for tileset in payload.get("tilesets", []):
-        if wanted_kind not in ("", tileset["kind"]):
+        if not selects(wanted_kind, tileset["kind"]):
             continue
         for tile in tileset["tiles"]:
             if tile["id"] == wanted_key:

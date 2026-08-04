@@ -459,6 +459,66 @@ def build_tileset(group: Group) -> tuple[TilesetEntry, np.ndarray]:
     return entry, pixels
 
 
+@dataclass(frozen=True)
+class Built:
+    """Everything one `ssc index` run has to say, and every file it has to write.
+
+    The pixels travel beside the entries rather than inside them so that a format emitter
+    cannot reach an image: `cli/formats.py` renames fields, and a renderer in it would be a
+    second place where the bytes and the numbers can disagree.
+    """
+
+    sheets: list[SheetEntry] = field(default_factory=list)
+    atlases: list[AtlasEntry] = field(default_factory=list)
+    tilesets: list[TilesetEntry] = field(default_factory=list)
+    images: dict[str, np.ndarray] = field(default_factory=dict)
+    skipped: list[Skipped] = field(default_factory=list)
+
+
+def build(
+    groups: list[Group], skipped: list[Skipped], *, padding: int = 0, extrude: int = 0
+) -> Built:
+    """Pack every group, keeping what fails out of the way of what does not.
+
+    A sheet that cannot be built costs its own asset; an atlas or a tileset that cannot be
+    built costs its whole kind, because it is one file for all of them. Both are reported as
+    skips rather than raised: an index missing one kind and saying why beats no index.
+    """
+    built = Built(skipped=list(skipped))
+
+    for group in groups:
+        if group.artefact == "sheet":
+            for published in group.assets:
+                try:
+                    entry, pixels = build_sheet(published, group.profile)
+                except SscError as refused:
+                    built.skipped.append(Skipped(published.kind, published.key, refused.message))
+                    continue
+                built.sheets.append(entry)
+                built.images[entry.image] = pixels
+            continue
+
+        try:
+            if group.artefact == "atlas":
+                atlas, pixels = build_atlas(group, padding=padding, extrude=extrude)
+                built.atlases.append(atlas)
+                built.images[atlas.image] = pixels
+            else:
+                tileset, pixels = build_tileset(group)
+                built.tilesets.append(tileset)
+                built.images[tileset.image] = pixels
+        except (SscError, ValueError) as refused:
+            # `ValueError` too: `core.atlas` and `core.assemble` raise it for a canvas that
+            # is too large or an entry that does not fit, and those are the same kind of
+            # answer — this kind cannot be packed as asked.
+            message = refused.message if isinstance(refused, SscError) else str(refused)
+            built.skipped.extend(
+                Skipped(published.kind, published.key, message) for published in group.assets
+            )
+
+    return built
+
+
 def resolve_sections(
     sections: tuple[Section, ...], *, frames: int, where: str
 ) -> tuple[Section, ...]:

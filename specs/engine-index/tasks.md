@@ -28,18 +28,18 @@ run green before this work started — 290 passed, 2 skipped.
 
 ## 3 · dist/ and the formats
 
-- [ ] 3.1 (Unit) Emit the `generic` format from the model, and refuse a format ssc does not emit — R5.1, R5.6
-- [ ] 3.2 (TDD) Emit the `pixi` format — frames by name, animations in playback order, and meta — against a hand-worked sheet and atlas — R5.2
-- [ ] 3.3 (Unit) Emit the `phaser` JSON Hash format — R5.3
-- [ ] 3.4 (Unit) Emit the `godot` format — region, margin, speed and loop — R5.4
-- [ ] 3.5 (Unit) Hold the four formats to one set of image files and one set of rects — R5.5
-- [ ] 3.6 (Unit) Write the images and `index.json` under `dist/` in one pass, and nowhere else — R1.6, R1.7
-- [ ] 3.7 (Unit) Make a second run over an unchanged workspace write the same bytes — R1.8
-- [ ] 3.8 (Unit) Report under `--dry-run` every file the run would write, and write none — R1.9
+- [x] 3.1 (Unit) Emit the `generic` format from the model, and refuse a format ssc does not emit — R5.1, R5.6
+- [x] 3.2 (TDD) Emit the `pixi` format — frames by name, animations in playback order, and meta — against a hand-worked sheet and atlas — R5.2
+- [x] 3.3 (Unit) Emit the `phaser` JSON Hash format — R5.3
+- [x] 3.4 (Unit) Emit the `godot` format — region, margin, speed and loop — R5.4
+- [x] 3.5 (Unit) Hold the four formats to one set of image files and one set of rects — R5.5
+- [x] 3.6 (Unit) Write the images and `index.json` under `dist/` in one pass, and nowhere else — R1.6, R1.7
+- [x] 3.7 (Unit) Make a second run over an unchanged workspace write the same bytes — R1.8
+- [x] 3.8 (Unit) Report under `--dry-run` every file the run would write, and write none — R1.9
 
 ## 4 · Preview
 
-- [ ] 4.1 (TDD) Order a frame set for a playback mode — `loop`, `ping-pong`, `reverse` — and for one named section — R6.1, R6.4
+- [x] 4.1 (TDD) Order a frame set for a playback mode — `loop`, `ping-pong`, `reverse` — and for one named section — R6.1, R6.4
 - [ ] 4.2 (Unit) Encode the ordered frames as an animated GIF at the declared frame rate — R6.1
 - [ ] 4.3 (Unit) Render a contact sheet instead, each frame labelled with its index — R6.2
 - [ ] 4.4 (Unit) Tile a seam-checked kind's asset 2×2 — R6.3

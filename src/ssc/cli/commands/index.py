@@ -44,19 +44,55 @@ def rendered(payload: dict[str, Any]) -> bytes:
     return (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
 
+def bound_dist(root: Path, relative: str) -> Directory:
+    """Hold the directory a `dist/` path names, having proved it is where its name says.
+
+    The same open-then-check-then-confirm as `listing.bound`, and here for the same reason:
+    `check_relative_path` validates a *string* and cannot see that `dist/sheets/character`
+    is a symlink — or, on Windows, a junction, which an unprivileged user can create. A
+    directory planted under `dist/` ahead of time would otherwise redirect a write out of
+    the workspace, or point a read at a file nobody meant to publish.
+
+    `dist/` itself being a link is fine and deliberately allowed: it is the root both sides
+    resolve against, so a workspace whose build output lives on another disk keeps working.
+    """
+    check_relative_path(relative, "a dist path")
+    target = (root / relative).parent
+    handle = Directory.open(target)
+    try:
+        if not handle.bindable:
+            raise SscError(
+                "no-file-identity",
+                f"{target} is on a volume that reports no file identity, so ssc cannot "
+                f"prove the directory it checked is the one it writes to",
+                fix="keep the workspace on NTFS, or on any POSIX filesystem",
+            )
+        # Built from the unresolved path, because that is the address ssc composed. What it
+        # resolves to is the question.
+        expected = (root.resolve() / relative).parent
+        resolved = target.resolve()
+        if resolved != expected:
+            raise SscError(
+                "dist-displaced",
+                f"{target} resolves to {resolved}, which is not {expected}",
+                fix=f"remove the link at {target}, or delete {root} and run ssc index again",
+            )
+        handle.confirm(target)
+    except BaseException:
+        handle.close()
+        raise
+    return handle
+
+
 def write_into(root: Path, relative: str, data: bytes) -> Path:
     """Write one file under `root`, replacing what is there.
 
     `replace` rather than `write_new`: `dist/` is rebuilt, and a build that refuses because
-    its own last output is still there would need a `clean` before every run. The path is
-    checked for escape even though every one of them is composed from names `check_name`
-    already accepted — the composition is the part that could go wrong later.
+    its own last output is still there would need a `clean` before every run.
     """
-    check_relative_path(relative, "a dist path")
-    target = root / relative
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with Directory.open(target.parent) as held:
-        return held.replace(target.name, data)
+    (root / relative).parent.mkdir(parents=True, exist_ok=True)
+    with bound_dist(root, relative) as held:
+        return held.replace(Path(relative).name, data)
 
 
 def write_dist(
@@ -87,7 +123,7 @@ def read_index(workspace: Workspace) -> dict[str, Any]:
             f"there is no {where}",
             fix="ssc index",
         )
-    with Directory.open(where.parent) as held:
+    with bound_dist(workspace.dist, INDEX_NAME) as held:
         raw = held.read(INDEX_NAME, max_bytes=MAX_INDEX_BYTES)
     try:
         payload = json.loads(raw.decode("utf-8"))
@@ -109,24 +145,88 @@ def read_index(workspace: Workspace) -> dict[str, Any]:
     return payload
 
 
+def whole(entry: dict[str, Any], *path: str, minimum: int = 1) -> int:
+    """One number out of the index, proved to be a positive whole one.
+
+    `index.json` is written by `ssc index` and read back by `ssc preview`, which makes it a
+    file on disk between two processes — and every other such file in this project is
+    validated on read rather than trusted. A missing key, a string, a float or a zero all
+    reach arithmetic otherwise: `columns: 0` is a `ZeroDivisionError` and `frames:
+    100000000000` is a list nobody can allocate.
+    """
+    node: Any = entry
+    for name in path:
+        if not isinstance(node, dict) or name not in node:
+            raise SscError(
+                "index-invalid",
+                f"an index entry has no {'.'.join(path)}",
+                fix=f"ssc index --format {formats.DEFAULT_FORMAT}",
+            )
+        node = node[name]
+    if isinstance(node, bool) or not isinstance(node, int) or node < minimum:
+        raise SscError(
+            "index-invalid",
+            f"an index entry gives {'.'.join(path)} as {node!r}, "
+            f"not a whole number of at least {minimum}",
+            fix=f"ssc index --format {formats.DEFAULT_FORMAT}",
+        )
+    return node
+
+
 def cut_sheet(image: np.ndarray, entry: dict[str, Any]) -> list[np.ndarray]:
     """A sheet back into its frames, using the grid the index declares.
 
     Reading the picture rather than the asset is deliberate: `ssc preview` exists to show
     what an engine will load, so it looks at the same file and believes the same numbers. A
     preview built from `assets/` instead would still be right when the index was wrong.
+
+    "Believes" is the part that needs a guard. The grid is checked against the image before
+    a single frame is cut, which bounds every number at once: a frame count no picture could
+    hold cannot survive a grid that has to fit inside the pixels that are actually there.
     """
-    width, height = entry["cell"]["width"], entry["cell"]["height"]
-    frames = []
-    for number in range(entry["frames"]):
-        row, column = divmod(number, entry["columns"])
+    width, height = whole(entry, "cell", "width"), whole(entry, "cell", "height")
+    columns, rows, frames = whole(entry, "columns"), whole(entry, "rows"), whole(entry, "frames")
+
+    tall, wide = image.shape[:2]
+    if columns * width > wide or rows * height > tall:
+        raise SscError(
+            "index-invalid",
+            f"the index declares a {columns}x{rows} grid of {width}x{height} cells, "
+            f"which does not fit the {wide}x{tall} image beside it",
+            fix=f"ssc index --format {formats.DEFAULT_FORMAT}",
+        )
+    if frames > columns * rows:
+        raise SscError(
+            "index-invalid",
+            f"the index declares {frames} frames in a {columns}x{rows} grid",
+            fix=f"ssc index --format {formats.DEFAULT_FORMAT}",
+        )
+
+    cut = []
+    for number in range(frames):
+        row, column = divmod(number, columns)
         top, left = row * height, column * width
-        frames.append(image[top : top + height, left : left + width])
-    return frames
+        cut.append(image[top : top + height, left : left + width])
+    return cut
 
 
-def crop(image: np.ndarray, rect: dict[str, int]) -> np.ndarray:
-    return image[rect["y"] : rect["y"] + rect["height"], rect["x"] : rect["x"] + rect["width"]]
+def crop(image: np.ndarray, rect: dict[str, Any]) -> np.ndarray:
+    """One entry out of an atlas or a tileset, refusing a rect the image does not hold.
+
+    A slice past the end of an array does not raise in numpy — it silently returns fewer
+    pixels, or none — so an out-of-range rect would preview an empty image rather than say
+    anything. The check is what turns that into an answer.
+    """
+    width, height = whole(rect, "width"), whole(rect, "height")
+    top, left = whole(rect, "y", minimum=0), whole(rect, "x", minimum=0)
+    tall, wide = image.shape[:2]
+    if top + height > tall or left + width > wide:
+        raise SscError(
+            "index-invalid",
+            f"the index places a {width}x{height} entry at {left},{top} on a {wide}x{tall} image",
+            fix=f"ssc index --format {formats.DEFAULT_FORMAT}",
+        )
+    return image[top : top + height, left : left + width]
 
 
 @dataclass(frozen=True)
@@ -139,6 +239,23 @@ class Subject:
     fps: int
     mode: str
     sections: dict[str, tuple[int, int]]
+
+
+def playback_mode(playback: dict[str, Any]) -> str:
+    """The mode an index entry declares, held to the three `core.preview` knows.
+
+    `order` raises a plain `ValueError` for anything else, which `cli/main.py` would report
+    as an internal error — a bug in ssc rather than what it is, a file saying something ssc
+    did not write.
+    """
+    mode = playback.get("mode")
+    if mode not in core_preview.MODES:
+        raise SscError(
+            "index-invalid",
+            f"the index gives a playback mode of {mode!r}",
+            fix=f"ssc index --format {formats.DEFAULT_FORMAT}",
+        )
+    return str(mode)
 
 
 def selects(wanted: str, kind: str) -> bool:
@@ -169,8 +286,8 @@ def find(workspace: Workspace, payload: dict[str, Any], address: str) -> Subject
                     kind=entry["kind"],
                     key=entry["key"],
                     frames=cut_sheet(image, entry),
-                    fps=entry["playback"]["fps"],
-                    mode=entry["playback"]["mode"],
+                    fps=whole(entry["playback"], "fps"),
+                    mode=playback_mode(entry["playback"]),
                     sections={
                         section["name"]: (section["first"], section["last"])
                         for section in entry["playback"]["sections"]
@@ -194,11 +311,12 @@ def find(workspace: Workspace, payload: dict[str, Any], address: str) -> Subject
         for tile in tileset["tiles"]:
             if tile["id"] == wanted_key:
                 image = read_image(workspace.dist, tileset["image"])
+                width, height = whole(tileset, "tile", "width"), whole(tileset, "tile", "height")
                 rect = {
-                    "x": tile["column"] * tileset["tile"]["width"],
-                    "y": tile["row"] * tileset["tile"]["height"],
-                    "width": tileset["tile"]["width"],
-                    "height": tileset["tile"]["height"],
+                    "x": whole(tile, "column", minimum=0) * width,
+                    "y": whole(tile, "row", minimum=0) * height,
+                    "width": width,
+                    "height": height,
                 }
                 found.append(
                     Subject(tileset["kind"], tile["id"], [crop(image, rect)], 1, "loop", {})
@@ -221,11 +339,14 @@ def find(workspace: Workspace, payload: dict[str, Any], address: str) -> Subject
 
 
 def read_image(root: Path, relative: str) -> np.ndarray:
-    """One image out of `dist/`, through a binding and under the same ceiling as any other."""
-    check_relative_path(relative, "a dist path")
-    target = root / relative
-    with Directory.open(target.parent) as held:
-        return decode_image(held.read(target.name, max_bytes=MAX_FILE_BYTES), relative)
+    """One image out of `dist/`, through a binding and under the same ceiling as any other.
+
+    The path comes out of `index.json`, which is a file on disk that survives hand-editing,
+    so it is treated as input: bound like every other read of a file this project did not
+    just write, and bounded by `MAX_FILE_BYTES` like every other decode.
+    """
+    with bound_dist(root, relative) as held:
+        return decode_image(held.read(Path(relative).name, max_bytes=MAX_FILE_BYTES), relative)
 
 
 @ssc_command(

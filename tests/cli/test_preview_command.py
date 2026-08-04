@@ -256,6 +256,71 @@ def test_an_asset_the_index_does_not_carry_is_refused(workspace: ws.Workspace) -
     assert payload["error"]["code"] == "not-indexed"
 
 
+# The index is a file between two processes, so `ssc preview` validates it on read.
+
+
+def rewrite_index(space: ws.Workspace, change: Any) -> None:
+    where = space.dist / "index.json"
+    payload = json.loads(where.read_text(encoding="utf-8"))
+    change(payload)
+    where.write_text(json.dumps(payload), encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "spoil",
+    [
+        pytest.param(lambda entry: entry.update(columns=0), id="a grid with no columns"),
+        pytest.param(lambda entry: entry.update(frames=10**9), id="more frames than pixels"),
+        pytest.param(lambda entry: entry.update(frames="lots"), id="a frame count that is text"),
+        pytest.param(lambda entry: entry["cell"].update(width=10**6), id="a cell past the image"),
+        pytest.param(lambda entry: entry["playback"].update(fps="fast"), id="a rate that is text"),
+        pytest.param(
+            lambda entry: entry["playback"].update(mode="bounce"), id="a mode nobody defined"
+        ),
+        pytest.param(lambda entry: entry.pop("rows"), id="a missing field"),
+    ],
+)
+def test_an_index_that_says_something_ssc_did_not_write_is_refused(
+    workspace: ws.Workspace, spoil: Any
+) -> None:
+    # A hand-edited index reaches arithmetic otherwise: `columns: 0` divides by zero and a
+    # billion frames is a list nobody can allocate. Both are answers, not tracebacks.
+    run("index")
+    rewrite_index(workspace, lambda payload: spoil(payload["sheets"][0]))
+
+    code, payload = run("preview", "hero")
+    assert code == 1
+    assert payload["error"]["code"] == "index-invalid"
+
+
+def test_an_entry_placed_off_its_own_atlas_is_refused(workspace: ws.Workspace) -> None:
+    run("index")
+    rewrite_index(workspace, lambda payload: payload["tilesets"][0]["tiles"][0].update(column=1000))
+    code, payload = run("preview", "grass")
+    assert code == 1
+    assert payload["error"]["code"] == "index-invalid"
+
+
+def test_a_dist_directory_that_is_really_somewhere_else_is_refused(
+    workspace: ws.Workspace, tmp_path: Path, link_dir: Any
+) -> None:
+    # The finding this closes: a junction planted under `dist/` redirects a write out of the
+    # workspace. `check_relative_path` validates a string and cannot see it.
+    run("index")
+    elsewhere = tmp_path.parent / "elsewhere"
+    elsewhere.mkdir(exist_ok=True)
+    hijacked = workspace.dist / "sheets" / "character"
+    for child in hijacked.iterdir():
+        child.unlink()
+    hijacked.rmdir()
+    link_dir(hijacked, elsewhere)
+
+    code, payload = run("index")
+    assert code == 1
+    assert payload["error"]["code"] == "dist-displaced"
+    assert not any(elsewhere.iterdir()), "nothing was written through the link"
+
+
 def test_a_dry_run_writes_nothing(workspace: ws.Workspace) -> None:
     run("index")
     code, payload = run("preview", "hero", "--dry-run")

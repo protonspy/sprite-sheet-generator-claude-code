@@ -21,6 +21,7 @@ from ssc.cli.commands.convert import (
     tile_wrap,
 )
 from ssc.cli.commands.doctor import doctor
+from ssc.cli.commands.gate import gate
 from ssc.cli.commands.gen import gen_group
 from ssc.cli.commands.init import init
 from ssc.cli.commands.job import job
@@ -36,6 +37,8 @@ from ssc.cli.commands.recover import (
     pack_sheet,
     slice_sheet,
 )
+from ssc.cli.commands.run import run, status
+from ssc.cli.commands.sweep import sweep_command
 from ssc.cli.main import main, tool
 
 main.add_command(init)
@@ -44,6 +47,9 @@ main.add_command(clean)
 main.add_command(budget)
 main.add_command(kind)
 main.add_command(job)
+main.add_command(gate)
+main.add_command(run)
+main.add_command(status)
 main.add_command(model)
 main.add_command(image)
 main.add_command(video)
@@ -66,5 +72,6 @@ tool.add_command(normal_map)
 tool.add_command(layers)
 tool.add_command(ninepatch_guides)
 tool.add_command(control_states)
+tool.add_command(sweep_command)
 
 __all__ = ["main"]

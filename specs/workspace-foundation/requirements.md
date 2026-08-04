@@ -29,7 +29,7 @@ much, for an agent driving `ssc` with no eyes on the directory.
 - **R2.2** When `ssc asset new <key> --kind <kind>` runs, the `ssc` CLI shall create that directory and its `meta.json`.
 - **R2.3** If an asset with that key already exists in that kind, then the `ssc` CLI shall change nothing and exit `2`.
 - **R2.4** The `ssc` CLI shall order an asset's chain by the numbered prefix and shall never accept that prefix as a file's address.
-- **R2.5** The `ssc` CLI shall permit no subdirectory of an asset other than `frames/`.
+- **R2.5** (MODIFIED) The `ssc` CLI shall permit no subdirectory of an asset other than `frames/`, and shall permit `frames/` to hold one subdirectory per stage that is a frame set.
 
 ## R3 · Provenance
 

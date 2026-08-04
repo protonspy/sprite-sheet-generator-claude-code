@@ -28,6 +28,12 @@ class Result:
     data: dict[str, Any] = field(default_factory=dict)
     dry_run: bool = False
     cached: bool = False
+    #: Almost always `0`. `specs/gates-and-resume/` is why it exists: exit `3` means a human
+    #: decision is outstanding, which is an *outcome* rather than a failure — the gate was
+    #: opened, the steps before it ran, and all of that is worth reporting. Carrying it as an
+    #: exception instead would have made `ok` false and thrown away the run's progress, which
+    #: is the one thing a caller resuming needs. See `errors.GatePending`.
+    exit_code: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return {

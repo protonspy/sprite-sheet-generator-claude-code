@@ -19,7 +19,7 @@ from pathlib import Path
 import click
 
 from ssc.cli import workspace as ws
-from ssc.cli.args import parse_guides
+from ssc.cli.args import parse_guides, parse_hex
 from ssc.cli.cache import Cache
 from ssc.cli.errors import UsageError
 from ssc.cli.frames import Frame, read_frames, write_frames, write_one
@@ -27,25 +27,22 @@ from ssc.cli.main import ssc_command
 from ssc.cli.output import Result
 from ssc.cli.snap import SnapParams, snap_frames
 from ssc.cli.snapper import Snapper
+from ssc.cli.steps import (
+    MAX_COLORS,
+    MAX_TOLERANCE,
+    MAX_TRIM,
+    MIN_COLORS,
+    bgremove_frames,
+    parse_key,
+    pixelart_frames,
+)
 from ssc.core import ninepatch
 from ssc.core.assemble import pack
-from ssc.core.bgremove import PRESETS, BgRemoveParams, remove
 from ssc.core.board import checkerboard, pose_board
 from ssc.core.normal import MAX_STRENGTH, MIN_STRENGTH
 from ssc.core.normal import derive as derive_normal
-from ssc.core.pixelart import (
-    PaletteParams,
-    build_palette,
-    clean_clusters,
-    map_to_palette,
-    outline,
-)
 from ssc.core.tile import MODES as TILE_MODES
 from ssc.core.tile import close as close_wrap
-
-#: A colour budget outside this is not a budget. The floor is 2 because one colour is not
-#: an image, and the ceiling is the largest indexed palette a PNG can carry.
-MIN_COLORS, MAX_COLORS = 2, 256
 
 #: A grid larger than this against any realistic frame leaves nothing to snap onto, and
 #: the module stops returning square output well before it.
@@ -56,28 +53,11 @@ MAX_PIXEL_SIZE = 256.0
 #: from allocating everything the machine has.
 MAX_BOARD_SIDE = 8192
 
-#: The distance from black to white in RGB. A tolerance at it keys every pixel of every
-#: frame, which is not a background removal but an erasure, so it is the ceiling.
-MAX_TOLERANCE = 442
-
-#: `cv2.erode` costs one pass per iteration *regardless of image size*, so this is the one
-#: dial whose cost an attacker sets independently of the input: a 1x1 PNG and a large enough
-#: number runs for hours. That is what separates it from `--despeckle` and `--min-cluster`,
-#: which take a number but cost one pass over the image whatever it is, and so need no
-#: ceiling. A trim wider than the largest sprite anyone packs has removed the whole
-#: silhouette long before it gets here.
-MAX_TRIM = 512
-
-
-def parse_hex(value: str) -> tuple[int, int, int]:
-    text = value.strip().lstrip("#")
-    if len(text) != 6 or any(character not in "0123456789abcdefABCDEF" for character in text):
-        raise UsageError(
-            "invalid-colour",
-            f"{value!r} is not a 6-digit hex colour",
-            fix="write it as rrggbb, for example 0d2b45",
-        )
-    return int(text[0:2], 16), int(text[2:4], 16), int(text[4:6], 16)
+#: `MIN_COLORS`, `MAX_COLORS`, `MAX_TOLERANCE` and `MAX_TRIM` moved to `cli/steps.py` with
+#: the transforms they bound. They are imported back here because the click options check
+#: them: a bound that lived beside the command and a bound the registry checked would be two
+#: answers to "what is a legal tolerance", and the sweep would be free to run a variant the
+#: command itself refuses.
 
 
 def parse_size(value: str, what: str) -> tuple[int, int]:
@@ -207,28 +187,29 @@ def pixelart(
     ring = parse_hex(outline_colour) if outline_colour else None
 
     frames = read_frames(source)
-    # One palette, from every frame at once. This is the whole reason the command takes a
-    # set rather than a file: quantizing frame by frame is what produces `flicker`.
-    computed = build_palette([frame.image for frame in frames], PaletteParams(colors, fixed))
-
-    converted: list[Frame] = []
-    for frame in frames:
-        image = map_to_palette(frame.image, computed, dither)  # type: ignore[arg-type]
-        if min_cluster > 1:
-            image = clean_clusters(image, min_cluster)
-        if ring is not None:
-            image = outline(image, ring)
-        converted.append(Frame(frame.name, image))
+    outcome = pixelart_frames(
+        [frame.image for frame in frames],
+        {
+            "colors": colors,
+            "palette": fixed,
+            "dither": dither,
+            "min_cluster": min_cluster,
+            "outline": ring,
+        },
+    )
+    converted = [
+        Frame(frame.name, image) for frame, image in zip(frames, outcome.frames, strict=True)
+    ]
 
     written = write_frames(source, out, converted, dry_run=dry_run)
+    colours = outcome.measurement["palette"]
     return Result(
         "tool pixelart",
         f"{len(converted)} frame{'' if len(converted) == 1 else 's'} on "
-        f"{len(computed)} colour{'' if len(computed) == 1 else 's'}",
+        f"{len(colours)} colour{'' if len(colours) == 1 else 's'}",
         {
             "frames": len(converted),
-            "palette": [f"{r:02x}{g:02x}{b:02x}" for r, g, b in computed],
-            "dither": dither,
+            **outcome.measurement,
             "written": [str(path) for path in written],
         },
         dry_run=dry_run,
@@ -297,24 +278,6 @@ board.add_command(board_checker)
 board.add_command(board_poses)
 
 
-def parse_key(value: str) -> tuple[int, int, int]:
-    """A preset name or a hex colour (R1.1, R1.4).
-
-    Presets are named rather than remembered: nobody should have to recall that green
-    screen is `00b140` in order to take a background out.
-    """
-    if value.lower() in PRESETS:
-        return PRESETS[value.lower()]
-    try:
-        return parse_hex(value)
-    except UsageError as refused:
-        raise UsageError(
-            "invalid-chroma",
-            f"{value!r} is neither a preset nor a 6-digit hex colour",
-            fix=f"use one of {', '.join(sorted(PRESETS))}, or write it as rrggbb",
-        ) from refused
-
-
 @ssc_command("bgremove", help="Take the background out by chroma key.")
 @click.option("--despeckle", type=int, default=0, help="Drop opaque groups below this many px.")
 @click.option("--edge-trim", type=int, default=0, help="Shrink the opaque region by this many px.")
@@ -367,34 +330,30 @@ def bgremove(
             "long before it gets there",
         )
 
-    params = BgRemoveParams(
-        key=parse_key(chroma),
-        tolerance=tol,
-        mode=mode,  # type: ignore[arg-type]
-        edge_pass=edge_pass,
-        edge_trim=edge_trim,
-        despeckle=despeckle,
-    )
-
     frames = read_frames(source)
-    keyed: list[Frame] = []
-    transparent = opaque = 0
-    for frame in frames:
-        image, measured = remove(frame.image, params)
-        transparent += measured["transparent_px"]
-        opaque += measured["opaque_px"]
-        keyed.append(Frame(frame.name, image))
+    outcome = bgremove_frames(
+        [frame.image for frame in frames],
+        {
+            "chroma": parse_key(chroma),
+            "tol": tol,
+            "mode": mode,
+            "edge_pass": edge_pass,
+            "edge_trim": edge_trim,
+            "despeckle": despeckle,
+        },
+    )
+    keyed = [Frame(frame.name, image) for frame, image in zip(frames, outcome.frames, strict=True)]
 
     written = write_frames(source, out, keyed, dry_run=dry_run)
+    transparent = outcome.measurement["transparent_px"]
+    opaque = outcome.measurement["opaque_px"]
     return Result(
         "tool bgremove",
         f"{len(keyed)} frame{'' if len(keyed) == 1 else 's'}: "
         f"{transparent:,} px transparent, {opaque:,} px kept",
         {
             "frames": len(keyed),
-            "transparent_px": transparent,
-            "opaque_px": opaque,
-            "mode": mode,
+            **outcome.measurement,
             "written": [str(path) for path in written],
         },
         dry_run=dry_run,

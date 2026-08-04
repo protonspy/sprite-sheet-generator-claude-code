@@ -23,6 +23,26 @@ INTEGER = re.compile(r"^-?[0-9]+$")
 MAX_GUIDE = 10**9
 
 
+def parse_hex(value: str) -> tuple[int, int, int]:
+    """`rrggbb` into a colour.
+
+    Here rather than in `commands/convert.py`, where it was, because it has three callers
+    now: the two conversion commands, `cli/steps.py`'s registry — which parses the same
+    values arriving from `--vary` — and `commands/doctor.py`, which still carries its own
+    copy. Two implementations of "what is a hex colour" is exactly what this module exists
+    to stop, and the third is noted rather than merged only because `doctor` is not this
+    change's to touch.
+    """
+    text = value.strip().lstrip("#")
+    if len(text) != 6 or any(character not in "0123456789abcdefABCDEF" for character in text):
+        raise UsageError(
+            "invalid-colour",
+            f"{value!r} is not a 6-digit hex colour",
+            fix="write it as rrggbb, for example 0d2b45",
+        )
+    return int(text[0:2], 16), int(text[2:4], 16), int(text[4:6], 16)
+
+
 def parse_guides(value: str | None) -> tuple[int, int, int, int] | None:
     """`left,right,top,bottom`, each a distance inwards from that edge."""
     if value is None:

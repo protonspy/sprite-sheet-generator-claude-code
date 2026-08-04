@@ -8,6 +8,10 @@ ceiling and the total are decided before anything is submitted, which is the poi
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
+import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -346,16 +350,17 @@ def test_a_job_is_counted_once_however_many_routes_collect_it(
     job = a_job()
     jobs.save(space, job)
 
-    total, marked = budget.count(space, job)
-    assert total.calls == 1 and marked.counted is True
+    _, marked = budget.reserve(space, budget.Limits(), None, job)
+    assert budget.load(space).calls == 1 and marked.counted is True
 
-    again, _ = budget.count(space, marked)
-    assert again.calls == 1  # the second route collects, and does not bill again
+    _, again = budget.reserve(space, budget.Limits(), None, marked)
+    assert budget.load(space).calls == 1  # the second route collects, and does not bill again
+    assert again.counted is True
 
     # And the flag survives the round trip, so a fresh process does not recount either.
     assert jobs.load(space, "j-0001").counted is True
-    third, _ = budget.count(space, jobs.load(space, "j-0001"))
-    assert third.calls == 1
+    budget.reserve(space, budget.Limits(), None, jobs.load(space, "j-0001"))
+    assert budget.load(space).calls == 1
 
 
 def test_settling_twice_folds_one_price(space: workspace.Workspace) -> None:
@@ -369,7 +374,7 @@ def test_settling_twice_folds_one_price(space: workspace.Workspace) -> None:
 
     job = a_job()
     jobs.save(space, job)
-    budget.count(space, job)
+    budget.reserve(space, budget.Limits(), None, job)
     assert budget.load(space) == budget.Total(spent_usd=0.0, calls=1, unpriced=1)
 
     settled, priced = budget.settle(space, jobs.load(space, job.id), 0.40)
@@ -388,6 +393,243 @@ def test_a_price_that_arrives_does_not_recount_the_call(space: workspace.Workspa
 
     job = a_job()
     jobs.save(space, job)
-    budget.count(space, job)
+    budget.reserve(space, budget.Limits(), None, job)
     settled, _ = budget.settle(space, jobs.load(space, job.id), 1.25)
     assert settled.calls == 1
+
+
+# The four defects the reviews returned. Each of these fails against the code as it stood
+# before the fix beside it, which is the only thing that makes them regression tests rather
+# than restatements of the implementation.
+
+
+def test_concurrent_processes_do_not_lose_an_update(
+    space: workspace.Workspace, tmp_path: Path
+) -> None:
+    """R3.4, across processes rather than inside one — and the distinction is the whole bug.
+
+    `os.open` with `O_EXCL` raises `FileExistsError` when the lock file merely exists on
+    disk, and on Windows `PermissionError` when another *process* is holding it open. The
+    lock caught only the first, so every genuinely concurrent writer fell straight out of the
+    retry loop: a four-process run lost 50 of 200 updates. Every existing lock test was
+    single-process — the second attempt was made by the same process that had already closed
+    the handle — so all of them passed against the broken code.
+
+    This one spawns real interpreters for that reason. It is the slowest test in the file and
+    it is the only one that can see the defect.
+    """
+    workers, each = 4, 25
+    child = textwrap.dedent(
+        """
+        import sys
+        from pathlib import Path
+        from ssc.cli import budget
+        from ssc.cli.workspace import Workspace
+
+        space = Workspace(root=Path(sys.argv[1]))
+        for _ in range(int(sys.argv[2])):
+            budget.record(space, 0.01)
+        """
+    )
+    script = tmp_path / "hammer.py"
+    script.write_text(child, encoding="utf-8")
+
+    running = [
+        subprocess.Popen(
+            [sys.executable, str(script), str(space.root), str(each)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        for _ in range(workers)
+    ]
+    for process in running:
+        _, complained = process.communicate(timeout=120)
+        assert process.returncode == 0, complained.decode(errors="replace")
+
+    total = budget.load(space)
+    assert total.calls == workers * each
+    assert total.spent_usd == pytest.approx(workers * each * 0.01)
+
+
+def test_a_lock_another_process_holds_open_is_waited_for_not_raised(
+    space: workspace.Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R3.4 — the exact mechanism the cross-process test above cannot pin down.
+
+    That test is honest about concurrency and useless as a regression test for *this*: the
+    race it depends on showed up in two runs out of five, so it passes against the broken
+    lock most of the time. This one is deterministic. It makes `os.open` fail the way Windows
+    fails when another process is holding the lock file open — `PermissionError`, not
+    `FileExistsError` — and asserts the retry loop treats it as contention.
+
+    Against the code as it stood, `PermissionError` was not caught, so it escaped `__enter__`
+    and the update was lost. Reverting the `except` clause fails this test every time.
+    """
+    attempts: list[int] = []
+    real_open = os.open
+
+    def sticky(path: Any, flags: int, *rest: Any, **kw: Any) -> int:
+        if str(path).endswith(f"{budget.TOTAL_NAME}.lock"):
+            attempts.append(1)
+            if len(attempts) == 1:
+                # The file exists, as it would while a holder has it: this is contention,
+                # not an unwritable directory.
+                Path(path).write_bytes(b"")
+                raise PermissionError(13, "being used by another process")
+            if len(attempts) == 2:
+                Path(path).unlink(missing_ok=True)
+        return real_open(path, flags, *rest, **kw)
+
+    monkeypatch.setattr(os, "open", sticky)
+    budget.record(space, 0.25)
+
+    assert len(attempts) >= 2, "the lock gave up instead of retrying"
+    assert budget.load(space).spent_usd == pytest.approx(0.25)
+
+
+def test_a_permission_error_with_no_lock_present_is_not_retried(
+    space: workspace.Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other side of the same clause, and why it is not simply `except PermissionError`.
+
+    A `PermissionError` with no lock file on disk is an unwritable directory, not a holder.
+    Retrying it would spin for the full timeout and then answer "another ssc command may be
+    running; if none is, delete that file" about a file that was never there. It is
+    distinguished by what is on disk rather than by `os.name`, which keeps one code path
+    under test on both platforms.
+    """
+    real_open = os.open
+
+    def denied(path: Any, flags: int, *rest: Any, **kw: Any) -> int:
+        if str(path).endswith(f"{budget.TOTAL_NAME}.lock"):
+            raise PermissionError(13, "permission denied")
+        return real_open(path, flags, *rest, **kw)
+
+    monkeypatch.setattr(os, "open", denied)
+    with pytest.raises(PermissionError):
+        budget.record(space, 0.25)
+
+
+def test_a_reservation_is_visible_before_the_call_is_submitted(
+    space: workspace.Workspace,
+) -> None:
+    """R2.2 with R3.4 — the ceiling has to be decided and published in one step.
+
+    Asking the ceiling in one critical section and recording the answer in another leaves the
+    paid call in the gap: every concurrent `gen` reads the same total, every one is under the
+    ceiling, every one submits. The property that closes it is this one — once `reserve`
+    returns, the call is already in the total that the next caller will read, and no
+    submission has happened yet.
+    """
+    from ssc.cli import jobs
+
+    job = a_job()
+    jobs.save(space, job)
+
+    assert budget.load(space).calls == 0
+    _, reserved = budget.reserve(space, budget.Limits(max_usd=10.0), None, job)
+    # Nothing has been submitted, and the next reader already sees the call.
+    assert reserved.counted is True
+    assert budget.load(space).calls == 1
+
+
+def test_a_reservation_is_refused_once_the_ceiling_is_reached(
+    space: workspace.Workspace,
+) -> None:
+    """R2.2 — and it refuses *before* writing, so a refusal costs the total nothing."""
+    from ssc.cli import jobs
+
+    spent = a_job()
+    jobs.save(space, spent)
+    budget.reserve(space, budget.Limits(), None, spent)
+    budget.settle(space, jobs.load(space, spent.id), 5.0)
+
+    # Built here rather than through `a_job`, whose kwargs only flip the state and do not
+    # reach the record — a second call needs a genuinely different id.
+    nxt = jobs.Job.new(
+        id="j-0002",
+        provider="fake",
+        application="fake/model",
+        model="model",
+        arguments={},
+        at="2026-08-03T10:02:00Z",
+    )
+    jobs.save(space, nxt)
+    with pytest.raises(UsageError) as refused:
+        budget.reserve(space, budget.Limits(max_usd=5.0), None, nxt)
+    assert refused.value.code == "over-budget"
+    # The refused call was not counted, and the refusal did not move the money.
+    assert budget.load(space).calls == 1
+    assert jobs.load(space, "j-0002").counted is False
+
+
+def test_a_reservation_is_given_back_when_the_call_is_never_submitted(
+    space: workspace.Workspace,
+) -> None:
+    """R3.2 — a `submit` that raised did not submit a call, so the total must not hold one.
+
+    Otherwise an unreachable network spends a ceiling on calls that reached nobody.
+    """
+    from ssc.cli import jobs
+
+    job = a_job()
+    jobs.save(space, job)
+    _, reserved = budget.reserve(space, budget.Limits(), None, job)
+    assert budget.load(space).calls == 1
+
+    given_back = budget.release(space, reserved)
+    assert given_back.counted is False
+    assert budget.load(space) == budget.Total(spent_usd=0.0, calls=0, unpriced=0)
+    # And releasing twice does not drive the total below nothing.
+    budget.release(space, given_back)
+    assert budget.load(space).calls == 0
+
+
+def test_two_routes_holding_the_same_job_settle_one_price(
+    space: workspace.Workspace,
+) -> None:
+    """R3.7 — the idempotency check has to be made against disk, inside the lock.
+
+    `gen collect` and `job resume` legitimately load the same job before either settles, so
+    both in-memory copies say `cost_usd is None`. Deciding from the caller's copy let both
+    pass and both add the cost: one call billed once and counted twice. Unreachable only
+    while no provider prices a call, which is exactly the failure `methodology.md` names for
+    money code — invisible per call, wrong by the end of the month.
+    """
+    from ssc.cli import jobs
+
+    job = a_job()
+    jobs.save(space, job)
+    budget.reserve(space, budget.Limits(), None, job)
+
+    # Both routes take their copy before either of them settles.
+    one_route = jobs.load(space, job.id)
+    other_route = jobs.load(space, job.id)
+
+    budget.settle(space, one_route, 0.40)
+    budget.settle(space, other_route, 0.40)
+
+    assert budget.load(space).spent_usd == pytest.approx(0.40)
+    assert budget.load(space).calls == 1
+
+
+@pytest.mark.parametrize("recorded", ["", False, [], {}, "abc"])
+def test_a_total_that_is_not_a_number_is_refused_rather_than_read_as_zero(
+    space: workspace.Workspace, recorded: Any
+) -> None:
+    """R3.6, reached through the door the `NaN` fix left open.
+
+    `document.get(name) or 0.0` swapped every *falsy* value for the default before anything
+    could object, so `"spent_usd": ""` read as a workspace that had spent nothing while
+    `"abc"` was correctly refused. A workspace five dollars into a five dollar ceiling then
+    enforced against zero. `false` is in this list for its own reason: `float(False)` is
+    `0.0` and `isinstance(True, int)` is true, so a bool is the one non-number that walks
+    through every numeric check Python offers.
+    """
+    (space.root / budget.TOTAL_NAME).write_text(
+        json.dumps({"schema": budget.SCHEMA, "spent_usd": recorded, "calls": 1, "unpriced": 0}),
+        encoding="utf-8",
+    )
+    with pytest.raises(SscError) as refused:
+        budget.load(space)
+    assert refused.value.code == "invalid-budget"

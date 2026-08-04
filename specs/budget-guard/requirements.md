@@ -67,6 +67,35 @@ what it cost once it has.
 - **R3.5** The `ssc` CLI shall add a given call to the running total no more than once.
 - **R3.6** If a spending ceiling or a running total cannot be read as a finite, non-negative amount, then the `ssc` CLI shall refuse the call rather than proceed.
 - **R3.7** When a provider reports what a submitted call cost, the `ssc` CLI shall add that amount to the running total without counting the call a second time.
+- **R3.8** (ADDED) The `ssc` CLI shall decide a call against the ceiling and record that call in the running total as one indivisible step, before the call is submitted.
+- **R3.9** (ADDED) While another process holds the running total, the `ssc` CLI shall wait for it rather than fail, and shall not mistake a directory it cannot write for a total another process is holding.
+
+> **R3.8 is what R2.2 and R3.4 each assumed the other covered.** R2.2 says a call is refused
+> once the ceiling is reached; R3.4 says an update is not lost. Both held, and the ceiling
+> still did not: the check read the total in one critical section and the count wrote it in
+> another, with the paid call in between. Every concurrent `gen` cleared the same stale
+> figure, so five calls against a ceiling with room for one all submitted. A lock around the
+> write cannot see this, because the decision was already taken outside it.
+>
+> Stated as its own requirement rather than folded into R2.2 because it is a claim about
+> *when* the decision and the record happen relative to the call, which is exactly what an
+> implementation satisfying both R2.2 and R3.4 was free to get wrong.
+>
+> **R3.9 is the same lesson as task 0.12, arriving in a different module.** The lock is an
+> exclusive create; `FileExistsError` is what it raises when the file exists, and
+> `PermissionError` is what Windows raises when another process is *holding* it. Catching
+> only the first produced a lock that worked in every single-process test and lost updates
+> between real processes — the case it exists for. The second clause is there so the fix
+> cannot be "retry every `PermissionError`", which would spin for the full timeout against an
+> unwritable directory and then blame a lock file that was never there.
+>
+> **R3.6 needed a second door closed.** The `NaN` fix left `document.get(name) or 0.0` in
+> place, which swaps every *falsy* value for the default before anything can object:
+> `"spent_usd": ""` read as zero, so a workspace five dollars into a five dollar ceiling
+> enforced against nothing, while `"abc"` was correctly refused. `false` is the same hole
+> once more — `float(False)` is `0.0` and `isinstance(True, int)` is true, so a bool walks
+> through every numeric check Python offers. Absent and null are the two ways a record says
+> nothing; everything else is a value that must be accepted or refused, never defaulted.
 
 > **R3.2 was rewritten twice, and the second review is why.** It first said "when a provider
 > reports what a call cost", which the implementation honoured by counting inside the one

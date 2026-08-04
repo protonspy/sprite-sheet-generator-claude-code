@@ -80,6 +80,22 @@ class Total:
             return Total(self.spent_usd, self.calls + 1, self.unpriced + 1)
         return Total(round(self.spent_usd + cost_usd, 6), self.calls + 1, self.unpriced)
 
+    def minus(self, cost_usd: float | None) -> Total:
+        """Undo `plus`, for a call that was reserved and then never submitted.
+
+        The floors are not defensiveness about arithmetic — they are what stops a
+        hand-edited or half-written record from being driven negative by a release whose
+        matching reserve is not in the file. A total that reads below zero is a ceiling that
+        admits more than it was given.
+        """
+        if cost_usd is None:
+            return Total(self.spent_usd, max(0, self.calls - 1), max(0, self.unpriced - 1))
+        return Total(
+            max(0.0, round(self.spent_usd - cost_usd, 6)),
+            max(0, self.calls - 1),
+            self.unpriced,
+        )
+
     def settled(self, cost_usd: float) -> Total:
         """A call already counted, now that its price is known (R3.7).
 
@@ -162,6 +178,16 @@ def _finite(value: Any, name: str, target: Path) -> float:
     a `NaN` rather than defaulting it, because `NaN` is truthy. A total that cannot be
     compared is a ceiling that is off, so this fails closed.
     """
+    # Before `float`, because `float(False)` is `0.0` and `isinstance(True, int)` is true:
+    # a bool is the one non-number that walks through every numeric check Python offers, so
+    # `"spent_usd": false` would read as a workspace that has spent nothing rather than as
+    # the malformed record it is.
+    if isinstance(value, bool):
+        raise SscError(
+            "invalid-budget",
+            f"{target} records {name} as {value!r}, which is not a number",
+            fix="delete it to start the total again",
+        )
     try:
         number = float(value)
     except (TypeError, ValueError):
@@ -177,6 +203,23 @@ def _finite(value: Any, name: str, target: Path) -> float:
             fix="delete it to start the total again",
         )
     return number
+
+
+def _recorded_as(document: dict[str, Any], name: str, default: float | int) -> Any:
+    """What the record says for `name`, defaulting only where it says nothing.
+
+    `document.get(name) or default` is the shape that looks right and is not, and `jobs.py`
+    already carries the same note for the same reason: `or` swaps every *falsy* value for the
+    default before anything can object to it. `"spent_usd": ""` became `0.0`, so a workspace
+    that had spent five dollars reported — and enforced against — nothing, while `"abc"`
+    was correctly refused as `invalid-budget`. That is R3.6's hole reached through the other
+    door: a control that cannot be evaluated has to refuse, not silently read as zero.
+
+    Absent and null are the two ways a record legitimately says nothing. Everything else is
+    handed to `_finite`, which is where it is accepted or refused.
+    """
+    value = document.get(name)
+    return default if value is None else value
 
 
 def load(workspace: Workspace) -> Total:
@@ -206,9 +249,9 @@ def load(workspace: Workspace) -> Total:
             fix="delete it to start the total again",
         )
     return Total(
-        spent_usd=_finite(document.get("spent_usd") or 0.0, "spent_usd", target),
-        calls=int(_finite(document.get("calls") or 0, "calls", target)),
-        unpriced=int(_finite(document.get("unpriced") or 0, "unpriced", target)),
+        spent_usd=_finite(_recorded_as(document, "spent_usd", 0.0), "spent_usd", target),
+        calls=int(_finite(_recorded_as(document, "calls", 0), "calls", target)),
+        unpriced=int(_finite(_recorded_as(document, "unpriced", 0), "unpriced", target)),
     )
 
 
@@ -243,30 +286,64 @@ def record(workspace: Workspace, cost_usd: float | None) -> Total:
         return _add_unlocked(workspace, cost_usd)
 
 
-def count(workspace: Workspace, job: jobs.Job) -> tuple[Total, jobs.Job]:
-    """Add this call to the running total at the moment it is submitted (R3.2, R3.5).
+def reserve(
+    workspace: Workspace,
+    limits: Limits,
+    estimate: float | None,
+    job: jobs.Job,
+) -> tuple[str | None, jobs.Job]:
+    """Decide whether this call may happen and count it, in one step, before it happens.
 
-    **At submission, not at collection**, and the second review is why. Counting when a
-    result is collected leaves everything submitted-and-not-yet-collected invisible to the
-    ceiling — and `--no-wait` is an ordinary supported flag, so a caller looping it bills the
-    provider indefinitely while `check` compares against a total that never moves. The money
-    is committed when `jobs.submit` returns, so that is when the call is counted.
+    This is `check` and `count` fused, and the fusing is the point. Asking the ceiling in one
+    critical section and recording the answer in another leaves the paid call in the gap
+    between them: every concurrent `gen` reads the same total, every one of them is under the
+    ceiling, every one of them submits, and the ceiling is discovered to have been passed only
+    once the money is gone. A file lock around the *write* prevents a lost update and says
+    nothing about that, because the decision was already taken outside it.
 
-    It is counted as *unpriced*, because at submission there is no amount to add. `settle`
-    folds in the real figure later, without counting the call again.
+    So the order is reserve, then submit — the same discipline `jobs.submit` applies to
+    itself one layer down, where the record is written before the provider is called so that
+    a death in the window cannot lose an already-billed request. Here the reservation is what
+    a concurrent caller sees; `release` gives it back if the submission never happens.
 
-    The whole read-check-write is under the lock rather than only the write: the flag is on
-    the job, two routes may hold the same job, and checking a caller's stale copy outside the
-    lock is what would let one call be counted twice.
+    A call is reserved as *unpriced*: at submission there is no amount to know, so this moves
+    `calls` and leaves `spent_usd` for `settle`. R3.5 is why the job is reloaded and
+    re-checked inside the lock rather than trusted from the caller's copy.
     """
     with _locked(workspace):
         current = jobs.load(workspace, job.id) if _recorded(workspace, job) else job
         if current.counted:
-            return _load_unlocked(workspace), current
-        total = _add_unlocked(workspace, current.cost_usd)
+            return check(limits, _load_unlocked(workspace), estimate), current
+        # Raises to refuse, before anything is written and before the caller submits.
+        warning = check(limits, _load_unlocked(workspace), estimate)
+        _add_unlocked(workspace, current.cost_usd)
         marked = current.as_counted()
         jobs.save(workspace, marked)
-        return total, marked
+        return warning, marked
+
+
+def release(workspace: Workspace, job: jobs.Job) -> jobs.Job:
+    """Give back a reservation whose call was never submitted.
+
+    R3.2 counts a call *when it is submitted*, and a `submit` that raised did not submit one:
+    the provider returned no request id, so nothing was accepted and nothing was billed.
+    Keeping the reservation would let an unreachable network spend a ceiling on calls that
+    never reached anybody.
+
+    The case this cannot distinguish is a call billed by the provider and then lost on the
+    way back. Nothing observable here separates it from a call that never arrived, so the
+    total takes the reading that matches R3.2 and the job record — saved as `failed`, with
+    its history — stays as the evidence a person can act on. That asymmetry is deliberate and
+    is the reason this is a named operation rather than a rollback buried in an `except`.
+    """
+    with _locked(workspace):
+        current = jobs.load(workspace, job.id) if _recorded(workspace, job) else job
+        if not current.counted:
+            return current
+        _write_unlocked(workspace, _load_unlocked(workspace).minus(current.cost_usd))
+        cleared = current.as_uncounted()
+        jobs.save(workspace, cleared)
+        return cleared
 
 
 def settle(workspace: Workspace, job: jobs.Job, cost_usd: float | None) -> tuple[Total, jobs.Job]:
@@ -278,12 +355,24 @@ def settle(workspace: Workspace, job: jobs.Job, cost_usd: float | None) -> tuple
     unpriced and the ceiling bounds a count rather than an amount until `specs/gen-fal/`
     wires a figure through.
     """
-    if cost_usd is None or job.cost_usd is not None:
+    if cost_usd is None:
         return load(workspace), job
     with _locked(workspace):
+        # Reloaded inside the lock, and checked there, for the reason `count` states and
+        # this function used to ignore: `job.cost_usd is not None` asked of the caller's
+        # in-memory copy is a question about a snapshot taken before the lock existed. Two
+        # collecting routes — `gen collect` and `job resume` — legitimately hold the same
+        # job loaded before either settled, so both saw `None`, both passed, and both added
+        # the cost: one call billed once and counted twice. It is unreachable only while no
+        # provider prices a call, which makes it the shape `methodology.md` names for money
+        # code — invisible per call, wrong by the end of the month — rather than a defect
+        # anything today would catch.
+        current = jobs.load(workspace, job.id) if _recorded(workspace, job) else job
+        if current.cost_usd is not None:
+            return _load_unlocked(workspace), current
         updated = _load_unlocked(workspace).settled(cost_usd)
         _write_unlocked(workspace, updated)
-        priced = job.with_cost(cost_usd)
+        priced = current.with_cost(cost_usd)
         jobs.save(workspace, priced)
         return updated, priced
 
@@ -310,7 +399,24 @@ class _locked:
             try:
                 self._fd = os.open(self._path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
                 return
-            except FileExistsError:
+            except (FileExistsError, PermissionError) as contended:
+                # `PermissionError` is not paranoia and not a POSIX concern: on Windows, a
+                # lock file another *process* is holding open raises it rather than
+                # `FileExistsError`, which the same call raises when the file merely exists
+                # on disk. Catching only the latter meant every genuinely concurrent writer
+                # sailed past the retry loop and lost its update — 50 of 200 in a
+                # four-process run — while the single-process tests, which never hold the
+                # file open across the second attempt, all passed. That is task 0.12's
+                # lesson arriving a second time: a platform difference verified on one
+                # platform is not verified.
+                #
+                # A `PermissionError` with no lock file present is a different thing — an
+                # unwritable directory — and retrying that into a ten-second timeout would
+                # answer "delete that file" about a file that is not there. So it is
+                # distinguished by what is actually on disk rather than by `os.name`, which
+                # keeps one code path under test on both platforms.
+                if isinstance(contended, PermissionError) and not self._path.exists():
+                    raise
                 if time.monotonic() >= give_up_at:
                     raise UsageError(
                         "budget-locked",

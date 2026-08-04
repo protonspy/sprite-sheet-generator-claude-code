@@ -26,7 +26,41 @@ reader of `ssc.yaml` that `budget:` joins. 165 tests, run green before this work
 - [x] 3.4 (Unit) Count a call when it is submitted, once, and settle its price later without recounting it — R3.2, R3.5, R3.7
 - [x] 3.5 (Unit) Refuse a ceiling or a total that is not a finite, non-negative amount — R3.6
 
+## 4 · What the reviews returned
+
+- [x] 4.1 (TDD) Decide the ceiling and record the call in one step, before the call is submitted, and give the reservation back where the submission never happened — R3.8, R3.2
+- [x] 4.2 (TDD) Wait for a lock another process is holding, without mistaking an unwritable directory for one — R3.9, R3.4
+- [x] 4.3 (Unit) Decide from the record on disk, inside the lock, so two routes holding one job settle one price — R3.7, R3.5
+- [x] 4.4 (Unit) Refuse a total that is not a number rather than defaulting a falsy one to zero — R3.6
+
 ## Notes
+
+**Group 4 is a fix round, and the red was observed on every task in it.** Each fix was
+reverted after its test was written and the test run against the broken code: the lock test
+fails 3 runs out of 3 with `PermissionError` escaping `__enter__`, the settle test reports
+`0.8 == 0.4` for one $0.40 call, the falsy-total test fails on four of its five values, and
+the reservation tests fail when `reserve` stops publishing before it returns. That is the
+point of RED and it is why these are regression tests rather than restatements of the code.
+
+**The cross-process concurrency test is kept and is deliberately not the regression test.**
+It spawns four interpreters and asserts no update is lost, which is worth having — it catches
+the lock being removed outright. It does *not* reliably catch the defect it was written for:
+the race showed up in two runs out of five for the reviewer, and passed three times out of
+three here against the broken lock. A test that finds its bug sometimes is not evidence, so
+`4.2` is pinned by a deterministic test that forces the platform's error instead of hoping
+for it.
+
+**Whether the red was observed on 2.2 and 3.1 originally cannot be established.** This leaf
+was recovered from an uncommitted working tree with no incremental history, so the record
+that `methodology.md` asks for is simply absent and no one can now say either way.
+
+Rather than assert something unverifiable, both were checked the way group 4's were.
+Disabling the ceiling comparison fails three tests, `test_a_total_that_has_reached_the_ceiling_refuses_the_next_call`
+among them; dropping the `unpriced` increment in `Total.plus` fails
+`test_an_unpriced_call_is_counted_and_not_costed` and `test_settling_twice_folds_one_price`.
+So the tests do constrain the behaviour their tasks claim. That is strictly weaker than
+having watched the red when the code was written — it shows the tests are load-bearing, not
+that they were written first — and the distinction is left visible rather than smoothed over.
 
 **Two TDD tasks, and both are money rather than complexity.** 2.2 decides whether a call
 happens, and being wrong in the permissive direction spends money nobody authorised while

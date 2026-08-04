@@ -92,6 +92,16 @@ class Job:
     def as_counted(self) -> Job:
         return replace(self, counted=True)
 
+    def as_uncounted(self) -> Job:
+        """Give back a reservation the provider never accepted.
+
+        The budget counts a call *before* submitting it, so the ceiling is decided and
+        published in one step rather than two; a `submit` that raises therefore leaves a
+        reservation matching no call. This is what returns it. Not a general "forget this
+        was counted" — the only caller is the failure path in `budget.release`.
+        """
+        return replace(self, counted=False)
+
     @classmethod
     def new(
         cls,

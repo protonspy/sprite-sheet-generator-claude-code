@@ -15,10 +15,25 @@ behind:
 ```
 free path        ← R1.1, before anything else happens
 cache            ← already there; a hit costs nothing, so it outranks the ceiling
-ceiling          ← R2.2, on the estimate
+reserve          ← R2.2 and R3.8: ask the ceiling and record the answer, in one step
 credential, job, submit
-record the cost  ← R3.2, once the provider says what it was
+release          ← R3.2, only where the submission never happened
+settle           ← R3.7, once the provider says what it cost
 ```
+
+**Asking the ceiling and recording the answer are one step, not two** (R3.8). The obvious
+shape — check, submit, then count — puts the paid call in the gap between a read and a
+write, and a lock around only the write does nothing about it: every concurrent `gen` reads
+the same total, every one of them is under the ceiling, and every one of them submits. The
+ceiling is discovered to have been passed after the money is gone. So the check and the
+count share one critical section and both happen *before* `submit`.
+
+That is the discipline `jobs.submit` already applies one layer down, where the record is
+written before the provider is called so a death in the window cannot lose an already-billed
+request. The cost of reserving first is a reservation matching no call when a submission
+fails, which `release` gives back (R3.2) — a `submit` that raised returned no request id, so
+nothing was accepted. What it cannot distinguish is a call billed and then lost on the way
+back; the job record, saved as `failed`, is what a person acts on there.
 
 **The free path is first because it is the only refusal that holds regardless of money.** A
 workspace with no ceiling still should not pay for a `np.pad`. **The cache is checked before
@@ -30,7 +45,7 @@ reader of `ssc.yaml` — `gen-fal` made it that when `models:` became the second
 
 ## Boundaries and contracts
 
-Serves R2.3, R3.1, R3.2, R3.3, R3.4.
+Serves R2.3, R3.1, R3.2, R3.3, R3.4, R3.8, R3.9.
 
 **The total is a file, and two commands may write it at once.** `jobs/` already assumes
 concurrent writers and `atomic.replace` already exists for it. But `atomic.replace` makes
@@ -38,6 +53,21 @@ each *write* whole; it does not make a read-modify-write atomic, and a running t
 exactly that. So the update takes a lock, and R3.4 is written about losing an update rather
 than about corrupting a file — different failures, and only one of them is the one
 `atomic.replace` already prevents.
+
+**The lock is an exclusive create, and what it must catch is platform-dependent** (R3.9).
+`os.open` with `O_CREAT | O_EXCL` raises `FileExistsError` when the lock file merely exists
+on disk, and on Windows `PermissionError` when another *process* is holding it open. Catching
+only the first is a lock that works within one process and fails between them — which is the
+only case it exists for. A `PermissionError` with no lock file present is a different thing,
+an unwritable directory, and is distinguished by what is on disk rather than by `os.name`:
+one code path, exercised on both platforms, because task 0.12 already paid for a
+platform-conditional branch that was dead everywhere.
+
+**Every idempotency check is made against disk, inside the lock.** `reserve` and `settle`
+both decide whether a call has already been counted or priced, and both reload the job record
+rather than trusting the caller's copy. Two collecting routes legitimately hold the same job
+loaded before either wrote, so a check against an in-memory snapshot passes twice and bills
+once — one call counted or priced two times.
 
 **An unpriced call is counted, not costed.** A provider metering by subscription reports no
 per-call cost, and recording a zero would make `ssc budget` report a workspace that spent

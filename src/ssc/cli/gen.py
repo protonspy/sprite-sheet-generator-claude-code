@@ -967,10 +967,6 @@ def run(
             cached=True,
         )
 
-    # After the cache and before the credential. A cache hit submits nothing, so refusing
-    # one for being over budget would be refusing to spend nothing (R2.2).
-    warning = budget.check(limits, budget.load(workspace), budget.estimate_for(registry, call))
-
     # Before the job record, so a call that was never going to happen leaves no trace of
     # having been attempted.
     fal.credential()
@@ -994,11 +990,24 @@ def run(
         cache_key=key,
     )
     arguments = call.arguments(url)
-    job = jobs.submit(workspace, job, lambda _: provider.submit(call.endpoint, arguments), at=now())
-    # Here, not after collecting. The money is committed the moment `submit` returns, and a
-    # caller who never collects — `--no-wait` in a loop — would otherwise bill the provider
-    # while the ceiling compared against a total that never moved (R3.2).
-    total, job = budget.count(workspace, job)
+
+    # Reserved before the call, not counted after it. After the cache, because a hit submits
+    # nothing and refusing one for being over budget would be refusing to spend nothing
+    # (R2.2); before `submit`, because the ceiling has to be decided and published in one
+    # step or every concurrent `gen` clears the same stale total and they all spend (R3.2,
+    # R3.4). `reserve` raises to refuse.
+    warning, job = budget.reserve(workspace, limits, budget.estimate_for(registry, call), job)
+    try:
+        job = jobs.submit(
+            workspace, job, lambda _: provider.submit(call.endpoint, arguments), at=now()
+        )
+    except Exception:
+        # No request id came back, so the provider accepted nothing and R3.2 has no call to
+        # count. `jobs.submit` has already saved the record as `failed`; this returns the
+        # money the reservation was holding.
+        budget.release(workspace, job)
+        raise
+    total = budget.load(workspace)
 
     if not wait:
         return Result(
@@ -1076,10 +1085,8 @@ def collect_job(
         )
 
     record, payload = collect(workspace, provider, record, timeout=timeout, poll=poll)
-    # Counted here as well as in `run`, and idempotently. `--no-wait` then `gen collect` is
-    # an ordinary supported sequence, and counting only where `gen` waited meant a caller who
-    # used it submitted billed work the ceiling never saw (R3.2).
-    # Counted at submission; this only folds in a price, if the provider gave one.
+    # The call was counted at submission, by `reserve`, whichever route collects it. This only
+    # folds in a price where the provider gave one, and does nothing where none did (R3.7).
     total, record = budget.settle(workspace, record, record.cost_usd)
     # Under the key the submitting call computed, which the job carried here. `--no-wait` then
     # `gen collect` has to leave the workspace in the state waiting would have: without this,

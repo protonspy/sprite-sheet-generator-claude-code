@@ -722,8 +722,16 @@ def test_the_job_is_written_before_the_call_is_made(
     finally:
         jobs.save = original_save  # type: ignore[assignment]
 
-    assert calls[0] == "save:submitted:None"
-    assert calls[1] == "submit"
+    # Two writers record before the call now rather than one: `budget.reserve` writes the job
+    # as counted, so the ceiling is decided and published in a single step, and `jobs.submit`
+    # writes it again immediately before calling. The assertion is therefore the boundary R1.1
+    # actually protects — nothing reaches the provider until a record exists — rather than a
+    # fixed index, which would break each time a writer is added ahead of it.
+    assert "submit" in calls
+    first_submit = calls.index("submit")
+    assert first_submit > 0
+    assert all(entry.startswith("save:") for entry in calls[:first_submit])
+    assert calls[first_submit - 1] == "save:submitted:None"
 
 
 def test_the_job_records_the_call_and_not_the_payload(

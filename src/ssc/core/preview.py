@@ -11,7 +11,17 @@ not inside the command.
 
 from __future__ import annotations
 
+import numpy as np
+
+from ssc.core.assemble import check_canvas
+from ssc.core.contact import Cell, ContactParams, sheet
+
 MODES = ("loop", "ping-pong", "reverse")
+
+#: How many times a tile is repeated on each axis to show its seams. Two is the smallest
+#: number that puts every edge of the tile against a copy of the opposite edge, which is the
+#: whole question a tile preview answers.
+TILED = 2
 
 
 def order(frames: int, mode: str, section: tuple[int, int] | None = None) -> list[int]:
@@ -46,3 +56,32 @@ def order(frames: int, mode: str, section: tuple[int, int] | None = None) -> lis
     if mode == "ping-pong":
         return forward + forward[-2:0:-1]
     return forward
+
+
+def tiled(image: np.ndarray, times: int = TILED) -> np.ndarray:
+    """The image repeated `times` on each axis, to show what its seams do (R6.3).
+
+    A copy, never a resample: `np.tile` repeats whole pixels, so a preview of a 32x32 tile is
+    exactly four copies of it and any seam a reader sees is a seam that is really there.
+    """
+    if times < 1:
+        raise ValueError(f"a tiled preview repeats at least once, got {times}")
+    height, width = image.shape[:2]
+    check_canvas(width * times, height * times, "the tiled preview")
+    return np.tile(image, (times, times, 1))
+
+
+def contact(frames: list[np.ndarray], columns: int = 0) -> np.ndarray:
+    """Every frame on one canvas, each labelled with its index (R6.2).
+
+    The labels are the point: a contact sheet of eight identical-looking idle frames is not
+    worth printing unless a reader can say *which* one has the defect. `core.contact` already
+    lays out and labels a grid for `sweep`, so this is that, with the frame number as the
+    label rather than a parameter value.
+    """
+    if not frames:
+        raise ValueError("there are no frames to lay out")
+    return sheet(
+        [Cell(image=frame, label=str(number)) for number, frame in enumerate(frames)],
+        ContactParams(columns=columns),
+    )

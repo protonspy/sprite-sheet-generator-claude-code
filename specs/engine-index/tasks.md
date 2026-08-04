@@ -40,14 +40,14 @@ run green before this work started — 290 passed, 2 skipped.
 ## 4 · Preview
 
 - [x] 4.1 (TDD) Order a frame set for a playback mode — `loop`, `ping-pong`, `reverse` — and for one named section — R6.1, R6.4
-- [ ] 4.2 (Unit) Encode the ordered frames as an animated GIF at the declared frame rate — R6.1
-- [ ] 4.3 (Unit) Render a contact sheet instead, each frame labelled with its index — R6.2
-- [ ] 4.4 (Unit) Tile a seam-checked kind's asset 2×2 — R6.3
-- [ ] 4.5 (Unit) `ssc preview` — resolve the asset through `dist/index.json`, refuse when there is none, and write only under `dist/preview/` — R6.5, R6.6
+- [x] 4.2 (Unit) Encode the ordered frames as an animated GIF at the declared frame rate — R6.1
+- [x] 4.3 (Unit) Render a contact sheet instead, each frame labelled with its index — R6.2
+- [x] 4.4 (Unit) Tile a seam-checked kind's asset 2×2 — R6.3
+- [x] 4.5 (Unit) `ssc preview` — resolve the asset through `dist/index.json`, refuse when there is none, and write only under `dist/preview/` — R6.5, R6.6
 
 ## 5 · Wiring
 
-- [ ] 5.1 (Unit) Register `ssc index` and `ssc preview`, and give the workspace its `dist` path — R1.7
+- [x] 5.1 (Unit) Register `ssc index` and `ssc preview`, and give the workspace its `dist` path — R1.7
 - [ ] 5.2 (Unit) Record `adr:0009-authored-intent-lives-in-a-sidecar`, the glossary terms this leaf coins, and the wiki page for taking a workspace into an engine — R4.1
 
 ## Notes

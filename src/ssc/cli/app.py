@@ -23,7 +23,7 @@ from ssc.cli.commands.convert import (
 from ssc.cli.commands.doctor import doctor
 from ssc.cli.commands.gate import gate
 from ssc.cli.commands.gen import gen_group
-from ssc.cli.commands.index import index
+from ssc.cli.commands.index import index, preview
 from ssc.cli.commands.init import init
 from ssc.cli.commands.job import job
 from ssc.cli.commands.kind import kind
@@ -56,6 +56,7 @@ main.add_command(image)
 main.add_command(video)
 main.add_command(gen_group)
 main.add_command(index)
+main.add_command(preview)
 main.add_command(tool)
 tool.add_command(doctor)
 tool.add_command(snap)

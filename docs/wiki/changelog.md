@@ -61,3 +61,7 @@ Distilled from the `ssc` design document and three video transcripts collected i
   each frame, anchoring the feet, keying the background, packing.
 - **[[prior-art]]** — spritefusion-pixel-snapper adopted, proper-pixel-art refused,
   Sorceress read closely, 3D→2D out of scope.
+- **[[prompt-templates]]** — the frame a caller's words go into: one kind is not one
+  template, the eight named slots and why the vocabulary is closed, the asymmetry between
+  a missing slot and a spare one, chroma on every sprite template and deliberately not on
+  `box-art`, and the base animation template against the walk cycle.

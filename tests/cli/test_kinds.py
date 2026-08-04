@@ -42,7 +42,27 @@ def test_the_built_ins_are_there() -> None:
         # `background` arrived with `specs/parallax-layers/`, as this spec's own argument
         # predicts: a kind is an extensible profile, so a seventh is the mechanism working.
         "background",
+        # And an eighth, which is the first that is not a game asset at all — see
+        # `test_box_art_is_measured_by_nothing_doctor_ships`.
+        "box-art",
     }
+
+
+def test_box_art_declares_that_no_check_applies_to_it() -> None:
+    """Empty `checks` is a decision, not an oversight: every check `doctor` ships measures a
+    property of a pixel-art sprite, and box art is a painterly portrait keeping its own
+    background.
+
+    This asserts the *profile*, which is what this spec owns, and deliberately not what
+    `doctor` then does with it — today that field only gates `seam` and `nineslice`, so the
+    other seven run against any kind regardless. The requirements note on R1.2 says so
+    rather than leaving the name of this test to imply otherwise.
+    """
+    profile = kinds.BUILT_INS["box-art"]
+    assert profile.checks == ()
+    assert profile.animates is False
+    assert profile.cell == (1024, 1536)
+    assert profile.template == "box-art"
 
 
 def test_every_built_in_declares_every_field() -> None:
@@ -127,7 +147,7 @@ def test_kind_list_reports_built_in_and_declared(tmp_path: Path, monkeypatch) ->
     code, payload = run("kind", "list")
 
     assert code == 0
-    assert payload["count"] == 8
+    assert payload["count"] == len(kinds.BUILT_INS) + 1
     assert "portrait" in {entry["name"] for entry in payload["kinds"]}
 
 

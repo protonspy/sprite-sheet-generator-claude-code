@@ -18,6 +18,8 @@ and the model. 990 tests, run green before this work started.
 - [x] 2.1 (TDD) Reconcile a requested size against an enum of literal sizes or an aspect-ratio-plus-tier, and refuse when nothing is close enough — R3.1, R3.2
 - [x] 2.2 (Unit) Build the resolved call: the kind's template, the core options, the raw options, the editing endpoint when an image is passed, checked against the schema — R2.1, R2.5, R2.6
 - [x] 2.3 (Unit) `--dry-run` reports that resolved call and submits nothing — R4.3
+- [x] 2.4 (Unit) Take a named template over the kind's, and ship the character templates the pipeline's own stages need — R2.7
+- [x] 2.5 (Unit) Fill a template's named slots from `--var`, refusing an unknown slot and refusing a slot left empty before submitting — R2.8
 
 ## 3 · Submitting, collecting, filing
 

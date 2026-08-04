@@ -253,3 +253,5 @@ raw/**/contents/
 node_modules/
 package.json
 package-lock.json
+
+.headroom_*

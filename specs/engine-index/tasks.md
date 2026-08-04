@@ -19,7 +19,7 @@ run green before this work started — 290 passed, 2 skipped.
 
 ## 2 · The model
 
-- [ ] 2.1 (Unit) Walk the workspace into per-kind groups, resolving each asset's published stage and reporting the ones with no image as skipped — R1.1, R1.2, R1.3, R1.4, R1.5
+- [x] 2.1 (Unit) Walk the workspace into per-kind groups, resolving each asset's published stage and reporting the ones with no image as skipped — R1.1, R1.2, R1.3, R1.4, R1.5
 - [ ] 2.2 (Unit) Build a sheet from a frame set — cell, columns, rows, frame count, anchor, and whether the set was aligned — R2.1, R2.2
 - [ ] 2.3 (Unit) Carry a sheet's playback: frame rate, mode and resolved sections — R2.3
 - [ ] 2.4 (Unit) Build an atlas for a `bin` kind — a rect and an anchor per asset, with the padding and the extrusion — R3.1

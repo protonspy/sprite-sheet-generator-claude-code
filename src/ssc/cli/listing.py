@@ -15,9 +15,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+import numpy as np
+
 from ssc.cli import meta
 from ssc.cli.atomic import Directory
 from ssc.cli.errors import SscError, UsageError
+from ssc.cli.frames import IMAGE_SUFFIXES as FRAME_SUFFIXES
+from ssc.cli.frames import MAX_FILE_BYTES, MAX_SET_PIXELS, decode_image
 from ssc.cli.meta import AssetMeta, FileRecord, prefix_of
 from ssc.cli.workspace import Workspace
 
@@ -321,6 +325,67 @@ def resolve(workspace: Workspace, address: str) -> tuple[Directory, AssetMeta]:
     except BaseException:
         held.close()
         raise
+
+
+def frames_of(asset_dir: Directory, record: AssetMeta, stage: str) -> list[np.ndarray]:
+    """The frames of a recorded stage, read **through the held directory**.
+
+    It arrived with `specs/gates-and-resume/` and lived in `commands/run.py` until
+    `specs/engine-index/` needed the same read for every asset at once. It is here rather
+    than copied because of what it is: every read of a recorded asset file in this project
+    goes through the binding rather than through a path — `commands/media.py` does it,
+    `meta.load` does it — and `atomic.py` documents at length why. A component can be
+    replaced by a link between the check and the read, and Windows lets an unprivileged user
+    create one. A second copy of this function is a second place for that discipline to be
+    dropped, quietly, by whoever edits only one of them.
+
+    Names are listed by path; every byte is read through the binding. Listing outside it is
+    harmless — a name is not content, and a swapped component makes the confined read refuse
+    rather than making the listing lie in a way that reaches anything.
+    """
+    entry = record.stage(stage)
+    where = asset_dir.path / entry.path
+    if not where.exists():
+        raise SscError(
+            "stage-missing",
+            f"{record.kind}/{record.key} records stage {stage!r} at {entry.path}, "
+            "which is not there",
+            fix="ssc clean removed it, or it was deleted by hand; rerun the step that made it",
+        )
+
+    if where.is_file():
+        return [decode_image(asset_dir.read(entry.path, max_bytes=MAX_FILE_BYTES), entry.path)]
+
+    names = sorted(
+        child.name for child in where.iterdir() if child.suffix.lower() in FRAME_SUFFIXES
+    )
+    if not names:
+        raise SscError(
+            "stage-missing",
+            f"{record.kind}/{record.key} records stage {stage!r} at {entry.path}, "
+            "which holds no images",
+            fix="rerun the step that made it",
+        )
+    images: list[np.ndarray] = []
+    total = 0
+    for name in names:
+        relative = f"{entry.path}/{name}"
+        image = decode_image(asset_dir.read(relative, max_bytes=MAX_FILE_BYTES), relative)
+        total += image.shape[0] * image.shape[1]
+        if total > MAX_SET_PIXELS:
+            # The ceiling on the *set*, which bounding each file individually does not give:
+            # a few hundred frames each comfortably under `MAX_PIXELS` is gigabytes resident
+            # at once, reached by an ordinary run over a large earlier stage rather than by
+            # anything hostile. Accumulated as they decode rather than measured from headers
+            # first, so the bytes still arrive through the binding.
+            raise SscError(
+                "set-too-large",
+                f"{record.kind}/{record.key} stage {stage!r} is over the "
+                f"{MAX_SET_PIXELS:,}-pixel ceiling for one set",
+                fix="split the animation, or work on fewer frames at a time",
+            )
+        images.append(image)
+    return images
 
 
 def lineage(record: AssetMeta, entry: FileRecord) -> list[FileRecord]:

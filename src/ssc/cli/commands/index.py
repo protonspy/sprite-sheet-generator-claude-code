@@ -20,7 +20,7 @@ from ssc.cli.atomic import Directory
 from ssc.cli.errors import SscError, UsageError
 from ssc.cli.frames import MAX_FILE_BYTES, decode_image, encode
 from ssc.cli.main import ssc_command
-from ssc.cli.names import check_relative_path
+from ssc.cli.names import check_name, check_relative_path
 from ssc.cli.output import Result
 from ssc.cli.preview import animated_gif
 from ssc.cli.workspace import Workspace
@@ -84,13 +84,39 @@ def bound_dist(root: Path, relative: str) -> Directory:
     return handle
 
 
+def make_dist_dirs(root: Path, relative: str) -> None:
+    """Create the directory chain a dist path needs, one segment at a time.
+
+    `mkdir(parents=True)` was the first shape and it was the hole `bound_dist` could not
+    cover, in two ways. It ran *before* the path was validated at all, so a `..` segment
+    escaped as a directory that was really created before the refusal arrived — and on
+    Windows it escapes even through a segment that does not exist, because `CreateDirectory`
+    collapses `..` lexically rather than walking. And it created the whole chain inside a
+    junction at, say, `dist/preview` before anything looked at where that resolved.
+
+    So: validate the string first, then create one segment and check where it went before
+    creating the next. A displaced segment is caught before anything is made inside it.
+    """
+    check_relative_path(relative, "a dist path")
+    walked, expected = root, root.resolve()
+    for name in Path(relative).parent.parts:
+        walked, expected = walked / name, expected / name
+        walked.mkdir(exist_ok=True)
+        if walked.resolve() != expected:
+            raise SscError(
+                "dist-displaced",
+                f"{walked} resolves to {walked.resolve()}, which is not {expected}",
+                fix=f"remove the link at {walked}, or delete {root} and run ssc index again",
+            )
+
+
 def write_into(root: Path, relative: str, data: bytes) -> Path:
     """Write one file under `root`, replacing what is there.
 
     `replace` rather than `write_new`: `dist/` is rebuilt, and a build that refuses because
     its own last output is still there would need a `clean` before every run.
     """
-    (root / relative).parent.mkdir(parents=True, exist_ok=True)
+    make_dist_dirs(root, relative)
     with bound_dist(root, relative) as held:
         return held.replace(Path(relative).name, data)
 
@@ -258,6 +284,36 @@ def playback_mode(playback: dict[str, Any]) -> str:
     return str(mode)
 
 
+def read_sections(playback: dict[str, Any]) -> dict[str, tuple[int, int]]:
+    """The sections an index entry declares, each proved to be a name and a pair of numbers.
+
+    **The name especially.** `--section windup` becomes part of the filename `ssc preview`
+    writes, so a name out of the index is a path segment out of the index — and `check_name`
+    is what already refuses a separator or a `..` in every other name this project turns into
+    one. The ends are checked here for the reason every other number out of this file is:
+    `order` compares them, and a string compared to an int is a traceback rather than an
+    answer about a file.
+    """
+    read: dict[str, tuple[int, int]] = {}
+    for section in playback.get("sections", []):
+        if not isinstance(section, dict) or "name" not in section:
+            raise SscError(
+                "index-invalid",
+                "an index entry declares a section with no name",
+                fix=f"ssc index --format {formats.DEFAULT_FORMAT}",
+            )
+        try:
+            name = check_name(str(section["name"]), "a section")
+        except UsageError as refused:
+            raise SscError(
+                "index-invalid",
+                f"the index declares a section named {section['name']!r}: {refused.message}",
+                fix=f"ssc index --format {formats.DEFAULT_FORMAT}",
+            ) from refused
+        read[name] = (whole(section, "first", minimum=0), whole(section, "last", minimum=0))
+    return read
+
+
 def selects(wanted: str, kind: str) -> bool:
     """Whether the kind part of an address picks out this kind.
 
@@ -288,10 +344,7 @@ def find(workspace: Workspace, payload: dict[str, Any], address: str) -> Subject
                     frames=cut_sheet(image, entry),
                     fps=whole(entry["playback"], "fps"),
                     mode=playback_mode(entry["playback"]),
-                    sections={
-                        section["name"]: (section["first"], section["last"])
-                        for section in entry["playback"]["sections"]
-                    },
+                    sections=read_sections(entry["playback"]),
                 )
             )
 

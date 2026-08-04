@@ -293,6 +293,42 @@ def test_an_index_that_says_something_ssc_did_not_write_is_refused(
     assert payload["error"]["code"] == "index-invalid"
 
 
+def test_a_section_name_out_of_the_index_cannot_become_a_path(
+    workspace: ws.Workspace, tmp_path: Path
+) -> None:
+    # A section's name ends up in the filename `preview` writes, so a name out of the index
+    # is a path segment out of the index. On Windows `mkdir` collapses `..` lexically, so
+    # this escaped as a real directory before the refusal arrived.
+    escape = "../" * 5 + "escaped"
+    run("index")
+    rewrite_index(
+        workspace,
+        lambda payload: payload["sheets"][0]["playback"]["sections"].append(
+            {"name": escape, "first": 0, "last": 1}
+        ),
+    )
+
+    code, payload = run("preview", "hero", "--section", escape)
+    assert code == 1
+    assert payload["error"]["code"] == "index-invalid"
+    assert not (tmp_path.parent / "escaped").exists()
+    assert not (workspace.root.parent / "escaped").exists()
+
+
+@pytest.mark.parametrize("end", ["first", "last"])
+def test_a_section_end_that_is_not_a_number_is_refused(workspace: ws.Workspace, end: str) -> None:
+    run("index")
+    rewrite_index(
+        workspace,
+        lambda payload: payload["sheets"][0]["playback"]["sections"].append(
+            {"name": "windup", "first": 0, "last": 1, end: "one"}
+        ),
+    )
+    code, payload = run("preview", "hero")
+    assert code == 1
+    assert payload["error"]["code"] == "index-invalid"
+
+
 def test_an_entry_placed_off_its_own_atlas_is_refused(workspace: ws.Workspace) -> None:
     run("index")
     rewrite_index(workspace, lambda payload: payload["tilesets"][0]["tiles"][0].update(column=1000))
@@ -319,6 +355,22 @@ def test_a_dist_directory_that_is_really_somewhere_else_is_refused(
     assert code == 1
     assert payload["error"]["code"] == "dist-displaced"
     assert not any(elsewhere.iterdir()), "nothing was written through the link"
+
+
+def test_a_linked_dist_segment_is_caught_before_anything_is_made_inside_it(
+    workspace: ws.Workspace, tmp_path: Path, link_dir: Any
+) -> None:
+    # The residual the segment-by-segment mkdir closes: creating the whole chain at once put
+    # a real `character/` inside the link target before anything looked at where it went.
+    run("index")
+    elsewhere = tmp_path.parent / "elsewhere-preview"
+    elsewhere.mkdir(exist_ok=True)
+    link_dir(workspace.dist / "preview", elsewhere)
+
+    code, payload = run("preview", "hero")
+    assert code == 1
+    assert payload["error"]["code"] == "dist-displaced"
+    assert not any(elsewhere.iterdir()), "not even an empty directory was made in there"
 
 
 def test_a_dry_run_writes_nothing(workspace: ws.Workspace) -> None:

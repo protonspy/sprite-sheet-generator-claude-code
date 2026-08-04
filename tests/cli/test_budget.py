@@ -545,6 +545,30 @@ def test_an_unwritable_directory_is_reported_once_waiting_is_over(
     assert refused.value.code == "budget-unwritable"
 
 
+def test_a_lock_that_cannot_be_created_at_all_is_a_typed_error(
+    space: workspace.Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R4.1 — not every `os.open` failure is contention, and none may leave as a bare OSError.
+
+    A removed parent directory, a full disk and a name too long all raise `OSError` subtypes
+    that are not `FileExistsError` or `PermissionError`. Retrying them would be waiting for
+    something that is not coming; letting them through unwrapped reaches the caller as
+    `internal-error`, which carries no code and no fix to act on.
+    """
+    real_open = os.open
+
+    def gone(path: Any, flags: int, *rest: Any, **kw: Any) -> int:
+        if str(path).endswith(f"{budget.TOTAL_NAME}.lock"):
+            raise FileNotFoundError(2, "no such directory")
+        return real_open(path, flags, *rest, **kw)
+
+    monkeypatch.setattr(os, "open", gone)
+    with pytest.raises(SscError) as refused:
+        budget.record(space, 0.25)
+    assert refused.value.code == "budget-unwritable"
+    assert refused.value.fix is not None
+
+
 def test_a_reservation_is_visible_before_the_call_is_submitted(
     space: workspace.Workspace,
 ) -> None:

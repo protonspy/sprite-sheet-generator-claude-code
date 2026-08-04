@@ -421,6 +421,18 @@ class _locked:
                 if time.monotonic() >= give_up_at:
                     break
                 time.sleep(LOCK_POLL_SECONDS)
+            except OSError as unusable:
+                # Everything else `os.open` can raise — a parent directory removed under us,
+                # a full disk, a name too long. None of them is contention, so none is
+                # retried; what they must not do is leave as a bare `OSError`. R4.1 promises
+                # one JSON object carrying a code and a fix, and the catch-all in `main.py`
+                # can only turn an unrecognised exception into `internal-error`, which tells
+                # a caller nothing it can act on.
+                raise SscError(
+                    "budget-unwritable",
+                    f"{self._path} could not be created: {unusable}",
+                    fix="check that the workspace directory exists and is writable",
+                ) from unusable
 
         # Only once waiting is over, where nothing depends on the answer any more, is it safe
         # to ask what went wrong. An unwritable directory has now cost the full timeout rather

@@ -487,18 +487,52 @@ def test_a_lock_another_process_holds_open_is_waited_for_not_raised(
     assert budget.load(space).spent_usd == pytest.approx(0.25)
 
 
-def test_a_permission_error_with_no_lock_present_is_not_retried(
+def test_a_lock_released_in_the_racy_window_is_still_waited_for(
     space: workspace.Workspace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The other side of the same clause, and why it is not simply `except PermissionError`.
+    """The second review's finding, and the reason nothing is decided inside the loop.
 
-    A `PermissionError` with no lock file on disk is an unwritable directory, not a holder.
-    Retrying it would spin for the full timeout and then answer "another ssc command may be
-    running; if none is, delete that file" about a file that was never there. It is
-    distinguished by what is on disk rather than by `os.name`, which keeps one code path
-    under test on both platforms.
+    The first fix asked `self._path.exists()` after `os.open` raised, to tell a holder apart
+    from an unwritable directory. That check races the thing it describes: the holder unlinks
+    in its own `__exit__`, so a waiter that lost by microseconds sees no file, concludes there
+    was no contention, and fails outright — reintroducing the exact "wait rather than fail"
+    breach R3.9 was added to close, and reproduced live as a flaky full-suite run.
+
+    This is that window: `PermissionError` raised with the lock file *absent*. It must be
+    retried, not raised.
     """
     real_open = os.open
+    attempts: list[int] = []
+
+    def vanishing(path: Any, flags: int, *rest: Any, **kw: Any) -> int:
+        if str(path).endswith(f"{budget.TOTAL_NAME}.lock"):
+            attempts.append(1)
+            if len(attempts) == 1:
+                # The holder released and unlinked between our failed open and any check we
+                # could make: contention, with nothing left on disk to prove it.
+                raise PermissionError(13, "being used by another process")
+        return real_open(path, flags, *rest, **kw)
+
+    monkeypatch.setattr(os, "open", vanishing)
+    budget.record(space, 0.25)
+
+    assert len(attempts) >= 2, "the waiter gave up instead of retrying"
+    assert budget.load(space).spent_usd == pytest.approx(0.25)
+
+
+def test_an_unwritable_directory_is_reported_once_waiting_is_over(
+    space: workspace.Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cost of not racing, and it is paid on an error path.
+
+    A directory that genuinely cannot be written now spins for the whole timeout before
+    saying so, because the alternative — deciding early — is the race above. What it must not
+    do is answer "another ssc command may be running; if none is, delete that file" about a
+    file that was never there, so the distinction survives; it is drawn once waiting is over,
+    where nothing depends on the answer any more.
+    """
+    real_open = os.open
+    monkeypatch.setattr(budget, "LOCK_TIMEOUT_SECONDS", 0.15)
 
     def denied(path: Any, flags: int, *rest: Any, **kw: Any) -> int:
         if str(path).endswith(f"{budget.TOTAL_NAME}.lock"):
@@ -506,8 +540,9 @@ def test_a_permission_error_with_no_lock_present_is_not_retried(
         return real_open(path, flags, *rest, **kw)
 
     monkeypatch.setattr(os, "open", denied)
-    with pytest.raises(PermissionError):
+    with pytest.raises(UsageError) as refused:
         budget.record(space, 0.25)
+    assert refused.value.code == "budget-unwritable"
 
 
 def test_a_reservation_is_visible_before_the_call_is_submitted(

@@ -42,6 +42,16 @@ fails 3 runs out of 3 with `PermissionError` escaping `__enter__`, the settle te
 the reservation tests fail when `reserve` stops publishing before it returns. That is the
 point of RED and it is why these are regression tests rather than restatements of the code.
 
+**4.2 took two attempts, and the second review caught the first one.** Catching
+`PermissionError` fixed the lock; disambiguating it with `self._path.exists()` inside the
+retry loop then broke the same guarantee a narrower way, because that check races the holder
+it is asking about. It surfaced as a flaky suite — one full run in three — which is the
+reason it is worth naming here: the first fix was verified by a deterministic test that
+could not see it, since the test writes the lock file before raising and so never races
+anything. Waiting first and deciding afterwards has both properties, and
+`test_a_lock_released_in_the_racy_window_is_still_waited_for` fails 3 runs out of 3 against
+the version that decided early.
+
 **The cross-process concurrency test is kept and is deliberately not the regression test.**
 It spawns four interpreters and asserts no update is lost, which is worth having — it catches
 the lock being removed outright. It does *not* reliably catch the defect it was written for:

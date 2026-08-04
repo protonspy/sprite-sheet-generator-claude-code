@@ -58,10 +58,18 @@ than about corrupting a file — different failures, and only one of them is the
 `os.open` with `O_CREAT | O_EXCL` raises `FileExistsError` when the lock file merely exists
 on disk, and on Windows `PermissionError` when another *process* is holding it open. Catching
 only the first is a lock that works within one process and fails between them — which is the
-only case it exists for. A `PermissionError` with no lock file present is a different thing,
-an unwritable directory, and is distinguished by what is on disk rather than by `os.name`:
-one code path, exercised on both platforms, because task 0.12 already paid for a
-platform-conditional branch that was dead everywhere.
+only case it exists for. One code path rather than a branch on `os.name`, because task 0.12
+already paid for a platform-conditional branch that was dead everywhere.
+
+**Nothing is decided while waiting.** Both errors retry until the timeout, and only then is
+it asked which happened — a `PermissionError` with no lock file present is reported as an
+unwritable directory rather than as a held lock. Deciding that *during* the loop was the
+first attempt and it lost the race it was describing: the holder unlinks as it releases, so a
+waiter whose open failed microseconds earlier sees no file and concludes there was no
+contention. Once waiting is over nothing depends on the answer, so the same question is safe
+to ask. The cost is a real permissions failure taking the full timeout to surface; it is an
+error path, and a command that occasionally refuses to wait is worse than one that waits ten
+seconds before reporting a genuine fault.
 
 **Every idempotency check is made against disk, inside the lock.** `reserve` and `settle`
 both decide whether a call has already been counted or priced, and both reload the job record

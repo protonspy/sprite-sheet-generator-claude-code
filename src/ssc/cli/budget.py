@@ -358,7 +358,7 @@ def settle(workspace: Workspace, job: jobs.Job, cost_usd: float | None) -> tuple
     if cost_usd is None:
         return load(workspace), job
     with _locked(workspace):
-        # Reloaded inside the lock, and checked there, for the reason `count` states and
+        # Reloaded inside the lock, and checked there, for the reason `reserve` states and
         # this function used to ignore: `job.cost_usd is not None` asked of the caller's
         # in-memory copy is a question about a snapshot taken before the lock existed. Two
         # collecting routes — `gen collect` and `job resume` — legitimately hold the same
@@ -410,20 +410,34 @@ class _locked:
                 # lesson arriving a second time: a platform difference verified on one
                 # platform is not verified.
                 #
-                # A `PermissionError` with no lock file present is a different thing — an
-                # unwritable directory — and retrying that into a ten-second timeout would
-                # answer "delete that file" about a file that is not there. So it is
-                # distinguished by what is actually on disk rather than by `os.name`, which
-                # keeps one code path under test on both platforms.
-                if isinstance(contended, PermissionError) and not self._path.exists():
-                    raise
+                # Both are retried unconditionally, and nothing is decided here. Asking
+                # whether the lock file exists *at this point* was the first attempt and the
+                # second review reproduced why it fails: the holder unlinks in its own
+                # `__exit__`, so a waiter whose `os.open` lost by microseconds sees no file,
+                # concludes there was no contention, and fails outright — the exact
+                # "wait rather than fail" guarantee R3.9 was added to make. A check racing
+                # the thing it is trying to describe cannot describe it.
+                waited = contended
                 if time.monotonic() >= give_up_at:
-                    raise UsageError(
-                        "budget-locked",
-                        f"{self._path} has been held for over {LOCK_TIMEOUT_SECONDS:g}s",
-                        fix="another ssc command may be running; if none is, delete that file",
-                    ) from None
+                    break
                 time.sleep(LOCK_POLL_SECONDS)
+
+        # Only once waiting is over, where nothing depends on the answer any more, is it safe
+        # to ask what went wrong. An unwritable directory has now cost the full timeout rather
+        # than failing fast, which is the price of not racing; it is an error path, and a
+        # command that waits ten seconds before reporting a real permissions problem is a
+        # better trade than one that intermittently refuses to wait at all.
+        if isinstance(waited, PermissionError) and not self._path.exists():
+            raise UsageError(
+                "budget-unwritable",
+                f"{self._path.parent} could not be written: {waited}",
+                fix="check the permissions on the workspace directory",
+            ) from waited
+        raise UsageError(
+            "budget-locked",
+            f"{self._path} has been held for over {LOCK_TIMEOUT_SECONDS:g}s",
+            fix="another ssc command may be running; if none is, delete that file",
+        ) from waited
 
     def __exit__(self, *_: object) -> None:
         if self._fd is not None:

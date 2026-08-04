@@ -85,9 +85,18 @@ what it cost once it has.
 > exclusive create; `FileExistsError` is what it raises when the file exists, and
 > `PermissionError` is what Windows raises when another process is *holding* it. Catching
 > only the first produced a lock that worked in every single-process test and lost updates
-> between real processes — the case it exists for. The second clause is there so the fix
-> cannot be "retry every `PermissionError`", which would spin for the full timeout against an
-> unwritable directory and then blame a lock file that was never there.
+> between real processes — the case it exists for.
+>
+> **The second clause is there because the first fix for the first clause broke it.** Telling
+> a holder apart from an unwritable directory by asking whether the lock file exists *at the
+> moment the open failed* races the holder: it unlinks as it releases, so a waiter that lost
+> by microseconds sees no file, decides there was no contention, and fails outright. That is
+> the breach this requirement exists to prevent, reintroduced by its own remedy, and it
+> showed up as a flaky suite rather than a red one. So nothing is decided while waiting —
+> both errors are retried, and which of the two happened is settled only once the timeout has
+> expired and the answer no longer changes anything. An unwritable directory therefore costs
+> the full timeout before it is reported, which is the price of a distinction that cannot be
+> drawn race-free while it still matters.
 >
 > **R3.6 needed a second door closed.** The `NaN` fix left `document.get(name) or 0.0` in
 > place, which swaps every *falsy* value for the default before anything can object:

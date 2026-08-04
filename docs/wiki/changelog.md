@@ -1,5 +1,20 @@
 # Wiki changelog
 
+## 2026-08-04 — the handover, and where authored values live
+
+`specs/engine-index/` built `ssc index` and `ssc preview`, which is the first part of this
+project that writes something an engine reads rather than something a later step repairs.
+
+- **[[into-an-engine]]** — new. What each kind becomes in `dist/`, why the index is built
+  rather than recorded, and the one thing the three engine formats cannot say: a playback
+  mode. It is baked into the frame order instead, which is why a six-frame ping-pong
+  animation appears with ten entries.
+- **[[index]]** — links the new page under a new "Handing it over" heading.
+- `docs/glossary.md` — **index**, **sidecar**, **tileset**, **playback mode** and
+  **section** settled, before the JSON fields that use them shipped.
+- `adr:0009-authored-intent-lives-in-a-sidecar` — a frame rate is a decision, not
+  provenance, so it does not go in the file `ssc clean` reads to decide what to delete.
+
 ## 2026-08-03 — silhouette gets a metric
 
 `specs/sheet-doctor/` closed the one gap this page named as open.

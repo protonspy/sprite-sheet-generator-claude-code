@@ -46,6 +46,17 @@ class Workspace:
         asset. See adr:0005-a-job-always-exists."""
         return self.root / "jobs"
 
+    @property
+    def dist(self) -> Path:
+        """Where `ssc index` and `ssc preview` write, and the only place they write.
+
+        Derived from `assets/` in full, so deleting it loses nothing — which is what lets
+        `ssc index` promise a byte-identical second run rather than merely aim at one. It is
+        not created by `ssc init`: a workspace that has never been indexed should not carry
+        an empty directory suggesting it has.
+        """
+        return self.root / "dist"
+
     def asset_dir(self, kind: str, key: str) -> Path:
         """`assets/<kind>/<key>/` — kind first. See adr:0007-group-assets-by-kind-then-key.
 

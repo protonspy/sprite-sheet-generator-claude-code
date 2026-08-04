@@ -337,9 +337,11 @@ def test_a_recorded_stage_whose_files_are_gone_is_a_finding(hero: Path) -> None:
 def test_a_stage_over_the_set_pixel_ceiling_is_refused(
     hero: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from ssc.cli.commands import run as run_module
+    # Patched on `listing`, which is where the bound read moved when
+    # `specs/engine-index/` needed the same one for every asset at once.
+    from ssc.cli import listing
 
-    monkeypatch.setattr(run_module, "MAX_SET_PIXELS", 200)
+    monkeypatch.setattr(listing, "MAX_SET_PIXELS", 200)
     declare(hero, {"stage": "nobg", "command": "bgremove", "params": {"tol": 60}})
 
     code, payload = run("run", "character/hero")
@@ -350,8 +352,8 @@ def test_a_stage_over_the_set_pixel_ceiling_is_refused(
 def test_a_stage_inside_the_set_pixel_ceiling_still_runs(
     hero: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from ssc.cli.commands import run as run_module
+    from ssc.cli import listing
 
-    monkeypatch.setattr(run_module, "MAX_SET_PIXELS", 100_000)
+    monkeypatch.setattr(listing, "MAX_SET_PIXELS", 100_000)
     declare(hero, {"stage": "nobg", "command": "bgremove", "params": {"tol": 60}})
     assert run("run", "character/hero")[0] == 0

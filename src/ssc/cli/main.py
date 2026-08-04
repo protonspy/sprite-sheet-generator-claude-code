@@ -10,7 +10,7 @@ from typing import Any
 import click
 
 from ssc.cli import redact, workspace
-from ssc.cli.errors import EXIT_ERROR, EXIT_OK, SscError
+from ssc.cli.errors import EXIT_ERROR, SscError
 from ssc.cli.output import Result, render
 
 
@@ -43,8 +43,12 @@ def ssc_command(
             try:
                 if needs_workspace:
                     kwargs["workspace"] = workspace.require()
-                payload = fn(*args, dry_run=dry_run, **kwargs).as_dict()
-                code = EXIT_OK
+                produced = fn(*args, dry_run=dry_run, **kwargs)
+                payload = produced.as_dict()
+                # Almost always `EXIT_OK`. A command that succeeded and still cannot let the
+                # caller proceed — a gate is pending — says so here rather than by raising,
+                # so its result survives. See `Result.exit_code`.
+                code = produced.exit_code
             except SscError as error:
                 payload = error.as_dict()
                 code = error.exit_code

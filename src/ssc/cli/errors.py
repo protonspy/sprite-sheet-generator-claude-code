@@ -41,10 +41,17 @@ class UsageError(SscError):
 
 
 class GatePending(SscError):
-    """A human decision is outstanding. Exit `3`.
+    """A human decision is outstanding, and there is nothing else to report. Exit `3`.
 
-    Nothing in this leaf raises it; it exists so the four exit codes are one enumeration
-    rather than three plus a promise. `specs/gates-and-resume/` is what raises it.
+    `specs/gates-and-resume/` was expected to raise this and does not, which is worth
+    recording rather than quietly leaving the class unused. A pending gate is not a failure:
+    the gate was opened, and under `ssc run` the steps before it ran. Raising discards all of
+    that and reports `ok: false`, so the leaf carries exit `3` on `Result.exit_code` instead
+    and keeps the record.
+
+    The class stays because the distinction is real — a command that *cannot even produce a
+    result* while a decision is outstanding should refuse, and this is what it refuses with.
+    Nothing needs that today.
     """
 
     exit_code = EXIT_GATE_PENDING

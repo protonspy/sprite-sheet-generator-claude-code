@@ -19,13 +19,15 @@ import numpy as np
 
 from ssc.cli import kinds, listing, meta
 from ssc.cli import workspace as ws
+from ssc.cli.args import parse_hex
 from ssc.cli.atomic import Directory
-from ssc.cli.commands.convert import MAX_BOARD_SIDE, parse_hex, parse_key, parse_size
+from ssc.cli.commands.convert import MAX_BOARD_SIDE, parse_size
 from ssc.cli.errors import SscError, UsageError
 from ssc.cli.frames import Frame, encode, load_image, read_frames, write_frames, write_one
 from ssc.cli.listing import placed
 from ssc.cli.main import ssc_command
 from ssc.cli.output import Result
+from ssc.cli.steps import parse_key
 from ssc.core import atlas
 from ssc.core.assemble import (
     ANCHOR_MODES,

@@ -80,3 +80,10 @@ here.
   submitted. Every `gen` call produces one.
 - **gate** — a decision reserved for a human, held as state in the workspace. A pending
   gate is exit code `3` and a `review/` directory, never a question asked in conversation.
+- **sweep** — one command run once per point of a parameter range over the same input, with
+  every result measured and put side by side for a person. Avoid: search, grid search
+- **variant** — one result of a sweep: the output of one point, with its own `doctor`
+  report and its own cell on the contact sheet. Avoid: candidate, sample
+- **step** — one entry of a workspace's `pipeline:`, naming the stage it writes and the
+  command that writes it. What `ssc run` executes and `ssc status` reports on. Avoid: task,
+  phase

@@ -1,0 +1,9 @@
+{
+  "language": "en",
+  "deleteWavAfterTranscription": true,
+  "harnesses": [
+    "claude"
+  ],
+  "micEndpoint": "",
+  "systemEndpoint": ""
+}

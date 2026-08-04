@@ -329,6 +329,28 @@ def test_a_section_end_that_is_not_a_number_is_refused(workspace: ws.Workspace, 
     assert payload["error"]["code"] == "index-invalid"
 
 
+@pytest.mark.parametrize(
+    ("first", "last"),
+    [pytest.param(3, 1, id="backwards"), pytest.param(0, 999, id="past the last frame")],
+)
+def test_a_section_that_is_not_a_range_of_this_sheet_is_refused(
+    workspace: ws.Workspace, first: int, last: int
+) -> None:
+    # Two numbers that are each valid do not make a range. Left unchecked these reached
+    # `core.preview.order`'s own ValueError and came back as `internal-error` — "this is a
+    # bug in ssc" for a file somebody edited by hand.
+    run("index")
+    rewrite_index(
+        workspace,
+        lambda payload: payload["sheets"][0]["playback"]["sections"].append(
+            {"name": "broken", "first": first, "last": last}
+        ),
+    )
+    code, payload = run("preview", "hero", "--section", "broken")
+    assert code == 1
+    assert payload["error"]["code"] == "index-invalid"
+
+
 def test_an_entry_placed_off_its_own_atlas_is_refused(workspace: ws.Workspace) -> None:
     run("index")
     rewrite_index(workspace, lambda payload: payload["tilesets"][0]["tiles"][0].update(column=1000))

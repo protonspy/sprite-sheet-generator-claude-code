@@ -310,7 +310,17 @@ def read_sections(playback: dict[str, Any]) -> dict[str, tuple[int, int]]:
                 f"the index declares a section named {section['name']!r}: {refused.message}",
                 fix=f"ssc index --format {formats.DEFAULT_FORMAT}",
             ) from refused
-        read[name] = (whole(section, "first", minimum=0), whole(section, "last", minimum=0))
+        first, last = whole(section, "first", minimum=0), whole(section, "last", minimum=0)
+        if last < first:
+            # Each end being a number is not the same as the pair being a range. Left
+            # unchecked, this reached `order`'s own `ValueError` and came back as
+            # `internal-error` — "this is a bug in ssc" for a file somebody edited by hand.
+            raise SscError(
+                "index-invalid",
+                f"the index declares section {name!r} running from {first} to {last}",
+                fix=f"ssc index --format {formats.DEFAULT_FORMAT}",
+            )
+        read[name] = (first, last)
     return read
 
 
@@ -437,6 +447,16 @@ def preview(
                 fix="add it under playback.sections in that asset's asset.yaml",
             )
         span = subject.sections[section]
+        if span[1] >= len(subject.frames):
+            # `cli/index.py` refuses this when the index is *written*, against the frames it
+            # measured. Refused again here, against the frames the sheet actually holds,
+            # because between the two there is a file somebody may have edited.
+            raise SscError(
+                "index-invalid",
+                f"the index declares section {section!r} running to frame {span[1]}, "
+                f"and the sheet holds {len(subject.frames)}",
+                fix=f"ssc index --format {formats.DEFAULT_FORMAT}",
+            )
 
     named = f"{subject.key}{'-' + section if section else ''}"
     if "seam" in profile.checks:

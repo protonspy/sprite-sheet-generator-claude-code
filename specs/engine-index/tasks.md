@@ -12,10 +12,10 @@ run green before this work started — 290 passed, 2 skipped.
 
 ## 1 · The authored half
 
-- [ ] 1.1 (Unit) Read `asset.yaml` into a playback record — frame rate, mode and sections — refusing a file that is not a map, an unknown key and a mode that is not one of the three — R4.1, R4.3
-- [ ] 1.2 (Unit) Add `fps` to the kind profile and fall back to it where the sidecar declares none, as a delta on `specs/asset-kinds/` — R4.2
-- [ ] 1.3 (Unit) Keep the sidecar out of `meta.json` and out of `ssc clean`'s reach — R4.4
-- [ ] 1.4 (TDD) Resolve a named section against a frame count, refusing one whose first or last frame the set does not have — R2.4, R2.5
+- [x] 1.1 (Unit) Read `asset.yaml` into a playback record — frame rate, mode and sections — refusing a file that is not a map, an unknown key and a mode that is not one of the three — R4.1, R4.3
+- [x] 1.2 (Unit) Add `fps` to the kind profile and fall back to it where the sidecar declares none, as a delta on `specs/asset-kinds/` — R4.2
+- [x] 1.3 (Unit) Keep the sidecar out of `meta.json` and out of `ssc clean`'s reach — R4.4
+- [x] 1.4 (TDD) Resolve a named section against a frame count, refusing one whose first or last frame the set does not have — R2.4, R2.5
 
 ## 2 · The model
 

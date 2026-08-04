@@ -11,7 +11,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from ssc.cli import config, kinds
+from ssc.cli import config, kinds, sidecar
 from ssc.cli import workspace as ws
 from ssc.cli.app import main
 from ssc.cli.errors import SscError
@@ -75,6 +75,33 @@ def test_a_character_animates_and_a_banner_does_not() -> None:
     """The profile is what a consumer reads instead of branching on the name."""
     assert kinds.BUILT_INS["character"].animates is True
     assert kinds.BUILT_INS["banner"].animates is False
+
+
+# `fps` — added by specs/engine-index/ R4.2, as a delta on this spec's R1.1.
+
+
+def test_every_built_in_carries_a_frame_rate() -> None:
+    for profile in kinds.BUILT_INS.values():
+        assert profile.fps == sidecar.DEFAULT_FPS
+        assert profile.as_dict()["fps"] == sidecar.DEFAULT_FPS
+
+
+def test_a_project_sets_its_own_frame_rate_per_kind(tmp_path: Path) -> None:
+    space = workspace_with(tmp_path, {"character": {"fps": 8}})
+    resolved = kinds.resolve("character", space)
+    assert resolved.profile.fps == 8
+    assert resolved.source["fps"] == kinds.DECLARED
+
+
+@pytest.mark.parametrize("given", ["twelve", 12.5, True, 0, kinds.MAX_FPS + 1])
+def test_a_frame_rate_the_field_cannot_take_is_refused(tmp_path: Path, given: Any) -> None:
+    # `True` among them on purpose: a bool is an int in Python, and an accepted `fps: true`
+    # is one frame per second rather than a refusal.
+    space = workspace_with(tmp_path, {"character": {"fps": given}})
+    with pytest.raises(SscError) as refused:
+        kinds.resolve("character", space)
+    assert refused.value.code == "invalid-kind"
+    assert "fps" in refused.value.message
 
 
 # R1.3, R1.4, R2.3 — declared over built-in, field by field, with provenance.

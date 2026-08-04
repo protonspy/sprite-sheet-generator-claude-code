@@ -17,7 +17,7 @@ first.
 
 ## R1 · What a profile is
 
-- **R1.1** (MODIFIED) The `ssc` CLI shall give every kind a cell size, an anchor mode, whether it animates, an atlas layout, the `doctor` checks that apply to it, a generation template, whether its assets are layered, and the model it generates each media with — see `specs/parallax-layers/` and `specs/model-registry/` for the last two.
+- **R1.1** (MODIFIED) The `ssc` CLI shall give every kind a cell size, an anchor mode, whether it animates, a frame rate, an atlas layout, the `doctor` checks that apply to it, a generation template, whether its assets are layered, and the model it generates each media with — see `specs/parallax-layers/`, `specs/model-registry/` and `specs/engine-index/` for the last three.
 - **R1.2** (MODIFIED) The `ssc` CLI shall ship built-in profiles for `character`, `icon`, `tile`, `ui`, `banner`, `map`, `background` and `box-art`.
 
 > **`box-art` added by `specs/gen-fal/`'s prompt templates, and it is the first built-in that
@@ -38,6 +38,13 @@ first.
 > `docs/wiki/anchor-and-directions.md` is equally clear that box art must not then be fed
 > back as a sprite reference; that is a rule for the caller, and nothing in the profile
 > enforces it.
+
+> **`fps` added by `specs/engine-index/` R4.2, and it is a default rather than the answer.**
+> A frame rate is authored per animation in that asset's `asset.yaml`; the profile's is what
+> an asset that declares none plays at. It is on the profile rather than as one project-wide
+> setting for the reason every other field is: a project's icons and its characters do not
+> animate at one speed, and a consumer must not have to branch on the kind's name to find
+> that out.
 - **R1.3** Where `ssc.yaml` declares a kind, the `ssc` CLI shall use that declaration.
 - **R1.4** Where a declared kind names a built-in, the `ssc` CLI shall use the declared value for each field it states and the built-in's for each it does not.
 - **R1.5** If a declared kind states a field the profile does not have, or a value the field cannot take, then the `ssc` CLI shall exit `1` and name the kind and the field.

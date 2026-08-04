@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from ssc.cli.atomic import Directory
 from ssc.cli.errors import SscError, UsageError
 from ssc.cli.names import check_name, check_relative_path
+from ssc.cli.sidecar import SIDECAR_NAME
 
 SCHEMA = 1
 META_NAME = "meta.json"
@@ -207,6 +208,16 @@ def record(
     # Checked here as well as on the model, so a caller passing a path that walks out of
     # the asset gets the usage error it is, rather than a validation error from pydantic.
     check_relative_path(path)
+    if path == SIDECAR_NAME:
+        # `specs/engine-index/` R4.4. This file is authored, and `ssc clean` deletes what
+        # this record names as `derived` — so a sidecar recorded once, by any command, is a
+        # hand-written file `clean` will remove. Refused here rather than trusted to nobody
+        # ever passing it, because "nobody does that yet" is not a property.
+        raise UsageError(
+            "sidecar-not-recorded",
+            f"{SIDECAR_NAME} is authored, so it is not recorded in {META_NAME}",
+            fix="it needs no record: nothing derives it and ssc clean never deletes it",
+        )
     check_name(stage, "stage")
     for existing in meta.files:
         if existing.stage == stage:

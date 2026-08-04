@@ -17,6 +17,7 @@ from typing import Any
 from ssc.cli import config
 from ssc.cli.errors import SscError, UsageError
 from ssc.cli.names import check_name
+from ssc.cli.sidecar import DEFAULT_FPS, MAX_FPS
 from ssc.cli.workspace import Workspace
 from ssc.core.assemble import ANCHOR_MODES
 
@@ -47,6 +48,10 @@ class Profile:
     cell: tuple[int, int] = (64, 64)
     anchor: str = "centre"
     animates: bool = False
+    #: The frame rate an animation of this kind plays at where its own `asset.yaml` does not
+    #: say — `specs/engine-index/` R4.2. On the profile rather than in `ssc.yaml` at large
+    #: because a project's icons and its characters do not animate at one speed.
+    fps: int = DEFAULT_FPS
     atlas_layout: str = "grid"
     checks: tuple[str, ...] = ()
     template: str = "generic"
@@ -61,6 +66,7 @@ class Profile:
             "cell": {"width": self.cell[0], "height": self.cell[1]},
             "anchor": self.anchor,
             "animates": self.animates,
+            "fps": self.fps,
             "atlas_layout": self.atlas_layout,
             "checks": list(self.checks),
             "template": self.template,
@@ -275,6 +281,8 @@ def merge(name: str, stated: dict[str, Any]) -> Resolved:
                     fix=f"write it as a list under kinds.{name}.checks",
                 )
             values[item] = tuple(value)
+        elif item == "fps":
+            values[item] = check_fps(value, name)
         elif item in {"animates", "normal_map", "layered"}:
             if not isinstance(value, bool):
                 raise SscError(
@@ -288,6 +296,28 @@ def merge(name: str, stated: dict[str, Any]) -> Resolved:
         source[item] = DECLARED
 
     return Resolved(profile=Profile(name=name, **{**_asdict(base), **values}), source=source)
+
+
+def check_fps(value: Any, name: str) -> int:
+    """A frame rate on a profile, held to the same range the sidecar holds one to.
+
+    `bool` is an `int` in Python, so `fps: true` would otherwise resolve to one frame per
+    second — the same trap `sidecar._fps` guards, and the reason both take the range from one
+    definition rather than from two.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise SscError(
+            "invalid-kind",
+            f"kind {name!r} declares fps {value!r}, which is not a whole number",
+            fix=f"write a number of frames per second under kinds.{name}.fps",
+        )
+    if value < 1 or value > MAX_FPS:
+        raise SscError(
+            "invalid-kind",
+            f"kind {name!r} declares fps {value}, outside 1 to {MAX_FPS}",
+            fix=f"write a number of frames per second under kinds.{name}.fps",
+        )
+    return value
 
 
 def check_text(item: str, value: Any, name: str) -> str:

@@ -245,3 +245,11 @@ raw/**/contents/
 # *below* the closing marker — git takes the last matching pattern, and a line
 # outside the block is never touched.
 # <<< open-wiki <<<
+
+# Node. `ssc` is Python, packaged with uv; nothing here builds or ships from npm.
+# A package.json in this tree is local agent tooling, and `scc validate` reads it
+# as a manifest of adopted dependencies — so it stays out of the repo rather than
+# claiming a decision in docs/stack.md that nobody made.
+node_modules/
+package.json
+package-lock.json

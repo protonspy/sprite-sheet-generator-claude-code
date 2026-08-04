@@ -1,25 +1,63 @@
 # Engine index — tasks
 
-<!-- Grammar, per task, all four parts required:
+**What already covers these paths:** `tests/cli/test_kinds.py` covers the profile this leaf
+adds `fps` to; `tests/cli/test_listing.py` and `tests/cli/test_media.py` cover walking the
+workspace and resolving an asset's stage, which `cli/index.py` does again for every asset at
+once; `tests/cli/test_meta.py` covers the record the sidecar sits beside without joining;
+`tests/cli/test_workspace.py` covers the paths `dist` joins; `tests/core/test_assemble.py`,
+`tests/core/test_atlas.py`, `tests/core/test_ninepatch.py` and `tests/core/test_tile.py`
+cover the packers and the guides this leaf calls rather than reimplements;
+`tests/core/test_contact.py` covers the contact-sheet geometry `ssc preview` reuses. All were
+run green before this work started — 290 passed, 2 skipped.
 
-       - [ ] <number> (Unit|TDD) <description> — <requirement ids>
+## 1 · The authored half
 
-     (Unit) writes the code, then a unit test per function, immediately, asserting
-     the requirement rather than the implementation. (TDD) writes the failing test
-     first and watches it fail — mandatory for money, complex algorithms, and
-     hypothesis validation.
+- [ ] 1.1 (Unit) Read `asset.yaml` into a playback record — frame rate, mode and sections — refusing a file that is not a map, an unknown key and a mode that is not one of the three — R4.1, R4.3
+- [ ] 1.2 (Unit) Add `fps` to the kind profile and fall back to it where the sidecar declares none, as a delta on `specs/asset-kinds/` — R4.2
+- [ ] 1.3 (Unit) Keep the sidecar out of `meta.json` and out of `ssc clean`'s reach — R4.4
+- [ ] 1.4 (TDD) Resolve a named section against a frame count, refusing one whose first or last frame the set does not have — R2.4, R2.5
 
-     A task is the right size when it can be verified on its own.
+## 2 · The model
 
-     Every requirement must reach at least one task, and every task must cite a
-     requirement that exists. `scc spec validate` checks both directions.
-     Delete this comment. -->
+- [ ] 2.1 (Unit) Walk the workspace into per-kind groups, resolving each asset's published stage and reporting the ones with no image as skipped — R1.1, R1.2, R1.3, R1.4, R1.5
+- [ ] 2.2 (Unit) Build a sheet from a frame set — cell, columns, rows, frame count, anchor, and whether the set was aligned — R2.1, R2.2
+- [ ] 2.3 (Unit) Carry a sheet's playback: frame rate, mode and resolved sections — R2.3
+- [ ] 2.4 (Unit) Build an atlas for a `bin` kind — a rect and an anchor per asset, with the padding and the extrusion — R3.1
+- [ ] 2.5 (Unit) Build a tileset for a `grid` kind — tile size, grid, and each tile's id, column and row — R3.2
+- [ ] 2.6 (Unit) Carry the nine-slice borders on the entries of a kind whose checks name `nineslice` — R3.3
 
-## 1 · <group name>
+## 3 · dist/ and the formats
 
-- [ ] 1.1 (Unit) <description> — R1.1
-- [ ] 1.2 (TDD) <description> — R1.2, R1.3
+- [ ] 3.1 (Unit) Emit the `generic` format from the model, and refuse a format ssc does not emit — R5.1, R5.6
+- [ ] 3.2 (TDD) Emit the `pixi` format — frames by name, animations in playback order, and meta — against a hand-worked sheet and atlas — R5.2
+- [ ] 3.3 (Unit) Emit the `phaser` JSON Hash format — R5.3
+- [ ] 3.4 (Unit) Emit the `godot` format — region, margin, speed and loop — R5.4
+- [ ] 3.5 (Unit) Hold the four formats to one set of image files and one set of rects — R5.5
+- [ ] 3.6 (Unit) Write the images and `index.json` under `dist/` in one pass, and nowhere else — R1.6, R1.7
+- [ ] 3.7 (Unit) Make a second run over an unchanged workspace write the same bytes — R1.8
+- [ ] 3.8 (Unit) Report under `--dry-run` every file the run would write, and write none — R1.9
 
-## 2 · <group name>
+## 4 · Preview
 
-- [ ] 2.1 (Unit) <description> — R1.1
+- [ ] 4.1 (TDD) Order a frame set for a playback mode — `loop`, `ping-pong`, `reverse` — and for one named section — R6.1, R6.4
+- [ ] 4.2 (Unit) Encode the ordered frames as an animated GIF at the declared frame rate — R6.1
+- [ ] 4.3 (Unit) Render a contact sheet instead, each frame labelled with its index — R6.2
+- [ ] 4.4 (Unit) Tile a seam-checked kind's asset 2×2 — R6.3
+- [ ] 4.5 (Unit) `ssc preview` — resolve the asset through `dist/index.json`, refuse when there is none, and write only under `dist/preview/` — R6.5, R6.6
+
+## 5 · Wiring
+
+- [ ] 5.1 (Unit) Register `ssc index` and `ssc preview`, and give the workspace its `dist` path — R1.7
+- [ ] 5.2 (Unit) Record `adr:0009-authored-intent-lives-in-a-sidecar`, the glossary terms this leaf coins, and the wiki page for taking a workspace into an engine — R4.1
+
+## Notes
+
+**1.4, 3.2 and 4.1 are the three that are TDD, and each for its own reason.** A section is a
+pair of inclusive frame indices, which is an off-by-one waiting to happen and one no engine
+will complain about — it will simply play the wrong frames. `pixi` is the format whose anchor
+is a fraction rather than a pixel and whose animation is an ordered list of names rather than
+a range, so it is the one where the mapping from the model is a translation rather than a
+rename; the other three emitters are checked against it. And the playback order is the shared
+algorithm underneath both the emitters and `ssc preview` — `ping-pong` over four frames is
+six frames, not eight, and getting that wrong is invisible until somebody watches the
+animation stutter at the ends.

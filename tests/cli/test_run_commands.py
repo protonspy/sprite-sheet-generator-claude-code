@@ -289,3 +289,44 @@ def test_an_asset_that_does_not_exist_is_refused(hero: Path) -> None:
     code, payload = run("run", "character/nobody")
     assert code == 2
     assert payload["error"]["code"] == "no-asset"
+
+
+# Frames are read through the held directory, with a byte ceiling — not by resolving a
+# path and handing it to `Image.open`.
+def test_a_step_reads_its_source_frames_through_the_binding(
+    hero: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ssc.cli.atomic import Directory
+
+    seen: list[str] = []
+    real = Directory.read
+
+    def watched(self: Directory, relative: str, *, max_bytes: int | None = None) -> bytes:
+        seen.append(relative)
+        if relative.startswith("frames/"):
+            # `meta.json` is legitimately read without one; a frame is not.
+            assert max_bytes is not None, f"{relative} was read with no byte ceiling"
+        return real(self, relative, max_bytes=max_bytes)
+
+    monkeypatch.setattr(Directory, "read", watched)
+
+    declare(hero, {"stage": "nobg", "command": "bgremove", "params": {"tol": 60}})
+    assert run("run", "character/hero")[0] == 0
+    assert [name for name in seen if name.startswith("frames/")] == [
+        "frames/001.png",
+        "frames/002.png",
+    ]
+
+
+def test_a_recorded_stage_whose_files_are_gone_is_a_finding(hero: Path) -> None:
+    declare(
+        hero,
+        {"stage": "nobg", "command": "bgremove", "params": {"tol": 60}},
+        {"stage": "pixels", "command": "pixelart", "params": {"colors": 8}},
+    )
+    for child in (hero / "assets/character/hero/frames").glob("*.png"):
+        child.unlink()
+
+    code, payload = run("run", "character/hero")
+    assert code == 1
+    assert payload["error"]["code"] == "stage-missing"

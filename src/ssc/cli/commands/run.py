@@ -18,7 +18,7 @@ from ssc.cli import workspace as ws
 from ssc.cli.atomic import Directory
 from ssc.cli.commands.recover import asset_dir_for
 from ssc.cli.errors import EXIT_GATE_PENDING, SscError
-from ssc.cli.frames import encode, read_frames
+from ssc.cli.frames import IMAGE_SUFFIXES, MAX_FILE_BYTES, decode_image, encode
 from ssc.cli.main import ssc_command
 from ssc.cli.output import Result
 
@@ -43,7 +43,20 @@ def source_stage(declared: list[steps.Step], position: int) -> str:
 
 
 def frames_of(asset_dir: Directory, record: meta.AssetMeta, stage: str) -> list[Any]:
-    """The frames of a recorded stage, read off disk."""
+    """The frames of a recorded stage, read **through the held directory**.
+
+    Every read of a recorded asset file in this project goes through the binding rather than
+    through a path — `commands/media.py` does it, `meta.load` does it — and `atomic.py`
+    documents at length why: a component can be replaced by a link between the check and the
+    read, and Windows lets an unprivileged user create one. The first version of this
+    function resolved `asset_dir.path / entry.path` and handed the result to `Image.open`,
+    which follows links and applies no byte ceiling. It was the one new read path in this
+    leaf that dropped the discipline `write_stage`, just below, keeps.
+
+    Names are listed by path; every byte is read through the binding. Listing outside it is
+    harmless — a name is not content, and a swapped component makes the confined read refuse
+    rather than making the listing lie in a way that reaches anything.
+    """
     entry = record.stage(stage)
     where = asset_dir.path / entry.path
     if not where.exists():
@@ -53,7 +66,27 @@ def frames_of(asset_dir: Directory, record: meta.AssetMeta, stage: str) -> list[
             "which is not there",
             fix="ssc clean removed it, or it was deleted by hand; rerun the step that made it",
         )
-    return [frame.image for frame in read_frames(where)]
+
+    if where.is_file():
+        return [decode_image(asset_dir.read(entry.path, max_bytes=MAX_FILE_BYTES), entry.path)]
+
+    names = sorted(
+        child.name for child in where.iterdir() if child.suffix.lower() in IMAGE_SUFFIXES
+    )
+    if not names:
+        raise SscError(
+            "stage-missing",
+            f"{record.kind}/{record.key} records stage {stage!r} at {entry.path}, "
+            "which holds no images",
+            fix="rerun the step that made it",
+        )
+    return [
+        decode_image(
+            asset_dir.read(f"{entry.path}/{name}", max_bytes=MAX_FILE_BYTES),
+            f"{entry.path}/{name}",
+        )
+        for name in names
+    ]
 
 
 def write_stage(

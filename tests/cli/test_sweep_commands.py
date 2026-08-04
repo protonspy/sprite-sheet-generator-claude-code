@@ -458,3 +458,120 @@ def test_a_variant_that_fails_is_recorded_and_the_rest_still_run(
     assert "this tolerance is unwell" in failed["reason"]
     # The contact sheet still covers every point, including the empty cell.
     assert Path(payload["contact_sheet"]).is_file()
+
+
+# --replace removes this sweep's artefacts and nothing else. `project.md`: nothing deletes
+# a source file, and `--out` is any path a caller names.
+def test_replace_does_not_delete_anything_that_is_not_the_sweep(art: Path, tmp_path: Path) -> None:
+    where = tmp_path / "review"
+    argv = (
+        "tool",
+        "sweep",
+        "--command",
+        "bgremove",
+        "--vary",
+        "tol=40",
+        "--in",
+        str(art),
+        "--out",
+        str(where),
+    )
+    assert run(*argv)[0] == 0
+
+    bystander = where / "source.png"
+    green_png(bystander)
+    keep_me = where / "notes"
+    keep_me.mkdir()
+    (keep_me / "why.txt").write_text("hand-written", encoding="utf-8")
+
+    assert run(*argv, "--replace")[0] == 0
+    assert bystander.is_file()
+    assert (keep_me / "why.txt").read_text(encoding="utf-8") == "hand-written"
+
+
+def test_replace_still_clears_the_previous_variants(art: Path, tmp_path: Path) -> None:
+    where = tmp_path / "review"
+    run(
+        "tool",
+        "sweep",
+        "--command",
+        "bgremove",
+        "--vary",
+        "tol=40,60,80",
+        "--in",
+        str(art),
+        "--out",
+        str(where),
+    )
+    run(
+        "tool",
+        "sweep",
+        "--command",
+        "bgremove",
+        "--vary",
+        "tol=40",
+        "--in",
+        str(art),
+        "--out",
+        str(where),
+        "--replace",
+    )
+    assert sorted(child.name for child in (where / "variants").iterdir()) == ["00_tol-40"]
+
+
+# --columns multiplies the contact sheet canvas, which is allocated before anything is
+# drawn into it.
+def test_an_unbounded_columns_is_refused(art: Path, tmp_path: Path) -> None:
+    code, payload = run(
+        "tool",
+        "sweep",
+        "--command",
+        "bgremove",
+        "--vary",
+        "tol=40",
+        "--in",
+        str(art),
+        "--out",
+        str(tmp_path / "review"),
+        "--columns",
+        "2000000000",
+    )
+    assert code == 2
+    assert payload["error"]["code"] == "invalid-columns"
+
+
+def test_a_negative_columns_is_refused(art: Path, tmp_path: Path) -> None:
+    code, payload = run(
+        "tool",
+        "sweep",
+        "--command",
+        "bgremove",
+        "--vary",
+        "tol=40",
+        "--in",
+        str(art),
+        "--out",
+        str(tmp_path / "review"),
+        "--columns",
+        "-1",
+    )
+    assert code == 2
+    assert payload["error"]["code"] == "invalid-columns"
+
+
+def test_a_reasonable_columns_is_honoured(art: Path, tmp_path: Path) -> None:
+    code, _ = run(
+        "tool",
+        "sweep",
+        "--command",
+        "bgremove",
+        "--vary",
+        "tol=40,60",
+        "--in",
+        str(art),
+        "--out",
+        str(tmp_path / "review"),
+        "--columns",
+        "2",
+    )
+    assert code == 0

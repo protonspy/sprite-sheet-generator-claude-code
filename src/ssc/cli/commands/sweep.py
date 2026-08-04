@@ -32,6 +32,14 @@ REPORT_NAME = "sweep.json"
 CONTACT_NAME = "contact.png"
 VARIANTS_DIR = "variants"
 
+#: `--columns` is a dial whose cost is its own value: it multiplies the contact sheet's
+#: width, and the canvas is allocated before a single pixel is copied into it. Every other
+#: number in this leaf is bounded — the variant ceiling, each registry parameter, the
+#: decoder's pixel ceiling — and this one was not, so `--columns 2000000000` was one flag
+#: away from allocating everything the machine has. There is never a reason to exceed the
+#: number of variants, because a column past the last one holds nothing.
+MAX_COLUMNS = sweep.MAX_VARIANTS
+
 
 def review_dir(out: Path | None, key: str | None) -> Path:
     """Where the comparison goes (R4.2).
@@ -65,6 +73,16 @@ def clear(where: Path, *, replace: bool) -> None:
     plausible-looking alternative and it is worse: a second sweep with a narrower range
     would leave the wider one's variants behind, and the contact sheet would show a
     comparison that no single invocation produced.
+
+    **It removes this sweep's three artefacts and nothing else.** The first version called
+    `shutil.rmtree(where)` on the whole destination, which is a different and much larger
+    promise than "replace the sweep": `--out` is any path a caller names, so pointing it at
+    a directory that also holds something else — an asset's own directory, on a re-run for
+    convenience — deleted that too. `project.md` is unambiguous that nothing deletes a
+    `source` file, and a source is what a model produced: it cost money and is not
+    reproducible. No attacker is needed to reach it, only a reused path, and the test that
+    covered `--replace` used a directory holding nothing but the sweep, which is exactly
+    why it stayed green.
     """
     if not (where / REPORT_NAME).exists():
         return
@@ -74,7 +92,9 @@ def clear(where: Path, *, replace: bool) -> None:
             f"{where} already holds a sweep",
             fix=f"pass --replace to run it again, or write to another path: rm -r {where}",
         )
-    shutil.rmtree(where)
+    shutil.rmtree(where / VARIANTS_DIR, ignore_errors=True)
+    (where / CONTACT_NAME).unlink(missing_ok=True)
+    (where / REPORT_NAME).unlink(missing_ok=True)
 
 
 def run_one(
@@ -124,6 +144,13 @@ def sweep_command(
     *,
     dry_run: bool,
 ) -> Result:
+    if not 0 <= columns <= MAX_COLUMNS:
+        raise UsageError(
+            "invalid-columns",
+            f"--columns {columns} is outside 0..{MAX_COLUMNS}",
+            fix=f"pass 0 for a near-square sheet, or up to {MAX_COLUMNS}",
+        )
+
     command = steps.runnable(which)
     points = sweep.expand([sweep.parse_vary(one) for one in declared])
 

@@ -10,10 +10,12 @@ and nothing about what they contain.
 from __future__ import annotations
 
 import itertools
+import math
 import re
 from dataclasses import dataclass
 
 from ssc.cli.errors import UsageError
+from ssc.cli.names import check_name
 
 #: A contact sheet is something a person looks at, and past a certain count nobody is
 #: comparing anything — they are scrolling. The ceiling is on the *product*, so two
@@ -24,6 +26,12 @@ MAX_VARIANTS = 64
 #: itself is what R1.4 refuses on, but `1..1e9:0.000001` has to be refused *without* first
 #: building the list that would prove it too long.
 MAX_RANGE_POINTS = MAX_VARIANTS
+
+#: How much representation error a range count absorbs before it counts as another point.
+#: Absolute rather than relative because the values a parameter takes here are bounded by
+#: the registry — a tolerance, a colour budget, a pixel count — and none of them is near
+#: the magnitude where an absolute epsilon stops meaning anything.
+RANGE_TOLERANCE = 1e-9
 
 NUMBER = re.compile(r"^-?[0-9]+(\.[0-9]+)?$")
 
@@ -51,8 +59,18 @@ class Point:
 
         Not unique on its own — two points of a float range can render the same — which is
         why the index is prepended where it is used as a name.
+
+        **Checked as a name, not merely assumed to be one.** Every parser in the registry
+        happens to be strict enough today that no value reaching here can hold a separator,
+        so the confinement was real but emergent: it held because of a property of a table
+        in another module, which nothing states and a future entry could drop. A parameter
+        accepting free text — a prompt, a label, a filename — would turn this straight into
+        a path escape, and `check_name` is what makes that a refusal instead.
         """
-        return "_".join(f"{name}-{value}" for name, value in self.values.items())
+        return check_name(
+            "_".join(f"{name}-{value}" for name, value in self.values.items()),
+            "a variant name",
+        )
 
 
 def parse_vary(declaration: str) -> Vary:
@@ -155,7 +173,15 @@ def _span(first: str, last: str, step: str, declaration: str) -> tuple[str, ...]
     # Counted rather than accumulated. Adding the step repeatedly drifts on floats — a
     # `0..1:0.1` walk lands on 0.30000000000000004 — and the drift shows up in a directory
     # name, where it is both ugly and unstable between platforms.
-    count = int((stop - start) / by) + 1
+    #
+    # Floored with a tolerance, and both halves of that matter. `int()` alone truncated
+    # `0..0.3:0.1` to three points and silently dropped `0.3`, because the division lands on
+    # 2.9999999999999996 — a sweep quietly one variant short of what was asked for, which is
+    # the one failure a comparison tool must not have. Plain `round()` fixes that case and
+    # breaks another: `40..99:20` has a span of 2.95, which rounds up to a fourth point at
+    # 100, past the last the caller stated. The tolerance absorbs representation error
+    # without inventing a point the range does not contain.
+    count = math.floor((stop - start) / by + RANGE_TOLERANCE) + 1
     if count > MAX_RANGE_POINTS:
         raise UsageError(
             "invalid-vary",

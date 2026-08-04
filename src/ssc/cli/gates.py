@@ -23,6 +23,7 @@ from typing import Any
 from ssc.cli.atomic import replace as write_atomically
 from ssc.cli.errors import SscError, UsageError
 from ssc.cli.names import check_name
+from ssc.cli.redact import scrubbed
 from ssc.cli.workspace import Workspace
 
 SCHEMA = 1
@@ -47,8 +48,23 @@ def now() -> str:
 
 
 def identifier(subject: str, topic: str) -> str:
-    """`<subject>.<topic>` — what makes R2.2 a file-existence question rather than a scan."""
-    return f"{check_name(subject, 'subject')}.{check_name(topic, 'topic')}"
+    """`<subject>.<topic>` — what makes R2.2 a file-existence question rather than a scan.
+
+    Neither half may hold a dot, and that is not tidiness. `check_name` permits internal
+    dots, so `("hero.bg", "approved")` and `("hero", "bg.approved")` both compose to
+    `hero.bg.approved` and land on one file — two logically distinct decisions collapsed
+    into one record, where approving either reads as having approved the other. The
+    separator has to be a character the halves cannot contain.
+    """
+    for value, what in ((subject, "subject"), (topic, "topic")):
+        check_name(value, what)
+        if "." in value:
+            raise UsageError(
+                "invalid-name",
+                f"{what} {value!r} holds a dot, which separates a gate's two halves",
+                fix="use letters, digits, dash or underscore",
+            )
+    return f"{subject}.{topic}"
 
 
 @dataclass(frozen=True)
@@ -214,9 +230,18 @@ def path_of(workspace: Workspace, gate_id: str) -> Path:
 
 
 def save(workspace: Workspace, gate: Gate) -> Path:
+    """The record on disk, atomically and redacted.
+
+    Scrubbed on the way *in*, the same as `jobs.save`, and for the same reason rather than
+    for symmetry: nothing a gate carries is credential-shaped today — a question, a choice,
+    a reason, a path — but `question` and `why` are free text an agent composes, and a
+    workspace gets zipped for a colleague or dropped into a support bundle. A store that
+    scrubs only once somebody notices it needs to is a store that has already written the
+    file it should not have.
+    """
     return write_atomically(
         path_of(workspace, gate.id),
-        (json.dumps(gate.as_dict(), indent=2, sort_keys=True) + "\n").encode("utf-8"),
+        (json.dumps(scrubbed(gate.as_dict()), indent=2, sort_keys=True) + "\n").encode("utf-8"),
     )
 
 

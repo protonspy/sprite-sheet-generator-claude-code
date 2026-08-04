@@ -147,3 +147,54 @@ def test_the_same_parameter_varied_twice_is_refused() -> None:
     with pytest.raises(UsageError) as refused:
         sweep.expand([sweep.Vary("tol", ("40",)), sweep.Vary("tol", ("60",))])
     assert refused.value.code == "invalid-vary"
+
+
+# A range must not lose its last point to float representation error. `0..0.3:0.1` divides
+# to 2.9999999999999996, which truncation turned into three points instead of four.
+@pytest.mark.parametrize(
+    ("written", "expected"),
+    [
+        ("scale=0..0.3:0.1", ("0", "0.1", "0.2", "0.3")),
+        ("scale=0..0.7:0.1", ("0", "0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7")),
+        (
+            "scale=0..1:0.1",
+            ("0", "0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "1"),
+        ),
+    ],
+)
+def test_a_fractional_range_keeps_its_last_point(written: str, expected: tuple[str, ...]) -> None:
+    assert sweep.parse_vary(written).values == expected
+
+
+# ...and must not gain one it was never asked for. `40..99:20` divides to 2.95, which
+# rounding to nearest would turn into a fourth point at 100, past the stated last.
+@pytest.mark.parametrize(
+    ("written", "expected"),
+    [
+        ("tol=40..99:20", ("40", "60", "80")),
+        ("tol=40..85:20", ("40", "60", "80")),
+        ("tol=0..95:10", ("0", "10", "20", "30", "40", "50", "60", "70", "80", "90")),
+    ],
+)
+def test_a_range_never_steps_past_its_last_point(written: str, expected: tuple[str, ...]) -> None:
+    assert sweep.parse_vary(written).values == expected
+
+
+def test_no_value_of_a_range_is_ever_past_the_last(monkeypatch: pytest.MonkeyPatch) -> None:
+    del monkeypatch
+    for last in range(1, 40):
+        values = sweep.parse_vary(f"tol=0..{last}:7").values
+        assert all(float(value) <= last for value in values), (last, values)
+
+
+# The variant name is confined as a name, not merely assumed to be one because every
+# registry parser happens to be strict.
+def test_a_point_whose_values_would_escape_a_path_is_refused() -> None:
+    point = sweep.Point(index=0, values={"tol": "../../etc"})
+    with pytest.raises(UsageError) as refused:
+        assert point.label
+    assert refused.value.code == "invalid-name"
+
+
+def test_an_ordinary_point_still_labels_itself() -> None:
+    assert sweep.Point(index=0, values={"tol": "60", "mode": "flood"}).label == "tol-60_mode-flood"

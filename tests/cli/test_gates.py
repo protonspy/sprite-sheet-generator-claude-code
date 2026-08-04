@@ -259,3 +259,36 @@ def test_a_subject_that_is_not_a_name_is_refused(subject: str) -> None:
     with pytest.raises(UsageError) as refused:
         gates.identifier(subject, "bgremove")
     assert refused.value.code == "invalid-name"
+
+
+# A gate id is `<subject>.<topic>`, so neither half may hold the separator: `hero.bg` +
+# `approved` and `hero` + `bg.approved` would otherwise land on one record, and approving
+# either would read as having approved the other.
+@pytest.mark.parametrize(
+    ("subject", "topic"),
+    [("hero.bg", "approved"), ("hero", "bg.approved"), ("a.b", "c.d")],
+)
+def test_a_dot_in_either_half_of_a_gate_id_is_refused(subject: str, topic: str) -> None:
+    with pytest.raises(UsageError) as refused:
+        gates.identifier(subject, topic)
+    assert refused.value.code == "invalid-name"
+
+
+def test_two_gates_that_would_have_collided_cannot_both_be_made() -> None:
+    assert gates.identifier("hero", "bgremove") == "hero.bgremove"
+    with pytest.raises(UsageError):
+        gates.identifier("hero.bg", "remove")
+
+
+# Scrubbed on the way in, like a job record: a workspace gets zipped and sent to somebody.
+def test_a_gate_record_is_redacted_before_it_is_written(workspace: Workspace) -> None:
+    leaky = gates.Gate.new(
+        subject="hero",
+        topic="bgremove",
+        question="check https://example.com/x?api_key=sk-live-abcdefghijklmnop",
+        material=None,
+        at="2026-08-04T12:00:00Z",
+    )
+    gates.save(workspace, leaky)
+    on_disk = gates.path_of(workspace, leaky.id).read_text(encoding="utf-8")
+    assert "sk-live-abcdefghijklmnop" not in on_disk

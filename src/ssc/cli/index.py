@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 
@@ -20,9 +20,13 @@ from ssc.cli.errors import SscError
 from ssc.cli.kinds import Profile
 from ssc.cli.listing import asset_dirs, bound, chain_order, frames_of, media_of
 from ssc.cli.meta import AssetMeta, FileRecord
-from ssc.cli.sidecar import Playback, Section
+from ssc.cli.sidecar import Playback, Section, frame_rate
 from ssc.cli.sidecar import load as load_sidecar
 from ssc.cli.workspace import Workspace
+from ssc.core.assemble import pack
+from ssc.core.atlas import Entry, Rect, anchors_of, draw, place
+from ssc.core.contact import grid_for
+from ssc.core.ninepatch import guides_for
 
 #: The three things an engine loads. Which one a kind produces is read off its profile and
 #: never off its name — see `adr:0008-a-kind-is-a-profile-not-an-enum`.
@@ -164,6 +168,295 @@ def _publish(held: Directory, record: AssetMeta, stage: str | None) -> Published
         frames=frames_of(held, record, chosen.stage),
         playback=load_sidecar(held),
     )
+
+
+@dataclass(frozen=True)
+class SheetEntry:
+    """One animation, as an engine addresses it: equal cells, by frame number (R2.1, R2.3)."""
+
+    kind: str
+    key: str
+    image: str
+    cell: tuple[int, int]
+    columns: int
+    rows: int
+    frames: int
+    anchor: tuple[int, int]
+    aligned: bool
+    fps: int
+    mode: str
+    sections: tuple[Section, ...] = ()
+
+    @property
+    def id(self) -> str:
+        return f"{self.kind}/{self.key}"
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "key": self.key,
+            "image": self.image,
+            "cell": {"width": self.cell[0], "height": self.cell[1]},
+            "columns": self.columns,
+            "rows": self.rows,
+            "frames": self.frames,
+            # In pixels within the cell, not as a fraction: the fraction is what Pixi and
+            # Phaser want and it is derived at that boundary, because a rounded fraction
+            # cannot be turned back into the pixel it came from.
+            "anchor": {"x": self.anchor[0], "y": self.anchor[1]},
+            "aligned": self.aligned,
+            "playback": {
+                "fps": self.fps,
+                "mode": self.mode,
+                "sections": [section.as_dict() for section in self.sections],
+            },
+        }
+
+
+def build_sheet(published: Published, profile: Profile) -> tuple[SheetEntry, np.ndarray]:
+    """Pack one animation and describe it (R2.1, R2.2, R2.3, R2.4).
+
+    Near-square rather than one row: the grid shape means nothing to an engine addressing by
+    frame number, and a sixty-frame animation in one row is a canvas four times wider than
+    `MAX_CANVAS` allows before it is anything else.
+
+    The cell comes from the kind's profile, which is where a project decides it. A frame
+    larger than the cell is a disagreement between the art and the profile, and it is raised
+    rather than papered over by widening the cell: an engine reading a cell size that is not
+    the one the project declared cuts every sprite in the wrong place.
+    """
+    frames = published.frames
+    # Only the columns are ours to choose: `pack` derives the rows from them and reports
+    # both, and taking its answer is what keeps the index and the pixels agreeing.
+    columns, _ = grid_for(len(frames), 0)
+    widest = max(frame.shape[1] for frame in frames)
+    tallest = max(frame.shape[0] for frame in frames)
+    if widest > profile.cell[0] or tallest > profile.cell[1]:
+        raise SscError(
+            "frame-larger-than-cell",
+            f"{published.kind}/{published.key} has a {widest}x{tallest} frame and "
+            f"{profile.name} declares a {profile.cell[0]}x{profile.cell[1]} cell",
+            fix=f"ssc tool expand, or declare a larger cell for {profile.name} in ssc.yaml",
+        )
+
+    pixels, layout = pack(frames, columns=columns, cell=profile.cell, mode=profile.anchor)
+    entry = SheetEntry(
+        kind=published.kind,
+        key=published.key,
+        image=f"sheets/{published.kind}/{published.key}.png",
+        cell=layout.cell,
+        columns=layout.columns,
+        rows=layout.rows,
+        frames=len(frames),
+        anchor=layout.anchor,
+        # R2.2 — reported, never omitted. A sheet whose frames were never aligned still has
+        # an anchor; what it does not have is one that every frame agrees on, and an engine
+        # told nothing would re-centre the sprite and undo what `align` exists to do.
+        aligned=layout.aligned,
+        fps=frame_rate(published.playback, profile.fps),
+        mode=published.playback.mode,
+        sections=resolve_sections(
+            published.playback.sections,
+            frames=len(frames),
+            where=f"{published.kind}/{published.key}",
+        ),
+    )
+    return entry, pixels
+
+
+def entry_ids(published: Published) -> list[str]:
+    """What each of an asset's images is called inside an atlas or a tileset.
+
+    A single-image asset is its key, which is what somebody typing `potion` expects to find.
+    An asset publishing a set gets one id per frame, numbered, because two entries cannot
+    share an id and dropping all but the first would silently lose art.
+    """
+    if len(published.frames) == 1:
+        return [published.key]
+    return [f"{published.key}_{number:04d}" for number in range(len(published.frames))]
+
+
+def borders_for(profile: Profile, image: np.ndarray) -> tuple[int, int, int, int] | None:
+    """The four stretch borders, for a kind that declares the `nineslice` check (R3.3).
+
+    Derived rather than authored: `core.ninepatch` returns one pixel-art pixel a side, which
+    is the smallest guide that can be right and the one a caller adjusts from. Read off the
+    profile's `checks` rather than off the kind's name, like everything else.
+    """
+    if "nineslice" not in profile.checks:
+        return None
+    return guides_for(image)
+
+
+@dataclass(frozen=True)
+class AtlasItem:
+    """One image inside an atlas: where it is, and where its anchor is within it."""
+
+    id: str
+    rect: Rect
+    anchor: tuple[int, int]
+    borders: tuple[int, int, int, int] | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        emitted: dict[str, Any] = {
+            "id": self.id,
+            "rect": self.rect.as_dict(),
+            "anchor": {"x": self.anchor[0], "y": self.anchor[1]},
+        }
+        if self.borders is not None:
+            left, right, top, bottom = self.borders
+            emitted["borders"] = {"left": left, "right": right, "top": top, "bottom": bottom}
+        return emitted
+
+
+@dataclass(frozen=True)
+class AtlasEntry:
+    """Every asset of one `bin` kind, packed by size (R3.1)."""
+
+    kind: str
+    image: str
+    width: int
+    height: int
+    padding: int
+    extrude: int
+    items: tuple[AtlasItem, ...]
+
+    @property
+    def id(self) -> str:
+        return self.kind
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "image": self.image,
+            "width": self.width,
+            "height": self.height,
+            "padding": self.padding,
+            "extrude": self.extrude,
+            "entries": [item.as_dict() for item in self.items],
+        }
+
+
+def build_atlas(
+    group: Group, *, padding: int = 0, extrude: int = 0
+) -> tuple[AtlasEntry, np.ndarray]:
+    """Pack a whole kind into one atlas and describe it (R3.1).
+
+    One file per kind rather than per asset, because that is what an atlas is for: forty
+    icons in one texture is one bind instead of forty. The rects come from `core.atlas`,
+    which is also what `tool pack --atlas` calls — two callers of one packer.
+    """
+    images: dict[str, np.ndarray] = {}
+    for published in group.assets:
+        for name, image in zip(entry_ids(published), published.frames, strict=True):
+            images[name] = image
+
+    placement = place(
+        [Entry(id=name, size=(image.shape[1], image.shape[0])) for name, image in images.items()],
+        padding=padding,
+        extrude=extrude,
+        anchors=anchors_of(images, group.profile.anchor),
+    )
+    entry = AtlasEntry(
+        kind=group.kind,
+        image=f"atlases/{group.kind}.png",
+        width=placement.width,
+        height=placement.height,
+        padding=placement.padding,
+        extrude=placement.extrude,
+        items=tuple(
+            AtlasItem(
+                id=placed.id,
+                rect=placed.rect,
+                anchor=placed.anchor,
+                borders=borders_for(group.profile, images[placed.id]),
+            )
+            for placed in placement.entries
+        ),
+    )
+    return entry, draw(placement, images)
+
+
+@dataclass(frozen=True)
+class TileItem:
+    """One tile, addressed by id and found by column and row."""
+
+    id: str
+    column: int
+    row: int
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"id": self.id, "column": self.column, "row": self.row}
+
+
+@dataclass(frozen=True)
+class TilesetEntry:
+    """Every asset of one `grid` kind, in equal cells (R3.2)."""
+
+    kind: str
+    image: str
+    tile: tuple[int, int]
+    columns: int
+    rows: int
+    tiles: tuple[TileItem, ...]
+
+    @property
+    def id(self) -> str:
+        return self.kind
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "image": self.image,
+            "tile": {"width": self.tile[0], "height": self.tile[1]},
+            "columns": self.columns,
+            "rows": self.rows,
+            "tiles": [tile.as_dict() for tile in self.tiles],
+        }
+
+
+def build_tileset(group: Group) -> tuple[TilesetEntry, np.ndarray]:
+    """Lay a whole kind out as equal cells and describe it (R3.2).
+
+    Every tile is exactly the kind's cell, and one that is not is refused rather than padded
+    into place. Padding a smaller tile produces a set of ids that all resolve but whose art
+    sits at a different offset inside each cell — which is `tool pack`'s `tiles-differ`
+    argument, arrived at from the other direction.
+    """
+    named: list[tuple[str, np.ndarray]] = []
+    for published in group.assets:
+        named += list(zip(entry_ids(published), published.frames, strict=True))
+
+    cell = group.profile.cell
+    wrong = [
+        f"{name} is {image.shape[1]}x{image.shape[0]}"
+        for name, image in named
+        if (image.shape[1], image.shape[0]) != cell
+    ]
+    if wrong:
+        raise SscError(
+            "tile-not-the-cell",
+            f"{group.kind} declares a {cell[0]}x{cell[1]} tile; {', '.join(wrong)}",
+            fix=f"ssc tool expand to {cell[0]}x{cell[1]}, or declare another cell for "
+            f"{group.kind} in ssc.yaml",
+        )
+
+    columns, _ = grid_for(len(named), 0)
+    pixels, layout = pack(
+        [image for _, image in named], columns=columns, cell=cell, mode=group.profile.anchor
+    )
+    entry = TilesetEntry(
+        kind=group.kind,
+        image=f"tilesets/{group.kind}.png",
+        tile=layout.cell,
+        columns=layout.columns,
+        rows=layout.rows,
+        tiles=tuple(
+            TileItem(id=name, column=number % layout.columns, row=number // layout.columns)
+            for number, (name, _) in enumerate(named)
+        ),
+    )
+    return entry, pixels
 
 
 def resolve_sections(

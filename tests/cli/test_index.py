@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -13,7 +14,7 @@ from ssc.cli import index, kinds, meta
 from ssc.cli import workspace as ws
 from ssc.cli.errors import SscError
 from ssc.cli.frames import encode
-from ssc.cli.sidecar import Section
+from ssc.cli.sidecar import Playback, Section
 
 WHERE = "character/hero-attack"
 
@@ -277,6 +278,190 @@ def test_the_sidecar_travels_with_the_asset(tmp_path: Path) -> None:
     groups, _ = index.gather(space)
     assert groups[0].assets[0].playback.fps == 8
     assert groups[0].assets[0].playback.mode == "reverse"
+
+
+# R2.1, R2.2, R2.3 — one animation, as an engine addresses it.
+
+
+def published(
+    frames: list[np.ndarray], *, kind: str = "character", key: str = "hero", **playback: object
+) -> index.Published:
+    return index.Published(
+        kind=kind,
+        key=key,
+        stage="cut",
+        frames=frames,
+        playback=Playback(**playback),  # type: ignore[arg-type]
+    )
+
+
+def test_a_sheet_carries_its_cell_grid_frames_and_anchor() -> None:
+    profile = kinds.BUILT_INS["character"]
+    entry, pixels = index.build_sheet(published([swatch(), swatch(), swatch()]), profile)
+
+    assert entry.cell == profile.cell
+    # Three frames go near-square: two columns and two rows, with one cell left empty.
+    assert (entry.columns, entry.rows) == (2, 2)
+    assert entry.frames == 3
+    assert pixels.shape == (2 * profile.cell[1], 2 * profile.cell[0], 4)
+    assert entry.image == "sheets/character/hero.png"
+    assert 0 <= entry.anchor[0] < profile.cell[0]
+    assert 0 <= entry.anchor[1] < profile.cell[1]
+
+
+def test_a_sheet_reports_an_anchor_its_frames_do_not_share() -> None:
+    # R2.2 — the two frames put their pixels in different places, so no anchor is the set's.
+    left, right = swatch(), swatch()
+    tall = np.zeros((16, 16, 4), dtype=np.uint8)
+    tall[0:4, 0:4] = (255, 0, 0, 255)
+    other = np.zeros((16, 16, 4), dtype=np.uint8)
+    other[12:16, 12:16] = (255, 0, 0, 255)
+    entry, _ = index.build_sheet(published([tall, other]), kinds.BUILT_INS["character"])
+    assert entry.aligned is False
+
+    aligned, _ = index.build_sheet(published([left, right]), kinds.BUILT_INS["character"])
+    assert aligned.aligned is True
+
+
+def test_a_sheet_takes_its_frame_rate_from_the_kind_and_then_from_the_sidecar() -> None:
+    profile = kinds.BUILT_INS["character"]
+    silent, _ = index.build_sheet(published([swatch()]), profile)
+    assert silent.fps == profile.fps
+    assert silent.mode == "loop"
+
+    declared, _ = index.build_sheet(published([swatch()], fps=8, mode="reverse"), profile)
+    assert (declared.fps, declared.mode) == (8, "reverse")
+
+
+def test_a_sheets_sections_are_resolved_against_its_frame_count() -> None:
+    profile = kinds.BUILT_INS["character"]
+    entry, _ = index.build_sheet(
+        published([swatch()] * 4, sections=(Section("windup", 0, 1),)), profile
+    )
+    assert entry.as_dict()["playback"]["sections"] == [{"name": "windup", "first": 0, "last": 1}]
+
+    with pytest.raises(SscError) as refused:
+        index.build_sheet(published([swatch()] * 2, sections=(Section("windup", 0, 5),)), profile)
+    assert refused.value.code == "section-out-of-range"
+
+
+def test_a_frame_larger_than_its_kinds_cell_is_refused() -> None:
+    # Widening the cell instead would hand an engine a cell size the project never declared,
+    # which cuts every other sprite of that kind in the wrong place.
+    with pytest.raises(SscError) as refused:
+        index.build_sheet(published([swatch(width=200, height=200)]), kinds.BUILT_INS["character"])
+    assert refused.value.code == "frame-larger-than-cell"
+
+
+def test_a_sheet_as_a_dict_nests_playback() -> None:
+    entry, _ = index.build_sheet(
+        published([swatch(), swatch()], fps=10, mode="ping-pong"), kinds.BUILT_INS["character"]
+    )
+    emitted = entry.as_dict()
+    assert emitted["playback"] == {"fps": 10, "mode": "ping-pong", "sections": []}
+    assert emitted["cell"] == {"width": 64, "height": 64}
+    assert set(emitted) == {
+        "kind",
+        "key",
+        "image",
+        "cell",
+        "columns",
+        "rows",
+        "frames",
+        "anchor",
+        "aligned",
+        "playback",
+    }
+
+
+# R3.1, R3.2, R3.3 — atlases, tilesets and the panels among them.
+
+
+def group(kind: str, assets: list[index.Published], **overrides: object) -> index.Group:
+    profile = kinds.BUILT_INS[kind]
+    if overrides:
+        profile = replace(profile, **overrides)  # type: ignore[arg-type]
+    return index.Group(
+        kind=kind, profile=profile, artefact=index.artefact_of(profile), assets=assets
+    )
+
+
+def test_an_entry_is_named_after_its_asset_and_numbered_only_when_it_has_to_be() -> None:
+    assert index.entry_ids(published([swatch()], kind="icon", key="potion")) == ["potion"]
+    assert index.entry_ids(published([swatch(), swatch()], kind="icon", key="potion")) == [
+        "potion_0000",
+        "potion_0001",
+    ]
+
+
+def test_an_atlas_carries_a_rect_and_an_anchor_per_asset() -> None:
+    icons = group(
+        "icon",
+        [
+            published([swatch(16, 16)], kind="icon", key="potion"),
+            published([swatch(32, 8)], kind="icon", key="sword"),
+        ],
+    )
+    entry, pixels = index.build_atlas(icons, padding=2, extrude=1)
+
+    assert entry.image == "atlases/icon.png"
+    assert (entry.padding, entry.extrude) == (2, 1)
+    assert pixels.shape == (entry.height, entry.width, 4)
+    by_id = {item.id: item for item in entry.items}
+    assert set(by_id) == {"potion", "sword"}
+    assert (by_id["potion"].rect.width, by_id["potion"].rect.height) == (16, 16)
+    assert (by_id["sword"].rect.width, by_id["sword"].rect.height) == (32, 8)
+    # No entry overlaps another, which is the one thing a rect per entry has to promise.
+    assert by_id["potion"].rect.as_dict() != by_id["sword"].rect.as_dict()
+
+
+def test_only_a_kind_that_declares_nineslice_carries_borders() -> None:
+    panels = group("ui", [published([swatch(32, 32)], kind="ui", key="panel")])
+    entry, _ = index.build_atlas(panels)
+    borders = entry.items[0].as_dict()["borders"]
+    assert set(borders) == {"left", "right", "top", "bottom"}
+    assert all(value >= 1 for value in borders.values())
+
+    icons = group("icon", [published([swatch(16, 16)], kind="icon", key="potion")])
+    plain, _ = index.build_atlas(icons)
+    assert "borders" not in plain.items[0].as_dict()
+
+
+def test_a_tileset_carries_the_tile_size_the_grid_and_every_id() -> None:
+    cell = kinds.BUILT_INS["tile"].cell
+    tiles = group(
+        "tile",
+        [
+            published([swatch(*cell)], kind="tile", key="grass"),
+            published([swatch(*cell)], kind="tile", key="stone"),
+            published([swatch(*cell)], kind="tile", key="water"),
+        ],
+    )
+    entry, pixels = index.build_tileset(tiles)
+
+    assert entry.tile == cell
+    assert (entry.columns, entry.rows) == (2, 2)
+    assert pixels.shape == (2 * cell[1], 2 * cell[0], 4)
+    assert [(tile.id, tile.column, tile.row) for tile in entry.tiles] == [
+        ("grass", 0, 0),
+        ("stone", 1, 0),
+        ("water", 0, 1),
+    ]
+
+
+def test_a_tile_that_is_not_the_cell_is_refused() -> None:
+    cell = kinds.BUILT_INS["tile"].cell
+    tiles = group(
+        "tile",
+        [
+            published([swatch(*cell)], kind="tile", key="grass"),
+            published([swatch(cell[0] - 4, cell[1])], kind="tile", key="stone"),
+        ],
+    )
+    with pytest.raises(SscError) as refused:
+        index.build_tileset(tiles)
+    assert refused.value.code == "tile-not-the-cell"
+    assert "stone" in refused.value.message
 
 
 def test_a_frame_set_arrives_in_filename_order(tmp_path: Path) -> None:

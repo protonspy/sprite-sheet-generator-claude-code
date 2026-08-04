@@ -5,31 +5,103 @@ ci: wait
 
 # Budget guard — requirements
 
-<!-- EARS, numbered R<group>.<item>. All five patterns are valid; use the one the
-     requirement actually is, and do not invent a trigger for something that is
-     simply always true:
-
-       The <system> shall <response>                                  ubiquitous
-       While <precondition>, the <system> shall <response>          state-driven
-       When <trigger>, the <system> shall <response>                event-driven
-       Where <feature>, the <system> shall <response>           optional feature
-       If <trigger>, then the <system> shall <response>       unwanted behavior
-
-     Omit, don't fill: specify what this feature decides, and nothing else.
-     Over-specification measurably makes generated code worse, not just longer.
-     Delete this comment. -->
-
 ## Purpose
 
-<!-- One paragraph: what this feature is for, and who it is for. -->
+Nothing in `ssc` spends money without being asked, and this is where "being asked" is
+defined. Three things, in the order they matter: whether a free command produces the same
+result — asked by the expensive command itself, before anything else — then a ceiling the
+workspace declares that every `gen` is refused against, then a running total of what was
+actually spent.
 
-## R1 · <group name>
+`specs/gen-fal/` hands this leaf a job record carrying `cost_usd` and the resolved call.
+This leaf never submits anything. It decides whether a submission may happen, and records
+what it cost once it has.
 
-- **R1.1** The <system> shall <response>
-- **R1.2** When <trigger>, the <system> shall <response>
-- **R1.3** If <trigger>, then the <system> shall <response>
+## R1 · The free path
+
+- **R1.1** If a deterministic command produces the same result as a paid call, then the `ssc` CLI shall refuse that call and name the command that produces it.
+- **R1.2** Where a deterministic command may produce the same result but cannot be shown to, the `ssc` CLI shall report it as an alternative and shall proceed.
+- **R1.3** The `ssc` CLI shall decide both from what the caller asked for, and not from an option that turns the check off.
+- **R1.4** While `--dry-run` is given, the `ssc` CLI shall report any free command that covers or may cover the call.
+
+> **R1.2 exists because the plan and the wiki disagree, and the disagreement is real.**
+> `plans/ssc-pipeline.md` gives two free-path cases and says of both that "the deterministic
+> command is not an approximation of the paid one — it is the same result". That holds for
+> padding a flat-chroma border: `np.pad` with the key colour *is* what the outpaint would
+> have produced. It does not hold for the other case.
+> `docs/wiki/anchor-and-directions.md` records that mirroring West to get East "breaks on
+> asymmetry — a book held under one arm, a sheath, a scar, a pauldron on one shoulder" — and
+> that the breakage is not visible at a glance.
+>
+> Refusing on that would be refusing a call the caller was right to make, and R1.3 leaves no
+> flag to escape with. Detecting the asymmetry is a vision problem this project does not
+> take on. So exact equivalence refuses and likely equivalence reports, and which case a
+> given free command falls into is stated where that command is taught, not guessed here.
+
+## R2 · The ceiling
+
+- **R2.1** The `ssc` CLI shall read a spending ceiling and a warning threshold from `ssc.yaml`.
+- **R2.2** If the running total has reached the ceiling, then the `ssc` CLI shall refuse the call, report both amounts, and submit nothing.
+- **R2.3** If a call's estimated cost would carry the running total past the ceiling, then the `ssc` CLI shall refuse the call, report both amounts, and submit nothing.
+- **R2.4** While the running total is past the warning threshold and under the ceiling, the `ssc` CLI shall report that it is and shall proceed.
+- **R2.5** Where no ceiling is declared, the `ssc` CLI shall refuse no call for cost.
+- **R2.6** The `ssc` CLI shall refuse on an estimate before a call and shall record the actual cost after it.
+
+> **R2.2 and R2.3 are two requirements because only one of them works today.** No provider
+> in the registry publishes a per-call price, and this leaf ships no price table — see *Out
+> of scope*. So the estimate is usually absent, and a ceiling written only against an
+> estimate would never refuse anything: a feature that reports a number and enforces
+> nothing.
+>
+> R2.2 needs no estimate. It asks whether the money already spent has reached the ceiling,
+> which is answerable from the total alone, and it is what actually stops a run. R2.3 is the
+> tighter check for the day a provider does publish a price, and it is specified now so that
+> arriving prices change a number rather than a design.
+
+## R3 · The total
+
+- **R3.1** The `ssc` CLI shall keep a running total of what a workspace has spent, and shall report it.
+- **R3.2** When a paid call is submitted, the `ssc` CLI shall add that call to the running total.
+- **R3.3** If a provider reports no cost for a call, then the `ssc` CLI shall count that call as unpriced and shall report how many unpriced calls the total omits.
+- **R3.4** The `ssc` CLI shall apply an update to the running total without losing an update made concurrently.
+- **R3.5** The `ssc` CLI shall add a given call to the running total no more than once.
+- **R3.6** If a spending ceiling or a running total cannot be read as a finite, non-negative amount, then the `ssc` CLI shall refuse the call rather than proceed.
+- **R3.7** When a provider reports what a submitted call cost, the `ssc` CLI shall add that amount to the running total without counting the call a second time.
+
+> **R3.2 was rewritten twice, and the second review is why.** It first said "when a provider
+> reports what a call cost", which the implementation honoured by counting inside the one
+> branch of `gen.run` that waits — so `--no-wait` submitted billed work the ceiling never
+> saw. Rewriting it around *collection* closed that permanently-invisible case and left a
+> reachable one: a caller looping `--no-wait` and never collecting still spent without the
+> total moving, because nothing had collected anything.
+>
+> So the event is **submission**. The money is committed the moment `jobs.submit` returns,
+> whatever happens afterwards, and that is the only moment every paid call passes through.
+> A call is counted there with no amount, because at submission there is no amount to know;
+> R3.7 folds the real figure in later without counting the call again. R3.5 is what keeps
+> three collecting routes from billing one call three times, and the flag making it
+> idempotent lives on the job (`job-store` R1.7).
+>
+> **R3.6 exists because the guard failed open.** `NaN` walks past a negativity check —
+> `nan < 0` is `False` — and then every comparison against it is `False` too, so a single
+> `.nan` in `ssc.yaml`, or a `NaN` token in `budget.json` which `json.loads` accepts by
+> extension, silently disabled the ceiling for ever with no error anywhere. A control that
+> cannot be evaluated has to refuse, not permit.
 
 ## Out of scope
 
-<!-- What a reader might reasonably expect here and will not find, so nobody
-     builds it by accident. Delete the heading if there is nothing to say. -->
+**A price list.** No table of what each model charges ships here. A hard-coded price is
+wrong the week a model is repriced, and wrong in the direction that spends money. R2.2
+refuses on what is known; where nothing is known there is nothing to refuse on, and R3.3 is
+what keeps that visible instead of letting it look like zero.
+
+**Per-provider metering rules.** A provider billing by subscription reports no per-call
+cost and must not be made to lie with a zero — that is R3.3's whole reason — but the shape
+of a second provider's meter is guesswork until there is a second provider.
+
+**Retry.** What a transient network error does belongs to `specs/gen-fal/`. A retry is not
+a second purchase and must not touch this total; a retry that submitted twice would be a
+defect there rather than a policy here.
+
+**Refusing a call for being slow, large, or unwise.** This leaf refuses for exactly two
+reasons: a free command does the same thing, or the money is not there.

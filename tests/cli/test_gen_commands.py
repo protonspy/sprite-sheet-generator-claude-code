@@ -18,7 +18,7 @@ import yaml
 from click.testing import CliRunner
 from conftest import load_meta
 
-from ssc.cli import fal, jobs, meta, models
+from ssc.cli import budget, fal, jobs, meta, models
 from ssc.cli import gen as pipeline
 from ssc.cli import workspace as ws
 from ssc.cli.app import main
@@ -89,6 +89,12 @@ def api(monkeypatch: pytest.MonkeyPatch) -> FakeClient:
     monkeypatch.setattr(commands, "provider", lambda: fal.Fal(api=client))
     monkeypatch.setattr(models, "load", lambda: shipped(fetch=lambda _: None))
     monkeypatch.setattr(pipeline.fal, "fetch", lambda url, **rest: PNG)
+    # `gen` reaches its provider through `commands.provider`; `ssc job resume` reaches one
+    # through the registry instead. Patching only the first left every `job` command in this
+    # file talking to the real fal client — which failed on a missing credential *before*
+    # reaching what the test meant to exercise, so the assertion passed on nothing and the
+    # run made a live HTTPS call. Both reviews caught it; this is the fix.
+    monkeypatch.setitem(jobs.PROVIDERS, fal.PROVIDER, fal.Fal(api=client))
     return client
 
 
@@ -955,3 +961,161 @@ def test_a_timeout_that_is_not_a_duration_is_refused(
     assert code == 2
     assert payload["error"]["code"] == "invalid-wait"
     assert api.submitted == []
+
+
+# ------------------------------------------------------ the money guard  R1, R2, R3
+
+
+def budgeted(space: Path, **limits: Any) -> None:
+    """Put a `budget:` into the workspace's `ssc.yaml`, keeping what is already there."""
+    document = yaml.safe_load((space / "ssc.yaml").read_text(encoding="utf-8"))
+    document["budget"] = limits
+    (space / "ssc.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
+
+
+def test_a_paid_call_a_free_command_covers_is_refused(
+    space: Path, api: FakeClient, keyed: None
+) -> None:
+    """`specs/budget-guard/` R1.1, and it is first in `gen.run` on purpose: this workspace
+    declares no ceiling at all, and it still must not pay for a `np.pad`."""
+    code, payload = run(
+        "gen", "expand", "--asset", "character/hero", "--prompt", "", "--in", str(png_at(space))
+    )
+    assert code == 2
+    assert payload["error"]["code"] == "free-path"
+    assert "tool expand" in payload["error"]["fix"]
+    assert api.submitted == []
+
+
+def test_the_free_path_is_checked_before_the_cache_and_the_ceiling(
+    space: Path, api: FakeClient, keyed: None
+) -> None:
+    """Order, asserted rather than assumed.
+
+    Each refusal tested alone would pass with them in any order. This one pins the free path
+    ahead of everything: the workspace is over its ceiling *and* the call is free, and the
+    answer a caller can act on is the free command, not "you are out of money".
+    """
+    budgeted(space, max_usd=0.0)
+    code, payload = run(
+        "gen", "expand", "--asset", "character/hero", "--prompt", "", "--in", str(png_at(space))
+    )
+    assert code == 2
+    assert payload["error"]["code"] == "free-path"
+
+
+def test_a_cached_result_is_not_refused_for_being_over_budget(
+    space: Path, api: FakeClient, keyed: None
+) -> None:
+    """R2.2 sits *after* the cache, and this is why: a hit submits nothing, so refusing one
+    for being over budget would be refusing to spend nothing."""
+    run("gen", "image", "--asset", "character/hero", "--prompt", "a knight")
+    budgeted(space, max_usd=0.0)
+
+    code, payload = run(
+        "gen", "image", "--asset", "character/hero", "--prompt", "a knight", "--stage", "again"
+    )
+    assert code == 0
+    assert payload["cached"] is True and payload["submitted"] is False
+    assert len(api.submitted) == 1
+
+
+def test_a_workspace_at_its_ceiling_refuses_the_next_call(
+    space: Path, api: FakeClient, keyed: None
+) -> None:
+    """R2.2 end to end. No provider publishes a price, so this — the money already spent —
+    is the check that actually stops a run."""
+    budgeted(space, max_usd=1.0)
+    budget.record(ws.require(space), 1.0)
+
+    code, payload = run("gen", "image", "--asset", "character/hero", "--prompt", "a knight")
+    assert code == 2
+    assert payload["error"]["code"] == "over-budget"
+    assert api.submitted == []
+
+
+def test_a_collected_call_is_added_to_the_total(space: Path, api: FakeClient, keyed: None) -> None:
+    """R3.2, R3.3 — the fake provider reports no cost, which is the ordinary case and must
+    be counted as unpriced rather than as free."""
+    _, payload = run("gen", "image", "--asset", "character/hero", "--prompt", "a knight")
+    assert payload["budget"]["calls"] == 1
+    assert payload["budget"]["unpriced"] == 1
+    assert payload["budget"]["spent_usd"] == 0.0
+
+
+def test_dry_run_reports_the_free_command_and_spends_nothing(space: Path, api: FakeClient) -> None:
+    """R1.4 — this is the agent's interface: seeing that a call is unnecessary before it is
+    made is the whole value, and `--dry-run` needs no credential to say so."""
+    _, payload = run(
+        "gen",
+        "expand",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "",
+        "--in",
+        str(png_at(space)),
+        "--dry-run",
+    )
+    assert payload["dry_run"] is True
+    assert "tool expand" in payload["free_path"]
+    assert api.submitted == []
+
+
+def test_ssc_budget_reports_the_total_and_what_it_does_not_know(
+    space: Path, api: FakeClient, keyed: None
+) -> None:
+    """R3.1, R3.3."""
+    budgeted(space, max_usd=5.0, warn_at=4.0)
+    run("gen", "image", "--asset", "character/hero", "--prompt", "a knight")
+
+    code, payload = run("budget")
+    assert code == 0
+    assert payload["calls"] == 1 and payload["unpriced"] == 1
+    assert payload["max_usd"] == 5.0 and payload["warn_at"] == 4.0
+    assert payload["remaining_usd"] == 5.0
+
+
+def test_a_no_wait_call_is_counted_when_it_is_submitted(
+    space: Path, api: FakeClient, keyed: None
+) -> None:
+    """The critical the second security round returned, and the reason counting moved.
+
+    Counting on collection closed the "invisible for ever" hole and left "invisible until
+    collected" — so a caller looping `--no-wait` billed the provider indefinitely while the
+    ceiling compared against a total that never moved. The money is committed when `submit`
+    returns, so that is when the call is counted.
+    """
+    _, submitted = run(
+        "gen", "image", "--asset", "character/hero", "--prompt", "a knight", "--no-wait"
+    )
+    assert submitted["budget"]["calls"] == 1
+    assert budget.load(ws.require(space)).calls == 1
+
+
+def test_a_ceiling_sees_calls_nobody_ever_collected(
+    space: Path, api: FakeClient, keyed: None
+) -> None:
+    """The loop the finding described, run: submit without ever collecting, and the total
+    still grows. Before the fix this stayed at zero however many calls were billed."""
+    for _ in range(3):
+        run("gen", "image", "--asset", "character/hero", "--prompt", "a knight", "--no-wait")
+
+    total = budget.load(ws.require(space))
+    assert total.calls == 3 and total.unpriced == 3
+    assert len(api.submitted) == 3
+
+
+def test_a_result_collected_twice_is_billed_once(space: Path, api: FakeClient, keyed: None) -> None:
+    """The other half of the same fix. Closing the `--no-wait` hole by counting on every
+    collecting route would count one call twice — `gen collect` and then `job resume` — so
+    the job carries whether it has been counted."""
+    _, submitted = run(
+        "gen", "image", "--asset", "character/hero", "--prompt", "a knight", "--no-wait"
+    )
+    job_id = submitted["job"]["id"]
+    run("gen", "collect", job_id, "--asset", "character/hero", "--stage", "gen")
+    resumed_code, _ = run("job", "resume", job_id)
+
+    assert resumed_code == 0  # the route was actually reached, not erroring out early
+    assert budget.load(ws.require(space)).calls == 1

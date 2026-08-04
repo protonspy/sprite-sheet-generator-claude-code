@@ -26,6 +26,7 @@ assumes.
 - **R1.4** If a file under the jobs directory cannot be read as a job record, then the `ssc` CLI shall report that file and continue with the others.
 - **R1.5** The `ssc` CLI shall replace a credential-shaped argument with `***` before writing a job record, as well as before reporting one.
 - **R1.6** (ADDED) Where a producer stores what a job returns, the `ssc` CLI shall record the key it will be stored under, as part of that job's record.
+- **R1.7** (ADDED) The `ssc` CLI shall record, for each job, whether that call has already been counted against what the workspace has spent.
 
 > **R1.6, added by `specs/gen-fal/`.** A job says what was paid for; the key the result is
 > kept under is part of that, and it cannot be derived later. The key covers the inputs to
@@ -35,6 +36,13 @@ assumes.
 > result and caches nothing, and the next identical call is billed for bytes already on
 > disk. Nullable, and for the same reason `cost_usd` is: the store does not know what a
 > cache is, and a producer that keys nothing leaves it unset.
+>
+> **R1.7, added by `specs/budget-guard/`.** A result is collected by three routes — `gen`
+> waiting for it, `gen collect` after `--no-wait`, and `job resume` from the record alone —
+> and the money moved exactly once whichever ran. Counting on one route left the other two
+> invisible to the ceiling; counting on all three would bill one call three times. The flag
+> belongs on the job because the alternative is a running total that has to remember every
+> id it ever saw, and the job is the record that already knows.
 
 ## R2 · The states
 

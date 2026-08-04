@@ -12,7 +12,7 @@ from typing import Any
 
 import click
 
-from ssc.cli import jobs
+from ssc.cli import budget, jobs
 from ssc.cli import workspace as ws
 from ssc.cli.errors import SscError
 from ssc.cli.main import ssc_command
@@ -200,10 +200,19 @@ def job_resume(job_id: str, *, dry_run: bool, workspace: ws.Workspace) -> Result
         return unreachable(record, "it has no request id, so there is nothing to collect")
 
     collected: dict[str, Any] = provider.result(record.application, record.request_id)
+    # The call itself was counted when it was submitted. This route only folds in a price if
+    # the provider gave one, which is why it settles rather than counts — collecting a result
+    # twice, by two different commands, must not bill it twice (R3.5, R3.7).
+    total, record = budget.settle(workspace, record, record.cost_usd)
     return Result(
         "job resume",
         f"{record.id} collected",
-        {**record.as_dict(), "collected": True, "result": collected},
+        {
+            **record.as_dict(),
+            "collected": True,
+            "result": collected,
+            "budget": total.as_dict(),
+        },
         dry_run=dry_run,
     )
 

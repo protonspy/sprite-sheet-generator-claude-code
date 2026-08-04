@@ -81,7 +81,16 @@ class Job:
     #: — the digests of the images sent — that the record does not otherwise carry, so a
     #: collector deriving it would be deriving it from less than the submitter had.
     cache_key: str | None = None
+    #: Whether this call has already been added to the workspace's running total. A result is
+    #: collected by more than one route — `gen` waiting, `gen collect` after `--no-wait`,
+    #: `job resume` from the record alone — and the money moved exactly once, whichever route
+    #: ran. The flag lives on the job because the alternative is a total that has to remember
+    #: every id it ever saw, and this is the one record that already knows.
+    counted: bool = False
     history: list[dict[str, str]] = field(default_factory=list)
+
+    def as_counted(self) -> Job:
+        return replace(self, counted=True)
 
     @classmethod
     def new(
@@ -157,6 +166,7 @@ class Job:
             "cost_usd": self.cost_usd,
             "error": self.error,
             "cache_key": self.cache_key,
+            "counted": self.counted,
             "history": self.history,
         }
 
@@ -202,6 +212,9 @@ class Job:
         cached_under = data.get("cache_key")
         if cached_under is not None and not isinstance(cached_under, str):
             raise ValueError("a job record's cache_key is a string or null")
+        counted = data.get("counted", False)
+        if not isinstance(counted, bool):
+            raise ValueError("a job record's counted is true or false")
 
         return cls(
             id=str(data["id"]),
@@ -214,6 +227,7 @@ class Job:
             cost_usd=None if cost is None else float(cost),
             error=error,
             cache_key=cached_under,
+            counted=counted,
             history=[dict(entry) for entry in history],
         )
 

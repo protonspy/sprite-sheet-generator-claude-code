@@ -22,7 +22,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
-from ssc.cli import config, fal, jobs, kinds, listing, meta, models
+from ssc.cli import budget, config, fal, jobs, kinds, listing, meta, models
 from ssc.cli.atomic import Directory
 from ssc.cli.cache import Cache, cache_key
 from ssc.cli.errors import SscError, UsageError
@@ -910,17 +910,33 @@ def run(
     held, record = listing.resolve(workspace, address)
     with held:
         profile = kinds.resolve(record.kind, workspace).profile
+        stages = tuple(entry.stage for entry in record.files)
     registry = models.load() if registry is None else registry
-    call = build(registry, ask, profile, config.document(workspace))
+    settings = config.document(workspace)
+    call = build(registry, ask, profile, settings)
     key = call.key()
+
+    # First, and before the cache: it holds whether or not there is a ceiling and whether or
+    # not anything is cached. A workspace that has declared no budget at all still should
+    # not pay for a `np.pad` (`specs/budget-guard/` R1.1).
+    free = budget.covered_by(ask, stages)
+    limits = budget.limits_of(settings)
 
     if dry_run:
         return Result(
             ask.verb,
             f"would call {call.endpoint}",
-            {"asset": address, "stage": ask.stage, "submitted": False, **call.report()},
+            {
+                "asset": address,
+                "stage": ask.stage,
+                "submitted": False,
+                "free_path": None if free is None else free.command,
+                **call.report(),
+            },
             dry_run=True,
         )
+
+    budget.clear(free)
 
     cache = Cache(workspace.cache)
     hit = cache.get(key)
@@ -951,6 +967,10 @@ def run(
             cached=True,
         )
 
+    # After the cache and before the credential. A cache hit submits nothing, so refusing
+    # one for being over budget would be refusing to spend nothing (R2.2).
+    warning = budget.check(limits, budget.load(workspace), budget.estimate_for(registry, call))
+
     # Before the job record, so a call that was never going to happen leaves no trace of
     # having been attempted.
     fal.credential()
@@ -975,6 +995,10 @@ def run(
     )
     arguments = call.arguments(url)
     job = jobs.submit(workspace, job, lambda _: provider.submit(call.endpoint, arguments), at=now())
+    # Here, not after collecting. The money is committed the moment `submit` returns, and a
+    # caller who never collects — `--no-wait` in a loop — would otherwise bill the provider
+    # while the ceiling compared against a total that never moved (R3.2).
+    total, job = budget.count(workspace, job)
 
     if not wait:
         return Result(
@@ -986,11 +1010,16 @@ def run(
                 "submitted": True,
                 "collected": False,
                 "job": job.as_dict(),
+                "budget": total.as_dict(),
                 **call.report(),
             },
         )
 
     job, payload = collect(workspace, provider, job, timeout=timeout, poll=poll)
+    # After the call and not before it: the estimate is what a refusal is made on, and this
+    # is what was actually spent (R2.5, R3.2). A provider that priced nothing is counted as
+    # unpriced rather than as free.
+    total, job = budget.settle(workspace, job, job.cost_usd)
     written = write_result(
         workspace,
         address,
@@ -1004,13 +1033,16 @@ def run(
     )
     return Result(
         ask.verb,
-        f"{written['file']} from {call.endpoint}",
+        f"{written['file']} from {call.endpoint}"
+        + (f" — {warning}" if warning is not None else ""),
         {
             "asset": address,
             "stage": ask.stage,
             "submitted": True,
             "collected": True,
             "job": job.as_dict(),
+            "budget": total.as_dict(),
+            "warning": warning,
             **written,
             **call.report(),
         },
@@ -1044,6 +1076,11 @@ def collect_job(
         )
 
     record, payload = collect(workspace, provider, record, timeout=timeout, poll=poll)
+    # Counted here as well as in `run`, and idempotently. `--no-wait` then `gen collect` is
+    # an ordinary supported sequence, and counting only where `gen` waited meant a caller who
+    # used it submitted billed work the ceiling never saw (R3.2).
+    # Counted at submission; this only folds in a price, if the provider gave one.
+    total, record = budget.settle(workspace, record, record.cost_usd)
     # Under the key the submitting call computed, which the job carried here. `--no-wait` then
     # `gen collect` has to leave the workspace in the state waiting would have: without this,
     # the result is filed but never cached, and the next identical `gen image` misses and
@@ -1070,6 +1107,7 @@ def collect_job(
             "stage": stage,
             "collected": True,
             "job": record.as_dict(),
+            "budget": total.as_dict(),
             **written,
         },
     )

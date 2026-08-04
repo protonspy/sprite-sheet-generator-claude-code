@@ -14,6 +14,7 @@ this work started.
 - [x] 1.4 (Unit) Validate a record's shapes, not only its keys, so a bad file stays local to itself — R1.4
 - [x] 1.5 (Unit) Redact a credential-shaped argument on the way to disk, not only on the way to stdout — R1.5
 - [x] 1.6 (Unit) Carry the key a producer will store the result under, nullable like the cost, added as `specs/gen-fal/`'s delta — R1.6
+- [x] 1.7 (Unit) Carry whether a call has been counted against the workspace's spending, added as `specs/budget-guard/`'s delta — R1.7
 
 ## 2 · The states
 

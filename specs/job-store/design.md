@@ -76,6 +76,8 @@ Serves R1.3.
   "arguments": {"prompt": "…", "image_size": "1024x1024"},
   "state": "submitted",
   "cost_usd": null,
+  "cache_key": "…",
+  "counted": false,
   "history": [{"state": "submitted", "at": "2026-08-03T10:00:00Z"}],
   "error": null
 }
@@ -84,6 +86,15 @@ Serves R1.3.
 `cost_usd` is nullable on purpose and `specs/budget-guard/` depends on that: a provider
 metering by subscription reports no per-call cost, and a store that modelled cost as a
 number would force every such provider to lie with a zero.
+
+`cache_key` and `counted` arrived as deltas, from `specs/gen-fal/` and `specs/budget-guard/`
+respectively, and are shown here because a data section that omits half the record is worse
+than none — it reads as the whole shape. `cache_key` is carried rather than recomputed at
+collection because the key covers the digests of the images sent, which the record
+deliberately elides, so a collector deriving it would derive it from less than the submitter
+had. `counted` is what keeps one call out of the running total twice when three routes may
+collect it (`budget-guard` R3.5); it lives on the job because the alternative is a total that
+has to remember every id it ever saw.
 
 `history` rather than a single timestamp, because "when did this become `running`" and "how
 long was it queued" are the questions asked after a bad batch, and they cannot be

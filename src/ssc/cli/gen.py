@@ -22,7 +22,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
-from ssc.cli import config, fal, jobs, kinds, listing, meta, models
+from ssc.cli import budget, config, fal, jobs, kinds, listing, meta, models
 from ssc.cli.atomic import Directory
 from ssc.cli.cache import Cache, cache_key
 from ssc.cli.errors import SscError, UsageError
@@ -910,17 +910,33 @@ def run(
     held, record = listing.resolve(workspace, address)
     with held:
         profile = kinds.resolve(record.kind, workspace).profile
+        stages = tuple(entry.stage for entry in record.files)
     registry = models.load() if registry is None else registry
-    call = build(registry, ask, profile, config.document(workspace))
+    settings = config.document(workspace)
+    call = build(registry, ask, profile, settings)
     key = call.key()
+
+    # First, and before the cache: it holds whether or not there is a ceiling and whether or
+    # not anything is cached. A workspace that has declared no budget at all still should
+    # not pay for a `np.pad` (`specs/budget-guard/` R1.1).
+    free = budget.covered_by(ask, stages)
+    limits = budget.limits_of(settings)
 
     if dry_run:
         return Result(
             ask.verb,
             f"would call {call.endpoint}",
-            {"asset": address, "stage": ask.stage, "submitted": False, **call.report()},
+            {
+                "asset": address,
+                "stage": ask.stage,
+                "submitted": False,
+                "free_path": None if free is None else free.command,
+                **call.report(),
+            },
             dry_run=True,
         )
+
+    budget.clear(free)
 
     cache = Cache(workspace.cache)
     hit = cache.get(key)
@@ -974,7 +990,24 @@ def run(
         cache_key=key,
     )
     arguments = call.arguments(url)
-    job = jobs.submit(workspace, job, lambda _: provider.submit(call.endpoint, arguments), at=now())
+
+    # Reserved before the call, not counted after it. After the cache, because a hit submits
+    # nothing and refusing one for being over budget would be refusing to spend nothing
+    # (R2.2); before `submit`, because the ceiling has to be decided and published in one
+    # step or every concurrent `gen` clears the same stale total and they all spend (R3.2,
+    # R3.4). `reserve` raises to refuse.
+    warning, job = budget.reserve(workspace, limits, budget.estimate_for(registry, call), job)
+    try:
+        job = jobs.submit(
+            workspace, job, lambda _: provider.submit(call.endpoint, arguments), at=now()
+        )
+    except Exception:
+        # No request id came back, so the provider accepted nothing and R3.2 has no call to
+        # count. `jobs.submit` has already saved the record as `failed`; this returns the
+        # money the reservation was holding.
+        budget.release(workspace, job)
+        raise
+    total = budget.load(workspace)
 
     if not wait:
         return Result(
@@ -986,11 +1019,16 @@ def run(
                 "submitted": True,
                 "collected": False,
                 "job": job.as_dict(),
+                "budget": total.as_dict(),
                 **call.report(),
             },
         )
 
     job, payload = collect(workspace, provider, job, timeout=timeout, poll=poll)
+    # After the call and not before it: the estimate is what a refusal is made on, and this
+    # is what was actually spent (R2.5, R3.2). A provider that priced nothing is counted as
+    # unpriced rather than as free.
+    total, job = budget.settle(workspace, job, job.cost_usd)
     written = write_result(
         workspace,
         address,
@@ -1004,13 +1042,16 @@ def run(
     )
     return Result(
         ask.verb,
-        f"{written['file']} from {call.endpoint}",
+        f"{written['file']} from {call.endpoint}"
+        + (f" — {warning}" if warning is not None else ""),
         {
             "asset": address,
             "stage": ask.stage,
             "submitted": True,
             "collected": True,
             "job": job.as_dict(),
+            "budget": total.as_dict(),
+            "warning": warning,
             **written,
             **call.report(),
         },
@@ -1044,6 +1085,9 @@ def collect_job(
         )
 
     record, payload = collect(workspace, provider, record, timeout=timeout, poll=poll)
+    # The call was counted at submission, by `reserve`, whichever route collects it. This only
+    # folds in a price where the provider gave one, and does nothing where none did (R3.7).
+    total, record = budget.settle(workspace, record, record.cost_usd)
     # Under the key the submitting call computed, which the job carried here. `--no-wait` then
     # `gen collect` has to leave the workspace in the state waiting would have: without this,
     # the result is filed but never cached, and the next identical `gen image` misses and
@@ -1070,6 +1114,7 @@ def collect_job(
             "stage": stage,
             "collected": True,
             "job": record.as_dict(),
+            "budget": total.as_dict(),
             **written,
         },
     )

@@ -7,6 +7,7 @@ in a third module is what keeps that a one-way dependency instead of a cycle.
 from __future__ import annotations
 
 from ssc.cli.commands.asset import asset
+from ssc.cli.commands.budget import budget
 from ssc.cli.commands.clean import clean
 from ssc.cli.commands.convert import (
     bgremove,
@@ -40,6 +41,7 @@ from ssc.cli.main import main, tool
 main.add_command(init)
 main.add_command(asset)
 main.add_command(clean)
+main.add_command(budget)
 main.add_command(kind)
 main.add_command(job)
 main.add_command(model)

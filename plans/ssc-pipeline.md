@@ -1,6 +1,7 @@
 ---
 autonomy: auto
 ci: wait
+pr: per-group
 worktree: per-group
 merge: auto
 ---
@@ -362,6 +363,20 @@ deliverable on its own: M1 already repairs a sheet you have today, with no API k
       later at `fdopen` — caught by the WSL run, not by the reviews, and not by Windows
 
 ## Notes
+
+**The remaining leaves are delivered in six pull requests, not twelve.** M1, M2 and M3's
+first three leaves are on `main`; what is left was combined at the developer's request,
+and the combinations are not arbitrary. `sweep-and-review` and `gates-and-resume` ship
+together because `sweep` writes `review/<key>/` and `gate` is the decision taken on it —
+one state machine, and splitting it would land a producer with no consumer.
+`engine-index` and `frame-metadata` ship together because the per-frame boxes are
+*emitted into* `dist/index.json`, so separating them means writing the index twice.
+The three `cv-*` leaves ship together because `cv-runtime` is the `--device`, extras and
+cache-key decision the other two consume, and they share one `[cv]`/`[cv-gpu]` packaging
+change. `sprite-skills` stays alone and last, for the reason M4 already gives. M5's three
+leaves are combined for PR count alone — they are independent of each other, and that is
+the one grouping here that trades review granularity for convenience rather than
+following a coupling.
 
 **Order.** `workspace-foundation` first — every other leaf writes `meta.json` and
 speaks the same JSON contract. Then `sheet-doctor`, ahead of the tools it measures:

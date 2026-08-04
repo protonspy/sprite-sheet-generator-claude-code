@@ -367,10 +367,17 @@ def adopt(workspace: Workspace, gate: Gate, *, at: str) -> Default:
         defaults_path(workspace),
         (
             json.dumps(
-                {
-                    "schema": SCHEMA,
-                    "topics": {name: one.as_dict() for name, one in sorted(adopted.items())},
-                },
+                # Scrubbed, like `save`. This is the sibling write that the first pass at
+                # redaction missed: `--choice` is the same unconstrained free text, and
+                # persisting it here rather than in the gate record does not make it a
+                # different kind of string. A store that scrubs one of its two writers has
+                # the hole it thinks it closed.
+                scrubbed(
+                    {
+                        "schema": SCHEMA,
+                        "topics": {name: one.as_dict() for name, one in sorted(adopted.items())},
+                    }
+                ),
                 indent=2,
                 sort_keys=True,
             )

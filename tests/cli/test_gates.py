@@ -292,3 +292,16 @@ def test_a_gate_record_is_redacted_before_it_is_written(workspace: Workspace) ->
     gates.save(workspace, leaky)
     on_disk = gates.path_of(workspace, leaky.id).read_text(encoding="utf-8")
     assert "sk-live-abcdefghijklmnop" not in on_disk
+
+
+def test_the_adopted_defaults_are_redacted_too(workspace: Workspace) -> None:
+    """The sibling write. Scrubbing `save` and not `adopt` leaves the same free text on
+    disk one file over."""
+    decided = opened().decided_as(
+        gates.APPROVED,
+        at="2026-08-04T13:00:00Z",
+        choice="https://example.com/x?api_key=sk-live-abcdefghijklmnop",
+    )
+    gates.adopt(workspace, decided, at="2026-08-04T13:00:00Z")
+    on_disk = gates.defaults_path(workspace).read_text(encoding="utf-8")
+    assert "sk-live-abcdefghijklmnop" not in on_disk

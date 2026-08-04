@@ -330,3 +330,28 @@ def test_a_recorded_stage_whose_files_are_gone_is_a_finding(hero: Path) -> None:
     code, payload = run("run", "character/hero")
     assert code == 1
     assert payload["error"]["code"] == "stage-missing"
+
+
+# The ceiling on a whole set, which `read_frames` enforces and the hand-rolled bound read
+# initially lost: per-file limits do not bound N files.
+def test_a_stage_over_the_set_pixel_ceiling_is_refused(
+    hero: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ssc.cli.commands import run as run_module
+
+    monkeypatch.setattr(run_module, "MAX_SET_PIXELS", 200)
+    declare(hero, {"stage": "nobg", "command": "bgremove", "params": {"tol": 60}})
+
+    code, payload = run("run", "character/hero")
+    assert code == 1
+    assert payload["error"]["code"] == "set-too-large"
+
+
+def test_a_stage_inside_the_set_pixel_ceiling_still_runs(
+    hero: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ssc.cli.commands import run as run_module
+
+    monkeypatch.setattr(run_module, "MAX_SET_PIXELS", 100_000)
+    declare(hero, {"stage": "nobg", "command": "bgremove", "params": {"tol": 60}})
+    assert run("run", "character/hero")[0] == 0

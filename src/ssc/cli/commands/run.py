@@ -18,7 +18,13 @@ from ssc.cli import workspace as ws
 from ssc.cli.atomic import Directory
 from ssc.cli.commands.recover import asset_dir_for
 from ssc.cli.errors import EXIT_GATE_PENDING, SscError
-from ssc.cli.frames import IMAGE_SUFFIXES, MAX_FILE_BYTES, decode_image, encode
+from ssc.cli.frames import (
+    IMAGE_SUFFIXES,
+    MAX_FILE_BYTES,
+    MAX_SET_PIXELS,
+    decode_image,
+    encode,
+)
 from ssc.cli.main import ssc_command
 from ssc.cli.output import Result
 
@@ -80,13 +86,29 @@ def frames_of(asset_dir: Directory, record: meta.AssetMeta, stage: str) -> list[
             "which holds no images",
             fix="rerun the step that made it",
         )
-    return [
-        decode_image(
-            asset_dir.read(f"{entry.path}/{name}", max_bytes=MAX_FILE_BYTES),
-            f"{entry.path}/{name}",
-        )
-        for name in names
-    ]
+    images: list[Any] = []
+    total = 0
+    for name in names:
+        relative = f"{entry.path}/{name}"
+        image = decode_image(asset_dir.read(relative, max_bytes=MAX_FILE_BYTES), relative)
+        total += image.shape[0] * image.shape[1]
+        if total > MAX_SET_PIXELS:
+            # The ceiling on the *set*, which the first version of this function inherited
+            # from `read_frames` and the second lost. Bounding each file individually is not
+            # the same promise: a few hundred frames each comfortably under `MAX_PIXELS` is
+            # gigabytes resident at once, reached by an ordinary `ssc run` over a large
+            # earlier stage rather than by anything hostile. Accumulated as they decode
+            # rather than measured from headers first, so the bytes still arrive through the
+            # binding — the check costs one frame's overshoot and keeps the property the
+            # rewrite was for.
+            raise SscError(
+                "set-too-large",
+                f"{record.kind}/{record.key} stage {stage!r} is over the "
+                f"{MAX_SET_PIXELS:,}-pixel ceiling for one set",
+                fix="split the animation, or work on fewer frames at a time",
+            )
+        images.append(image)
+    return images
 
 
 def write_stage(

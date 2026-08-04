@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from ssc.cli import sweep
@@ -187,14 +189,62 @@ def test_no_value_of_a_range_is_ever_past_the_last(monkeypatch: pytest.MonkeyPat
         assert all(float(value) <= last for value in values), (last, values)
 
 
-# The variant name is confined as a name, not merely assumed to be one because every
-# registry parser happens to be strict.
-def test_a_point_whose_values_would_escape_a_path_is_refused() -> None:
-    point = sweep.Point(index=0, values={"tol": "../../etc"})
-    with pytest.raises(UsageError) as refused:
-        assert point.label
-    assert refused.value.code == "invalid-name"
+# The directory name is confined; the display label is not, and they are different jobs.
+@pytest.mark.parametrize(
+    "hostile",
+    ["../../etc", "a/b", "a\\b", "/absolute", "C:/Windows", "..", ".", "con", "trailing."],
+)
+def test_a_point_whose_values_would_escape_a_path_cannot(hostile: str) -> None:
+    segment = sweep.Point(index=0, values={"tol": hostile}).segment
+    # The property that matters is that this is one path segment and stays inside its
+    # parent. An embedded `..` is harmless — `00_tol-..-..-etc` traverses nothing — and
+    # `check_name` is what refuses `.` and `..` as whole names.
+    assert Path(segment).name == segment
+    assert not Path(segment).is_absolute()
+    assert (Path("/review/variants") / segment).resolve().parent == Path(
+        "/review/variants"
+    ).resolve()
+    assert segment.startswith("00_")
 
 
-def test_an_ordinary_point_still_labels_itself() -> None:
-    assert sweep.Point(index=0, values={"tol": "60", "mode": "flood"}).label == "tol-60_mode-flood"
+def test_an_ordinary_point_names_itself_readably() -> None:
+    point = sweep.Point(index=0, values={"tol": "60", "mode": "flood"})
+    assert point.label == "tol-60_mode-flood"
+    assert point.segment == "00_tol-60_mode-flood"
+
+
+# `parse_hex` accepts a leading `#` and strips it, so this is a legitimate sweep. Confining
+# the display label refused it outright.
+def test_a_hex_value_written_with_a_hash_still_names_a_directory() -> None:
+    point = sweep.Point(index=0, values={"outline": "#aabbcc"})
+    assert point.label == "outline-#aabbcc"
+    assert point.segment == "00_outline--aabbcc"
+
+
+# A name is capped at 64 characters and a label concatenates every varied parameter, so a
+# four-parameter sweep composed a label longer than any name may be.
+def test_a_long_label_is_truncated_rather_than_refused() -> None:
+    point = sweep.Point(
+        index=7,
+        values={
+            "dither": "floyd-steinberg",
+            "min_cluster": "1048576",
+            "colors": "256",
+            "chroma": "aabbccddeeff001122334455",
+        },
+    )
+    assert len(point.segment) <= 64
+    assert point.segment.startswith("07_dither-floyd-steinberg")
+    assert len(point.label) > 64
+
+
+def test_a_truncated_segment_never_ends_in_a_dot() -> None:
+    # Windows strips a trailing dot, so `hero.` and `hero` would be one directory.
+    for width in range(1, 40):
+        point = sweep.Point(index=0, values={"scale": "0." + "5" * width})
+        assert not point.segment.endswith(".")
+
+
+def test_every_point_of_a_sweep_gets_a_distinct_directory_name() -> None:
+    points = sweep.expand([sweep.Vary("a", ("x" * 70, "y" * 70))])
+    assert len({point.segment for point in points}) == 2

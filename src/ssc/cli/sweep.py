@@ -33,6 +33,14 @@ MAX_RANGE_POINTS = MAX_VARIANTS
 #: the magnitude where an absolute epsilon stops meaning anything.
 RANGE_TOLERANCE = 1e-9
 
+#: Anything a path segment may not hold. `parse_hex` accepts a leading `#` and strips it,
+#: so a legitimate `--vary outline=#aabbcc` reaches here with a character no name allows.
+UNSAFE = re.compile(r"[^A-Za-z0-9._-]")
+
+#: `check_name`'s own ceiling. A four-parameter sweep composes a longer label than this,
+#: and being refused for it is not something a caller can act on.
+MAX_SEGMENT = 64
+
 NUMBER = re.compile(r"^-?[0-9]+(\.[0-9]+)?$")
 
 RANGE = re.compile(r"^(?P<first>-?[0-9.]+)\.\.(?P<last>-?[0-9.]+):(?P<step>-?[0-9.]+)$")
@@ -55,22 +63,36 @@ class Point:
 
     @property
     def label(self) -> str:
-        """`tol-60_mode-flood`, which becomes part of a directory name.
+        """`tol-60_mode-flood` — what a person reads on the contact sheet.
 
-        Not unique on its own — two points of a float range can render the same — which is
-        why the index is prepended where it is used as a name.
-
-        **Checked as a name, not merely assumed to be one.** Every parser in the registry
-        happens to be strict enough today that no value reaching here can hold a separator,
-        so the confinement was real but emergent: it held because of a property of a table
-        in another module, which nothing states and a future entry could drop. A parameter
-        accepting free text — a prompt, a label, a filename — would turn this straight into
-        a path escape, and `check_name` is what makes that a refusal instead.
+        Display text, deliberately unconstrained. It shows the values as they were written,
+        including a `#aabbcc` that `parse_hex` accepts and a run of parameters far longer
+        than any filename should be.
         """
-        return check_name(
-            "_".join(f"{name}-{value}" for name, value in self.values.items()),
-            "a variant name",
-        )
+        return "_".join(f"{name}-{value}" for name, value in self.values.items())
+
+    @property
+    def segment(self) -> str:
+        """`00_tol-60` — the same point as a directory name, confined.
+
+        Split from `label` after both halves of doing one job with one string went wrong.
+        Confining the display string rejected two *legitimate* sweeps: `--vary
+        chroma=#aabbcc`, which `parse_hex` accepts and strips, and any run of four or so
+        parameters, because a name is capped at 64 characters and a label concatenates all
+        of them. A sweep doing nothing wrong was refused with "is not a name".
+
+        So this sanitizes rather than merely checks. That is safe here and would not be
+        elsewhere: the index prefix already carries uniqueness, so folding two distinct
+        labels onto one cleaned string cannot collide, and truncating loses only
+        description. `check_name` stays as the assertion that the result is confined —
+        the property that matters is that a value cannot escape the review directory, and
+        it is enforced rather than inherited from how strict the registry's parsers happen
+        to be today.
+        """
+        stem = f"{self.index:02d}_{UNSAFE.sub('-', self.label)}"[:MAX_SEGMENT]
+        # A cut can land mid-value and leave a trailing dot, which `check_name` refuses for
+        # its own good reasons (Windows strips it, so two names become one directory).
+        return check_name(stem.rstrip(".-_") or f"{self.index:02d}", "a variant name")
 
 
 def parse_vary(declaration: str) -> Vary:

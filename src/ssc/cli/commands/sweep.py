@@ -253,9 +253,10 @@ def _name(point: sweep.Point) -> str:
     """`00_tol-40` — the index first, so an `ls` sorts the way the sweep ran.
 
     The index is also what makes it unique: two points of a float range can render the same
-    label, and a name that collides would silently overwrite a variant.
+    label, and a name that collides would silently overwrite a variant. The confinement
+    lives on `Point.segment`, beside the display label it is derived from.
     """
-    return f"{point.index:02d}_{point.label}"
+    return point.segment
 
 
 def write_one_json(path: Path, document: dict[str, Any]) -> Path:

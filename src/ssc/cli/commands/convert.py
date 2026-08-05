@@ -18,12 +18,14 @@ from pathlib import Path
 
 import click
 
+from ssc.cli import devices
 from ssc.cli import workspace as ws
 from ssc.cli.args import parse_guides, parse_hex
 from ssc.cli.cache import Cache
 from ssc.cli.errors import UsageError
 from ssc.cli.frames import Frame, read_frames, write_frames, write_one
 from ssc.cli.main import ssc_command
+from ssc.cli.matte import matte_frames
 from ssc.cli.output import Result
 from ssc.cli.snap import SnapParams, snap_frames
 from ssc.cli.snapper import Snapper
@@ -38,6 +40,7 @@ from ssc.cli.steps import (
 )
 from ssc.core import ninepatch
 from ssc.core.assemble import pack
+from ssc.core.bgmodel import MODELS, MatteParams
 from ssc.core.board import checkerboard, pose_board
 from ssc.core.normal import MAX_STRENGTH, MIN_STRENGTH
 from ssc.core.normal import derive as derive_normal
@@ -278,7 +281,19 @@ board.add_command(board_checker)
 board.add_command(board_poses)
 
 
-@ssc_command("bgremove", help="Take the background out by chroma key.")
+@ssc_command("bgremove", help="Take the background out by chroma key, or by model.")
+@click.option(
+    "--device",
+    type=click.Choice(devices.DEVICES),
+    default="auto",
+    help="Where --model runs. auto takes the best provider usable; a named one never falls back.",
+)
+@click.option(
+    "--model",
+    type=click.Choice(sorted(MODELS)),
+    default=None,
+    help="Remove by model under the [cv] extra instead of by chroma key.",
+)
 @click.option("--despeckle", type=int, default=0, help="Drop opaque groups below this many px.")
 @click.option("--edge-trim", type=int, default=0, help="Shrink the opaque region by this many px.")
 @click.option("--edge-pass", is_flag=True, help="Take the key's cast out of the border pixels.")
@@ -307,6 +322,8 @@ def bgremove(
     edge_pass: bool,
     edge_trim: int,
     despeckle: int,
+    model: str | None,
+    device: str,
     *,
     dry_run: bool,
 ) -> Result:
@@ -331,29 +348,43 @@ def bgremove(
         )
 
     frames = read_frames(source)
-    outcome = bgremove_frames(
-        [frame.image for frame in frames],
-        {
-            "chroma": parse_key(chroma),
-            "tol": tol,
-            "mode": mode,
-            "edge_pass": edge_pass,
-            "edge_trim": edge_trim,
-            "despeckle": despeckle,
-        },
-    )
-    keyed = [Frame(frame.name, image) for frame, image in zip(frames, outcome.frames, strict=True)]
+    if model is not None:
+        measurement = matte_frames(
+            frames,
+            model=model,
+            device=device,
+            params=MatteParams(edge_trim=edge_trim, despeckle=despeckle),
+            cache=cache_for(source),
+        )
+        keyed = measurement.frames
+        reported = measurement.measurement
+    else:
+        outcome = bgremove_frames(
+            [frame.image for frame in frames],
+            {
+                "chroma": parse_key(chroma),
+                "tol": tol,
+                "mode": mode,
+                "edge_pass": edge_pass,
+                "edge_trim": edge_trim,
+                "despeckle": despeckle,
+            },
+        )
+        keyed = [
+            Frame(frame.name, image) for frame, image in zip(frames, outcome.frames, strict=True)
+        ]
+        reported = outcome.measurement
 
     written = write_frames(source, out, keyed, dry_run=dry_run)
-    transparent = outcome.measurement["transparent_px"]
-    opaque = outcome.measurement["opaque_px"]
+    transparent = reported["transparent_px"]
+    opaque = reported["opaque_px"]
     return Result(
         "tool bgremove",
         f"{len(keyed)} frame{'' if len(keyed) == 1 else 's'}: "
         f"{transparent:,} px transparent, {opaque:,} px kept",
         {
             "frames": len(keyed),
-            **outcome.measurement,
+            **reported,
             "written": [str(path) for path in written],
         },
         dry_run=dry_run,

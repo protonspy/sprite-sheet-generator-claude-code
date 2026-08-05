@@ -8,6 +8,8 @@ hold the reasoning behind it.
 
 - [[game-ready-defects]] — the defects this tool exists to measure and repair, and which
   of them `doctor` checks. Every other page assumes this vocabulary.
+- [[agent-workflow]] — the run the six skills drive, from the anchor image to
+  `dist/index.json`, and the four gates where it stops for a person.
 
 ## Producing the art
 

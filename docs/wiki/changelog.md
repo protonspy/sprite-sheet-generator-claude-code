@@ -1,5 +1,19 @@
 # Wiki changelog
 
+## 2026-08-05 — the run, named end to end
+
+Group 2 of `plans/ssc-completion.md`: the chain is proven by one test, and the workflow
+that drives it is now a page rather than an assumption.
+
+- **[[agent-workflow]]** — new. The relay the six skills own, which commands each runs,
+  what each hands the next, and the four gates — anchor image, curated frames, palette
+  lock, preview — as the only places the run stops. Written before the skills themselves
+  so that group 4 implements a page rather than the page transcribing an implementation.
+- `index.md` — links the new page under "Start here".
+- `tests/cli/test_chain.py` — not a page, but the page cites it: one fixture-driven test
+  from a faked generation through cut, pipeline, `doctor` and `ssc index`, red when any
+  leaf's contract with the next drifts.
+
 ## 2026-08-05 — what the binding rounds cost, and the vocabulary M4 through M6 inherit
 
 Group 1 of `plans/ssc-completion.md`: settle the words and the decisions the nine remaining

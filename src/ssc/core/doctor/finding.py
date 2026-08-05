@@ -20,7 +20,10 @@ class Check(StrEnum):
     second detector — which is what this docstring anticipated. `nineslice` arrives the same
     way with the UI kind. Those two differ from the seven in one respect worth knowing: they
     are meaningless outside their kind, so they run only where they were asked for, and
-    report `skipped` everywhere else.
+    report `skipped` everywhere else. `consistency` arrives with the motion-consistency leaf
+    (plan task 10.2) the same way — a set-level number like `drift` and `flicker`, skipped
+    on a single frame, and reported as a number rather than a judgement unless a threshold
+    was given.
     """
 
     PIXEL_GRID = "pixel_grid"
@@ -32,6 +35,7 @@ class Check(StrEnum):
     SILHOUETTE = "silhouette"
     SEAM = "seam"
     NINESLICE = "nineslice"
+    CONSISTENCY = "consistency"
 
 
 class Status(StrEnum):

@@ -20,11 +20,13 @@ from ssc.cli.output import Result
 from ssc.core.doctor import (
     BleedParams,
     Check,
+    ConsistencyParams,
     NineSliceParams,
     PaletteParams,
     Report,
     SilhouetteParams,
     check_bleed,
+    check_consistency,
     check_drift,
     check_flicker,
     check_halo,
@@ -54,6 +56,7 @@ def measure(
     seam: bool = False,
     nineslice: tuple[int, int, int, int] | None = None,
     want_nineslice: bool = False,
+    min_consistency: float | None = None,
 ) -> Report:
     """Every check, in a stable order, on whatever was given.
 
@@ -64,7 +67,9 @@ def measure(
     `seam` is the one check that has to be *asked for* (tile-assets R2.4). The seven are
     meaningful on any asset; `seam` is meaningful only on something meant to tile, and run
     by default it would report every character frame as broken for the unremarkable fact
-    that its left edge is not its right edge.
+    that its left edge is not its right edge. `consistency` is always on, like `drift` and
+    `flicker`: it needs a set, skips on a single frame, and reports a number rather than a
+    judgement unless `min_consistency` was given.
     """
     first = frames[0]
     palette_params = PaletteParams(limit=colour_limit, allowed=palette)
@@ -72,6 +77,7 @@ def measure(
     bleed_params = (
         BleedParams(cols=grid[0], rows=grid[1], chroma=chroma) if grid is not None else None
     )
+    consistency_params = ConsistencyParams(min_consistency=min_consistency)
 
     return Report(
         findings=[
@@ -91,6 +97,7 @@ def measure(
                 Check.NINESLICE,
                 "nineslice applies to panels; ask for it with --check nineslice",
             ),
+            check_consistency(frames, consistency_params),
         ]
     )
 
@@ -123,6 +130,13 @@ def parse_hex(value: str) -> tuple[int, int, int]:
 @click.option("--rows", type=int, default=None, help="Sheet rows. With --cols, enables bleed.")
 @click.option("--cols", type=int, default=None, help="Sheet columns. With --rows, enables bleed.")
 @click.option(
+    "--min-consistency",
+    "min_consistency",
+    type=float,
+    default=None,
+    help="Below this mean shape similarity the set is inconsistent. None reports the number only.",
+)
+@click.option(
     "--in",
     "source",
     required=True,
@@ -140,6 +154,7 @@ def doctor(
     asked_for: tuple[str, ...],
     kind: str | None,
     guides: str | None,
+    min_consistency: float | None,
     *,
     dry_run: bool,
 ) -> Result:
@@ -177,6 +192,7 @@ def doctor(
         seam=str(Check.SEAM) in wanted,
         want_nineslice=str(Check.NINESLICE) in wanted,
         nineslice=parse_guides(guides),
+        min_consistency=min_consistency,
     )
 
     if grid is None and (cols is not None or rows is not None):

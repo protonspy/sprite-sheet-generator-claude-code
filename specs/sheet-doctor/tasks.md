@@ -26,6 +26,8 @@ into and must stay green.
 - [x] 3.1 (Unit) Measure `drift` as the largest distance from a frame's anchor to the set's median anchor — R2.3
 - [x] 3.2 (Unit) Measure `flicker` as small colour changes at unchanged alpha between adjacent frames, told apart from motion — R2.6
 - [x] 3.3 (Unit) Measure `bleed` as the count of cells whose content touches a shared boundary, keying on chroma where there is no alpha — R2.2, R3.6
+- [x] 3.4 (Unit) Measure consistency across frames — R2.10
+  _Reason plan task 10.2 ships the consistency check; this task reaches R2.10 so the spec's traceability holds_
 
 ## 4 · The command
 

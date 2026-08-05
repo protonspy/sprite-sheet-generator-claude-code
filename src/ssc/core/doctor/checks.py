@@ -470,3 +470,88 @@ def check_nineslice(image: np.ndarray, params: NineSliceParams | None = None) ->
     if worst > params.max_variation:
         return defect(Check.NINESLICE, fix="ssc tool ninepatch", **measurement)
     return ok(Check.NINESLICE, **measurement)
+
+
+# ── consistency ───────────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class ConsistencyParams:
+    """The set-level number `doctor` carries — a shape embedding per frame, averaged.
+
+    `min_consistency` is `None` until a project sets it, which mirrors `PaletteParams.limit`:
+    the number is reported on every set, and judging it is a project decision rather than a
+    per-check one. A walk cycle's frames are *meant* to differ, so a default threshold would
+    flag every animation as broken — the number is for a caller to read, not for the check
+    to grade unsolicited.
+    """
+
+    #: The side each frame's mask is reduced to before it becomes a vector. 16 is enough
+    #: resolution to tell a standing frame from a crouching one, and small enough that two
+    #: frames of the same character at the same pose land within a point of each other.
+    grid: int = 16
+    #: Below this mean pairwise similarity the set is inconsistent. `None` reports the
+    #: number and judges nothing.
+    min_consistency: float | None = None
+
+
+def _shape_vector(frame: np.ndarray, grid: int) -> np.ndarray:
+    """One frame as a flattened low-resolution shape — the consistency embedding.
+
+    The alpha mask is the subject where there is one; where there is not, a luminance mask
+    stands in, because a sheet with a chroma background still has a subject whose shape
+    varies frame to frame. Reduced to `grid`x`grid` so two frames of the same character at
+    the same pose agree and two from different characters do not, without carrying the
+    pixel detail that would make every frame unique.
+    """
+    if has_alpha(frame):
+        mask = alpha_mask(frame)
+    else:
+        luminance = _rgb(frame).mean(axis=2)
+        mask = luminance > luminance.mean()
+    reduced = reduce_mask(mask, width=grid, height=grid)
+    return reduced.astype(np.float32).ravel()
+
+
+def check_consistency(frames: list[np.ndarray], params: ConsistencyParams | None = None) -> Finding:
+    """How much one frame's shape agrees with the rest, as one number (plan task 10.2).
+
+    Each frame is embedded to a reduced shape vector and the set's consistency is the mean
+    cosine similarity over every pair. The number is 1.0 when every frame shares a
+    silhouette and falls as they diverge; it is reported as a number, and is a defect only
+    where a project gave `min_consistency` and the set fell below it.
+
+    Model-free and pure, deliberately: `doctor` works on any install, so the set-level
+    number does not depend on the pose model's competence the way `ssc tool pose` does. The
+    two leaves are siblings — pose tracks per frame, consistency embeds across the set —
+    but this one answers without the `[cv]` extra.
+    """
+    params = params or ConsistencyParams()
+    if len(frames) < 2:
+        return skipped(Check.CONSISTENCY, "consistency needs at least two frames")
+
+    vectors = np.vstack([_shape_vector(frame, params.grid) for frame in frames])
+    norms = np.linalg.norm(vectors, axis=1)
+    # A zero vector is an empty frame. Normalising it to zero makes its cosine 0 with every
+    # other frame, which is the honest reading: an empty frame agrees with nothing that has
+    # content, and a set of all-empty frames agreeing is a degenerate case this guard turns
+    # into 0.0 rather than `NaN`.
+    safe = np.where(norms[:, None] > 0, norms[:, None], 1.0)
+    unit = vectors / safe
+    similarity = unit @ unit.T
+    count = len(frames)
+    # Mean over the upper triangle only: the diagonal is self-similarity (1.0) and the
+    # lower triangle mirrors the upper, so either half double-counts.
+    upper = similarity[np.triu_indices(count, k=1)]
+    value = float(upper.mean()) if upper.size else 1.0
+
+    measurement: dict[str, object] = {
+        "consistency": round(value, 3),
+        "frames": count,
+        "grid": params.grid,
+    }
+    if params.min_consistency is not None:
+        measurement["min_consistency"] = params.min_consistency
+        if value < params.min_consistency:
+            return defect(Check.CONSISTENCY, fix="ssc tool align --anchor feet", **measurement)
+    return ok(Check.CONSISTENCY, **measurement)

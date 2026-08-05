@@ -30,6 +30,7 @@ from ssc.cli.commands.job import job
 from ssc.cli.commands.kind import kind
 from ssc.cli.commands.media import image, video
 from ssc.cli.commands.model import model
+from ssc.cli.commands.pose import pose
 from ssc.cli.commands.recolour import recolour
 from ssc.cli.commands.recover import (
     align,
@@ -72,6 +73,7 @@ tool.add_command(style)
 tool.add_command(recolour)
 tool.add_command(board)
 tool.add_command(bgremove)
+tool.add_command(pose)
 tool.add_command(cut)
 tool.add_command(slice_sheet)
 tool.add_command(curate)

@@ -37,7 +37,8 @@ and not listed here is an undecided dependency.
 ## Optional extras
 
 - **`[cv]`: onnxruntime, rembg / BiRefNet** — model-based background removal that runs
-  locally and costs nothing per call.
+  locally and costs nothing per call. The same `onnxruntime` also loads the MoveNet pose
+  model `ssc tool pose` downloads, so one extra covers both leaves.
 - **`[cv-gpu]`: onnxruntime-gpu, rembg** — the same models against a different runtime
   distribution rather than a runtime flag, which is why the extras split instead of taking
   a switch. `rembg` is in both extras because it is the model layer, not the runtime.
@@ -58,7 +59,12 @@ then loads that graph and runs it. Installing the extra is therefore trusting `r
 distribution the way installing any dependency trusts its index, and it is recorded here
 rather than left implicit because `ssc tool bgremove --model` is the first command to put a
 downloaded model on that path. A project that cannot accept it has the chroma key, which
-downloads nothing.
+downloads nothing. `ssc tool pose` puts a second model on the same path: MoveNet's ONNX
+weights download to the same user cache, and the same trust holds for the same reason.
+
+Pose rides `onnxruntime` rather than `mediapipe` so that one runtime, one `--device` and one
+cache-key story serve every model-backed command. `adr:0012-pose-rides-the-onnxruntime-runtime-not-mediapipe`
+is the record, and `mediapipe` is the answer it ruled out.
 
 ## Development
 
@@ -97,7 +103,8 @@ Everything above this line is installed and decided. Nothing below it is either 
 recorded so the next session knows the question was seen, not so it can be treated as
 settled.
 
-- **mediapipe** — the expected answer for pose tracking through an animation cycle, which
-  `specs/cv-motion-consistency/` needs. Not installed, not in any manifest, and not
-  decided: it is a heavy dependency for one M6 leaf, so it earns an ADR when that leaf is
-  built rather than a line here that reads like adoption.
+- **mediapipe** — ruled out for pose tracking by
+  `adr:0012-pose-rides-the-onnxruntime-runtime-not-mediapipe`. It bundles its own inference
+  framework and does not expose `onnxruntime` execution providers, so adopting it would mean
+  a second runtime and a second cache-key story for one leaf — exactly the divergence
+  `adr:0011` exists to prevent. Pose runs on `onnxruntime` under `[cv]` instead.

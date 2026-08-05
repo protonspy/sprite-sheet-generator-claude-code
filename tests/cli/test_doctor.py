@@ -39,6 +39,7 @@ def test_every_check_appears_in_every_report() -> None:
         "silhouette",
         "seam",
         "nineslice",
+        "consistency",
     }
     assert checks(payload)["seam"]["status"] == "skipped"
     assert checks(payload)["seam"]["reason"]

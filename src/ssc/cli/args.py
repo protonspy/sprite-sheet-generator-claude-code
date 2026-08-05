@@ -43,6 +43,23 @@ def parse_hex(value: str) -> tuple[int, int, int]:
     return int(text[0:2], 16), int(text[2:4], 16), int(text[4:6], 16)
 
 
+def parse_anchor(value: str | None) -> tuple[int, int] | None:
+    """`x,y` into the anchor point a transform is to carry, or `None` where no anchor was
+    given. `x` is the column, `y` is the row — the order the index records the anchor in,
+    not the `(row, column)` numpy carries a frame in.
+    """
+    if value is None:
+        return None
+    parts = [part.strip() for part in value.split(",") if part.strip()]
+    if len(parts) != 2 or not all(INTEGER.match(part) for part in parts):
+        raise UsageError(
+            "invalid-anchor",
+            f"{value!r} is not two whole numbers",
+            fix="write it as x,y — column,then row, the order the index records",
+        )
+    return int(parts[0]), int(parts[1])
+
+
 def parse_guides(value: str | None) -> tuple[int, int, int, int] | None:
     """`left,right,top,bottom`, each a distance inwards from that edge."""
     if value is None:

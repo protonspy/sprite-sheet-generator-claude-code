@@ -291,10 +291,11 @@ VARIABLES = (
     "setting",
     "direction",
     "remove",
+    "recolor",
 )
 
 
-#: Every token a template may carry, the eight named slots plus the three the pipeline fills
+#: Every token a template may carry, the nine named slots plus the three the pipeline fills
 #: itself. One expression, because the substitution is one pass — see `prompt_for`.
 SLOT = re.compile(r"\{(" + "|".join([*VARIABLES, "width", "height", "prompt"]) + r")\}")
 

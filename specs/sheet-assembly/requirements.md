@@ -30,8 +30,10 @@ command is what turns an invisible step into a recorded one.
 
 ## R2 · `mirror`
 
-- **R2.1** When `ssc tool mirror` runs, the `ssc` CLI shall flip each frame horizontally.
+- **R2.1** When `ssc tool mirror` runs, the `ssc` CLI shall mirror each frame about the axis `--axis` names, defaulting to the vertical one so a call with no flag keeps the horizontal flip it always had.
 - **R2.2** When it mirrors a frame, the `ssc` CLI shall report that the result is mirrored.
+- **R2.3** The `ssc` CLI shall accept `--axis vertical` or `--axis horizontal`; any other value is refused and nothing is written.
+- **R2.4** (ADDED) When `ssc tool mirror` is given `--anchor x,y`, the `ssc` CLI shall move the anchor by the same mirror as the frames, mapping `x` to `width - 1 - x` for a vertical mirror and `y` to `height - 1 - y` for a horizontal one, so the recorded point lands where the sprite's pixels did.
 
 ## R3 · `align`
 
@@ -51,6 +53,24 @@ command is what turns an invisible step into a recorded one.
 - **R4.6** If the frames do not share one anchor, then the `ssc` CLI shall report that they do not.
 - **R4.7** The `ssc` CLI shall accept the anchor `pack` measures, and shall report from `align` the one it used.
 - **R4.5** If a sheet would be larger than the canvas ceiling on either side, then the `ssc` CLI shall write nothing and exit `2`.
+
+## R5 · `rotate`, `trim` and `offset`
+
+- **R5.1** (ADDED) When `ssc tool rotate` runs, the `ssc` CLI shall turn each frame by the one, two or three quarter turns `--angle` names.
+- **R5.2** (ADDED) If `--angle` is not one, two or three quarter turns, then the `ssc` CLI shall write nothing, exit `2`, and give as the reason that `ssc` resamples with nearest neighbour only.
+- **R5.3** (ADDED) When it rotates, the `ssc` CLI shall report the width and the height the turn produced.
+- **R5.4** (ADDED) Where `--cell <W>x<H>` is given to `ssc tool rotate`, the `ssc` CLI shall report whether the turned frames still match that cell and, where they do not, the cell they would fit.
+- **R5.5** (ADDED) When `ssc tool trim` runs, the `ssc` CLI shall crop every frame to one box covering the opaque pixels of the whole set, never to a box measured per frame.
+- **R5.6** (ADDED) If no frame in the set holds an opaque pixel, then the `ssc` CLI shall write nothing and exit `2`.
+- **R5.7** (ADDED) When `ssc tool offset` runs, the `ssc` CLI shall slide every frame by the whole numbers of pixels `--x` and `--y` name, keeping the canvas, dropping what the shift takes off it and leaving transparency behind.
+- **R5.8** (ADDED) If both `--x` and `--y` are zero, then the `ssc` CLI shall write nothing and exit `2`.
+
+## R6 · what a transform carries with it
+
+- **R6.1** (ADDED) Where `--anchor x,y` is given to `ssc tool rotate`, `trim` or `offset`, the `ssc` CLI shall report the anchor moved by the same placement as the frames.
+- **R6.2** (ADDED) Where a transform is recorded into an asset, the `ssc` CLI shall move that asset's authored hit boxes and hurt boxes by the same placement as the frames, and shall drop a box the transform moved wholly off the canvas.
+- **R6.3** (ADDED) Where a transform is recorded into an asset, the `ssc` CLI shall write its frames as their own stage under `frames/`, recording in that stage's provenance the command and the parameters it ran with.
+- **R6.4** (ADDED) If a transform cannot prove the sidecar it would rewrite is the one it validated, then the `ssc` CLI shall refuse and write no frame.
 
 ## Out of scope
 

@@ -526,6 +526,20 @@ def covered_by(ask: Asked, stages: tuple[str, ...]) -> Free | None:
                 why=f"{mirrored[0]} exists, and East is usually a horizontal flip of West",
                 exact=False,
             )
+
+    # A colour variant of an existing stage: `--var recolor=<stage>` is the structured
+    # signal, the way `direction=East` is for mirroring. Refused, not reported, because the
+    # source is a `tool style` output — flat-coloured regions a colour map reproduces
+    # exactly, where a model would also redraw them. The asymmetry caveat that makes
+    # mirroring inexact does not apply: swapping red for blue does not discover a pauldron.
+    if ask.verb == "gen image":
+        source = (ask.variables.get("recolor") or "").strip()
+        if source and source in stages:
+            return Free(
+                command=f"ssc tool recolour --in {source}",
+                why=f"{source} exists, and a colour variant of it is a colour map not a generation",
+                exact=True,
+            )
     return None
 
 

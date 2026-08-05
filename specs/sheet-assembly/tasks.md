@@ -26,7 +26,26 @@ covers the module these commands join. All were run green before this work start
 
 ## 4 · The commands
 
-- [x] 4.1 (Unit) Build `ssc tool expand` and `ssc tool mirror` — R1.1, R1.5, R2.2
+- [x] 4.1 (Unit) Build `ssc tool expand` and `ssc tool mirror` — R1.1, R1.5, R2.2, R2.3
 - [x] 4.2 (Unit) Build `ssc tool align`, with the onion skin — R3.1, R3.5
 - [x] 4.3 (Unit) Build `ssc tool pack`, reporting the cell, the grid and the anchor — R4.4
 - [x] 4.4 (Unit) Carry the anchor mode from `align` to `pack`, so the two measure the same thing — R4.6, R4.7
+- [x] 4.5 (Unit) Move the recorded anchor with the mirror — R2.4
+  _Reason plan task 7.5 adds anchor-moving to mirror; R2.4 needs a task that reaches it_
+
+## 5 · The rest of the transforms, and what they carry
+
+_Reason plans/ssc-completion.md tasks 7.2, 7.3, 7.4, 7.5, 7.6, 7.7 and 7.8 build `rotate`,
+`trim` and `offset` beside the `mirror` this spec already owned; R5 and R6 are theirs._
+
+- [x] 5.1 (Unit) Turn a frame by quarter turns and slide one by whole pixels, both placements rather than resamples — R5.1, R5.7
+- [x] 5.2 (Unit) Crop a set to the one box covering every frame's opaque pixels, refusing a set with nothing opaque — R5.5, R5.6
+- [x] 5.3 (Unit) Build `ssc tool rotate`, `ssc tool trim` and `ssc tool offset`, each refusing the call that would resample or move nothing — R5.2, R5.3, R5.8
+- [x] 5.4 (TDD) Move the recorded anchor by the same placement as the frames — R6.1
+  _Depends 5.1, 5.2_
+- [x] 5.5 (Unit) Report the cell an odd quarter turn stopped matching, and the one it would fit — R5.4
+  _Depends 5.3_
+- [x] 5.6 (Unit) Move authored hit boxes and hurt boxes by the same placement, dropping a box the canvas lost — R6.2
+  _Depends 5.4_
+- [x] 5.7 (Unit) Record a transform as its own stage with its command and parameters, refusing where the sidecar cannot be bound — R6.3, R6.4
+  _Depends 5.6_

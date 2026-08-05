@@ -6,7 +6,7 @@ worktree: per-group
 merge: auto
 status: approved
 lang: en
-checksum: 70c8c95e60eae46b6b217fd42c349f39c753d1206588c910cd536bcc800edb63
+checksum: 4b2c5c981686a4b1c8076b06dc0a249b5d59492e409100aececf1e99c0ff67ee
 ---
 
 # ssc — harness, style and vision
@@ -84,51 +84,51 @@ The deterministic core, every asset kind and the paid generation path are built 
       carrying the authored values only — `ssc` never invents damage or knockback — and write
       the matching delta into the engine-index spec on the same branch
       _Depends 3.1, 3.2_
-- [ ] 4.1 (Unit) Write `sprite-cleanup`, `sprite-animation` and `sprite-style` under
+- [x] 4.1 (Unit) Write `sprite-cleanup`, `sprite-animation` and `sprite-style` under
       `.claude/skills/`, each naming the commands it runs, the gate it stops at and what it
       hands to the next skill
-- [ ] 4.2 (Unit) Write `sprite-character`, `sprite-resource` and `sprite-integrate` the same
+- [x] 4.2 (Unit) Write `sprite-character`, `sprite-resource` and `sprite-integrate` the same
       way, the last one ending at `dist/index.json`
 
 ### M5 — style and derivation
 
-- [ ] 5.1 (Unit) `ssc tool style` against a project-locked `palette.json`, with the presets
+- [x] 5.1 (Unit) `ssc tool style` against a project-locked `palette.json`, with the presets
       pico8, nes, gameboy and sweetie16 shipped in `src/ssc/data/`
-- [ ] 5.2 (Unit) Ordered and Floyd-Steinberg dithering as a project decision recorded in the
+- [x] 5.2 (Unit) Ordered and Floyd-Steinberg dithering as a project decision recorded in the
       workspace, never a per-call argument, so two assets generated a week apart agree
-- [ ] 5.3 (Unit) `ssc tool recolour`, mapping one palette onto another, so a red slime and a
+- [x] 5.3 (Unit) `ssc tool recolour`, mapping one palette onto another, so a red slime and a
       blue slime are one asset and a colour map rather than two generations
       _Depends 5.1_
-- [ ] 5.4 (Unit) Carry `recolour` into the free path the budget guard refuses against: a paid
+- [x] 5.4 (Unit) Carry `recolour` into the free path the budget guard refuses against: a paid
       call a colour map answers is refused the way `mirror` is already refused, with the
       matching delta written into the budget-guard spec
       _Depends 5.3_
-- [ ] 6.1 (Unit) `ssc asset new <key> --extends <parent>` and the `<asset>.yaml` behind it,
+- [x] 6.1 (Unit) `ssc asset new <key> --extends <parent>` and the `<asset>.yaml` behind it,
       inheriting the recipe — kind, pixel_size, palette, cell, frame counts, fps — and never
       the pixels
-- [ ] 6.2 (Unit) Carry the parent's anchors as a generation reference, and record the parent
+- [x] 6.2 (Unit) Carry the parent's anchors as a generation reference, and record the parent
       in the child's provenance so a derived asset says what it derived from
       _Depends 6.1_
-- [ ] 6.3 (Unit) If the parent is missing or the chain is cyclic, refuse with the chain walked
+- [x] 6.3 (Unit) If the parent is missing or the chain is cyclic, refuse with the chain walked
       so far rather than resolving a partial recipe
       _Depends 6.1_
-- [ ] 7.1 (Unit) Mirror about either axis, defaulting to the vertical one so every existing
+- [x] 7.1 (Unit) Mirror about either axis, defaulting to the vertical one so every existing
       call keeps its meaning
-- [ ] 7.2 (Unit) `ssc tool rotate` by one, two or three quarter turns, refusing any other
+- [x] 7.2 (Unit) `ssc tool rotate` by one, two or three quarter turns, refusing any other
       angle with the resampler as the stated reason — `tests/test_no_other_resampler.py` is
       the invariant this keeps
-- [ ] 7.3 (Unit) `ssc tool trim` to one box covering every frame's opaque pixels, never a box
+- [x] 7.3 (Unit) `ssc tool trim` to one box covering every frame's opaque pixels, never a box
       per frame
-- [ ] 7.4 (Unit) `ssc tool offset` by a whole number of pixels on either axis
-- [ ] 7.5 (TDD) Move the recorded anchor by the same transform as the frames — mirroring maps
+- [x] 7.4 (Unit) `ssc tool offset` by a whole number of pixels on either axis
+- [x] 7.5 (TDD) Move the recorded anchor by the same transform as the frames — mirroring maps
       `x` to `width - 1 - x`, and dropping the `- 1` is a sprite that jitters when it turns
       _Depends 7.1, 7.2, 7.3, 7.4_
-- [ ] 7.6 (Unit) Report the dimensions an odd quarter turn produced and the cell they stopped
+- [x] 7.6 (Unit) Report the dimensions an odd quarter turn produced and the cell they stopped
       matching
       _Depends 7.2_
-- [ ] 7.7 (Unit) Record the transform in the written file's provenance, so `trim` and `offset`
+- [x] 7.7 (Unit) Record the transform in the written file's provenance, so `trim` and `offset`
       stop being implicit steps inside `align` and `pack`
-- [ ] 7.8 (Unit) Move per-frame boxes and markers by the same transform — a mirrored frame
+- [x] 7.8 (Unit) Move per-frame boxes and markers by the same transform — a mirrored frame
       with an unmirrored hurt box takes damage on the wrong side
       _Depends 3.1, 7.5_
 
@@ -157,6 +157,10 @@ The deterministic core, every asset kind and the paid generation path are built 
 - [ ] 10.2 (Unit) A consistency embedding across the frames of a set, as a number `doctor` can
       carry as a check
       _Depends 10.1_
+- [x] 4.3 (Unit) Ship the six skills as templates inside the package and have `ssc init`
+      write them into the workspace's `.claude/skills/`, so a game project installs the
+      relay from the CLI rather than copying files out of this repository
+  _Reason the skills are templates ssc installs, not files a user copies; ssc init is where a workspace gets them_
 
 ## Done when
 

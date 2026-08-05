@@ -2,7 +2,7 @@
 
 ## What changes
 
-Serves R1.1, R1.2, R1.3, R1.4, R2.1, R2.2, R2.4, R2.5.
+Serves R1.1, R1.2, R1.3, R1.4, R1.5, R2.1, R2.2, R2.4, R2.5.
 
 One new module, `cli/budget.py`, and three call sites inside `gen.run` — which is the point
 of putting this in `gen` rather than in a skill. A rule that lives in a skill is a rule an

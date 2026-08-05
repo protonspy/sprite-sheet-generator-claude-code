@@ -269,6 +269,33 @@ def test_a_direction_is_matched_as_a_word_and_not_a_substring() -> None:
     assert budget.covered_by(ask, ("west",)) is None
 
 
+def test_a_recolour_of_an_existing_stage_is_refused() -> None:
+    """Task 5.4 — a colour variant is a colour map, not a generation. The source is a
+    `tool style` output (flat-coloured regions), so a colour map reproduces what a model
+    would redraw, and the call is refused under R1.1. `--var recolor=<stage>` is the
+    structured signal, the way `direction=East` is for mirroring."""
+    ask = FakeAsk(verb="gen image", variables={"recolor": "pixels"})
+    free = budget.covered_by(ask, ("gen", "nobg", "pixels"))
+    assert free is not None and free.exact is True
+    assert "tool recolour" in free.command
+    assert "pixels" in free.command
+    with pytest.raises(UsageError) as refused:
+        budget.clear(free)
+    assert refused.value.code == "free-path"
+
+
+def test_a_recolour_with_no_such_stage_suggests_nothing() -> None:
+    """A recolour of a stage that does not exist is not a free path — there is nothing to
+    map onto, so the paid call proceeds."""
+    ask = FakeAsk(verb="gen image", variables={"recolor": "no-such-stage"})
+    assert budget.covered_by(ask, ("gen", "pixels")) is None
+
+
+def test_a_recolour_signal_with_no_value_is_nothing() -> None:
+    ask = FakeAsk(verb="gen image", variables={"recolor": ""})
+    assert budget.covered_by(ask, ("pixels",)) is None
+
+
 # R2.2, R3.2 — failing closed. Both reviews returned `blocked` on these.
 
 

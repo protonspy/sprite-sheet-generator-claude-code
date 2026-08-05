@@ -7,9 +7,14 @@ Use the `plan-run` skill.
 
 Plan, and how to run it: $ARGUMENTS
 
-Read the plan and name the groups back, numbered and in order, before writing any
-code. The order is the one thing the user can correct cheaply now and expensively
-after three merges.
+Brief the plan — `scc map brief <plan>` — then `scc map <plan>` for the counts, and
+name the groups back, numbered and in order, before writing any code. The order is the
+one thing the user can correct cheaply now and expensively after three merges.
+
+**Never open the plan file.** `brief` is its header and `tasks` is its checklist;
+there is nothing else in it, and opening one as the first act of a run puts all of it
+in context for every turn of a loop that lasts hours. Inside a group, ask `scc map
+tasks <plan> --next` for the one task to do, and ask again once it is ticked.
 
 Then take every answer the line above already gave and ask only for what is left.
 "Implement the whole plan, one PR at the end, delivered when CI is green" has settled

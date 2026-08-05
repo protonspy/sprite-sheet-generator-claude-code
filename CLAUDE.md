@@ -8,7 +8,7 @@ Claude Code loads `.claude/rules/` at session start: they are in front of you, n
 The triggers below say *when* each governs — the failure is not a rule you never read,
 it is one you had all along and applied at the wrong moment, or not at all.
 
-Triggered by where you are in the work:
+`caveman.md` is always on: the register you answer in. The rest, by where you are:
 
 - `autonomy.md` — at kickoff, before writing anything
 - `routing.md` — work arrives and needs a vehicle: a spec, or a plan
@@ -32,9 +32,9 @@ Triggered by what you are about to touch:
 **Code** — `scc graph query|explore <symbol>`, or `codegraph_explore` where registered.
 Read the source when you are about to change it, not to find it.
 
-**Plans and specs** — `scc map` · `map <artifact>` · `map tasks <artifact> --next` ·
-`map find "<terms>"` · `map show <artifact> <address>` · `map trace`. An address is a
-name — `1.2` `R1.2` `#notes` `notes:7` `specs/<feature>/` — never a line number.
+**Plans and specs** — a plan is a header and a checklist: `map brief <plan>` once, then
+`map tasks <plan> --next` per task; **never open the plan**. Also `scc map` and `map
+show <artifact> <address>`. An address is a name, never a line number: `1.2` `#risks`.
 
 **Changing one** — `scc patch check <artifact> 1.2`, plus `task` `add` `append` `fm`. Not
 an editor: it resolves the address, re-validates, and rolls back an edit that adds a

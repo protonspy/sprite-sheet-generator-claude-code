@@ -27,59 +27,22 @@ The deterministic core, every asset kind and the paid generation path are built 
 
 ## References
 
-### M4 — the harness · what an agent and an engine read
-
-- `specs/engine-index/` — `ssc index --format pixi|phaser|godot|generic`, one
-  `dist/index.json` covering every kind: sheets with cell, grid, fps, loop and the anchor
-  that stops an engine re-centering the sprite; atlases with a rect per entry; tilesets
-  with tile size and ids; nine-slice borders for `ui`. Playback is `loop`, `ping-pong` or
-  `reverse`, and one sheet may declare **named sections** — an attack's windup, hit and
-  recovery are three ranges of one animation, not three sheets. Plus `ssc preview`, which
-  renders a GIF or a contact sheet from what the index declares, and a 2×2 tiled preview
-  for `tile` assets.
-- `specs/frame-metadata/` — per-frame boxes and markers: an alpha bounding box `ssc`
-  derives for free, hit and hurt boxes authored in a sidecar, and named markers on a frame
-  (footstep, spawn, cancel window). Validated against the frame count so a curated frame
-  cannot silently shift them, and emitted into the index. `ssc` carries these values; it
-  never invents damage or knockback.
-- `specs/sprite-skills/` — the six harness skills: `sprite-cleanup`, `sprite-animation`,
-  `sprite-style`, `sprite-character`, `sprite-resource`, `sprite-integrate`.
-
-### M5 — style and derivation
-
-- `specs/style-and-palette/` — `ssc tool style`, the project-locked `palette.json`, named
-  presets (pico8, nes, gameboy, sweetie16), ordered or Floyd-Steinberg dithering as a
-  project decision, and palette coherence across every asset. Plus `ssc tool recolour`,
-  mapping one palette onto another: a red slime and a blue slime are one asset and a colour
-  map, not two generations. Same economics as `mirror`, so it belongs in the free path
-  `budget-guard` refuses against.
-- `specs/asset-derivation/` — `ssc asset new <key> --extends <parent>` and the
-  `<asset>.yaml` behind it: it inherits the recipe (kind, pixel_size, palette, cell, frame
-  counts, fps, the parent's anchors as a generation reference), never the pixels.
-- `specs/image-transforms/` — mirror about either axis, rotation by a quarter turn, `trim`
-  to one box across a frame set, and `offset` by a whole number of pixels, each moving the
-  recorded anchor with the pixels. Already specified: eight tasks ready, nothing implemented.
-
-### M6 — computer vision · the `[cv]` extra
-
-- `specs/cv-runtime/` — where inference runs: `--device auto|cpu|cuda|directml|coreml`, the
-  `[cv]` and `[cv-gpu]` extras that install the matching `onnxruntime` build, and the
-  execution provider folded into the cache key. `auto` picks the best available; a device
-  named explicitly fails loudly rather than falling back. **Hardware detection is
-  independent of the installed runtime**: `ssc info` reports the GPUs present and the
-  providers usable, and a capable GPU under a CPU-only install returns the gap as a
-  structured hint carrying the exact install command.
-- `specs/cv-background-removal/` — `ssc tool bgremove --model birefnet|rembg` under the
-  `[cv]` extra, degrading cleanly with an actionable message when the extra is absent.
-- `specs/cv-motion-consistency/` — pose tracking through an animation cycle and a
-  consistency embedding across frames.
+- `specs/engine-index/` — shipped, all tasks done: `ssc index --format
+  pixi|phaser|godot|generic`, one `dist/index.json` covering every kind: sheets with cell,
+  grid, fps, loop and the anchor that stops an engine re-centering the sprite; atlases with
+  a rect per entry; tilesets with tile size and ids; nine-slice borders for `ui`. Playback
+  is `loop`, `ping-pong` or `reverse`, and one sheet may declare **named sections** — an
+  attack's windup, hit and recovery are three ranges of one animation, not three sheets.
+  Plus `ssc preview`, which renders a GIF or a contact sheet from what the index declares,
+  and a 2×2 tiled preview for `tile` assets. Every other leaf below is a task group here,
+  not a spec of its own.
 
 ## Out of scope
 
-- `specs/frame-bounds/`, `specs/set-normalisation/`, `specs/frame-preview/` —
-  `plans/sprite-normalisation-gate.md` owns those three. `engine-index` owes `frame-preview`
-  a delta so `ssc preview` resolves playback out of the index rather than growing a second
-  renderer; that delta is written there.
+- Bounds, cross-set normalisation and `tool preview` —
+  `plans/sprite-normalisation-gate.md` owns those three. `engine-index` owes the preview
+  leaf a delta so `ssc preview` resolves playback out of the index rather than growing a
+  second renderer; that delta is written there.
 - M1 through M3. Shipped, closed, and reopened only as a delta a leaf here forces.
 - A second generation provider. `gen-fal` is the only paid path in this plan.
 - An engine plugin or runtime library. `ssc` emits data an engine reads; it ships no
@@ -108,6 +71,92 @@ The deterministic core, every asset kind and the paid generation path are built 
       reachable from `index.md`, naming which skill owns which step and where each gate falls
       _Depends 2.1_
 
+### M4 — the harness · what an agent and an engine read
+
+- [ ] 3.1 (Unit) Read hit boxes, hurt boxes and named markers (footstep, spawn, cancel
+      window) from the sidecar's `frames:` block, which `src/ssc/cli/sidecar.py` refuses
+      today, and validate its length against the asset's frame count
+- [ ] 3.2 (Unit) Derive the alpha bounding box per frame with no authoring at all, and carry
+      authored boxes and markers through curation so a dropped or reordered frame cannot
+      silently shift them
+- [ ] 3.3 (Unit) Emit boxes and markers into `dist/index.json` behind the index's `schema`,
+      carrying the authored values only — `ssc` never invents damage or knockback — and write
+      the matching delta into the engine-index spec on the same branch
+      _Depends 3.1, 3.2_
+- [ ] 4.1 (Unit) Write `sprite-cleanup`, `sprite-animation` and `sprite-style` under
+      `.claude/skills/`, each naming the commands it runs, the gate it stops at and what it
+      hands to the next skill
+- [ ] 4.2 (Unit) Write `sprite-character`, `sprite-resource` and `sprite-integrate` the same
+      way, the last one ending at `dist/index.json`
+
+### M5 — style and derivation
+
+- [ ] 5.1 (Unit) `ssc tool style` against a project-locked `palette.json`, with the presets
+      pico8, nes, gameboy and sweetie16 shipped in `src/ssc/data/`
+- [ ] 5.2 (Unit) Ordered and Floyd-Steinberg dithering as a project decision recorded in the
+      workspace, never a per-call argument, so two assets generated a week apart agree
+- [ ] 5.3 (Unit) `ssc tool recolour`, mapping one palette onto another, so a red slime and a
+      blue slime are one asset and a colour map rather than two generations
+      _Depends 5.1_
+- [ ] 5.4 (Unit) Carry `recolour` into the free path the budget guard refuses against: a paid
+      call a colour map answers is refused the way `mirror` is already refused, with the
+      matching delta written into the budget-guard spec
+      _Depends 5.3_
+- [ ] 6.1 (Unit) `ssc asset new <key> --extends <parent>` and the `<asset>.yaml` behind it,
+      inheriting the recipe — kind, pixel_size, palette, cell, frame counts, fps — and never
+      the pixels
+- [ ] 6.2 (Unit) Carry the parent's anchors as a generation reference, and record the parent
+      in the child's provenance so a derived asset says what it derived from
+      _Depends 6.1_
+- [ ] 6.3 (Unit) If the parent is missing or the chain is cyclic, refuse with the chain walked
+      so far rather than resolving a partial recipe
+      _Depends 6.1_
+- [ ] 7.1 (Unit) Mirror about either axis, defaulting to the vertical one so every existing
+      call keeps its meaning
+- [ ] 7.2 (Unit) `ssc tool rotate` by one, two or three quarter turns, refusing any other
+      angle with the resampler as the stated reason — `tests/test_no_other_resampler.py` is
+      the invariant this keeps
+- [ ] 7.3 (Unit) `ssc tool trim` to one box covering every frame's opaque pixels, never a box
+      per frame
+- [ ] 7.4 (Unit) `ssc tool offset` by a whole number of pixels on either axis
+- [ ] 7.5 (TDD) Move the recorded anchor by the same transform as the frames — mirroring maps
+      `x` to `width - 1 - x`, and dropping the `- 1` is a sprite that jitters when it turns
+      _Depends 7.1, 7.2, 7.3, 7.4_
+- [ ] 7.6 (Unit) Report the dimensions an odd quarter turn produced and the cell they stopped
+      matching
+      _Depends 7.2_
+- [ ] 7.7 (Unit) Record the transform in the written file's provenance, so `trim` and `offset`
+      stop being implicit steps inside `align` and `pack`
+- [ ] 7.8 (Unit) Move per-frame boxes and markers by the same transform — a mirrored frame
+      with an unmirrored hurt box takes damage on the wrong side
+      _Depends 3.1, 7.5_
+
+### M6 — computer vision · the `[cv]` extra
+
+- [ ] 8.1 (Unit) `--device auto|cpu|cuda|directml|coreml`: `auto` picks the best provider
+      available, a device named explicitly fails loudly rather than falling back
+- [ ] 8.2 (Unit) The `[cv]` and `[cv-gpu]` extras installing the matching `onnxruntime` build
+      per `adr:0011`, recorded in `docs/stack.md`
+- [ ] 8.3 (Unit) Fold the execution provider into the cache key, so a CPU result and a CUDA
+      result are not the same entry
+      _Depends 8.1_
+- [ ] 8.4 (Unit) `ssc info` reports the GPUs present and the providers usable independently of
+      the installed runtime, and returns a capable GPU under a CPU-only install as a
+      structured hint carrying the exact install command
+      _Depends 8.2_
+- [ ] 9.1 (Unit) `ssc tool bgremove --model birefnet|rembg` under the `[cv]` extra, beside the
+      hosted `gen bgremove` path, with the matching delta written into the background-removal
+      spec
+      _Depends 8.3_
+- [ ] 9.2 (Unit) If the `[cv]` extra is absent, then the command refuses with the install
+      command rather than a traceback
+      _Depends 9.1_
+- [ ] 10.1 (Unit) Pose tracking through an animation cycle, reported per frame
+      _Depends 8.3_
+- [ ] 10.2 (Unit) A consistency embedding across the frames of a set, as a number `doctor` can
+      carry as a check
+      _Depends 10.1_
+
 ## Done when
 
 - `ssc index --format pixi|phaser|godot|generic` writes `dist/index.json`, and `ssc preview`
@@ -117,4 +166,5 @@ The deterministic core, every asset kind and the paid generation path are built 
 - `ssc info` reports the GPUs present and the providers usable, and installing the `[cv]`
   extra is the only step between a CPU box and a model-backed `bgremove`
 - The six harness skills carry a run from a base image to the index, stopping only at gates
-- `scc validate` exits 0, and every spec this plan references reports all tasks done
+- `scc validate` exits 0, every task above is ticked, and `specs/engine-index/` still reports
+  all tasks done

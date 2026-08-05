@@ -19,27 +19,12 @@ running game come from exactly there: the sprite grows two pixels when it starts
 the feet sink through the floor mid-animation, the frame size differs per action so the
 engine's cell is wrong for one of them.
 
-## References
+## Out of scope
 
-- `specs/frame-bounds/` — `ssc tool bounds`, the measurement every later step reads: per
-  frame, the alpha bounding box, the visible height and width, the baseline row and the
-  centre column; per set, each of those as a median with its spread. It writes no image and
-  needs no workspace. It exists as its own leaf because three separate things want the same
-  number — the normaliser, the `scale` check, and `specs/frame-metadata/`, whose per-frame
-  box this is — and three private implementations of "where is the sprite in this frame"
-  would be free to disagree.
-- `specs/set-normalisation/` — `ssc tool normalise`, which takes the frame sets of one asset
-  and returns them sharing one baseline, one centre column and one visible-height scale, on
-  one canvas. It owns the scale decision and the cross-set anchor; it delegates padding to
-  `tool expand` and layout to `tool pack` rather than reimplementing either. It carries the
-  `scale` check into `doctor` as a delta against `specs/sheet-doctor/` — the variation in
-  visible height across the sets of one asset, as a number, with `tool normalise` as its
-  fix.
-- `specs/frame-preview/` — `ssc tool preview`, an animated GIF and a contact sheet from a
-  frame set, or from a sheet plus its cell: fps, loop mode, and each frame labelled with its
-  index on the contact sheet. No workspace, no index. It carries the delta
-  `specs/engine-index/` then owes: its `ssc preview` resolves an asset and its playback out
-  of `dist/index.json` and renders through this, rather than growing a second renderer.
+- Per-frame hit and hurt boxes and named markers. `plans/ssc-completion.md` owns those; the
+  box `tool bounds` measures is the derived one they are validated against.
+- A second preview renderer. `ssc preview` resolves an asset out of `dist/index.json` and
+  renders through `tool preview`; the index leaf is where that delta is written.
 
 ## Tasks
 
@@ -53,6 +38,35 @@ engine's cell is wrong for one of them.
       landed: the six steps as one ordered sequence with the exact command and flags at
       each, what `doctor` reports between them, and which failure mode each step is there to
       catch — reachable from `index.md`, recorded in `changelog.md`
+      _Depends 3.2, 4.3, 5.3_
+- [ ] 3.1 (Unit) `ssc tool bounds` reporting, per frame, the alpha bounding box, the visible
+      height and width, the baseline row and the centre column — one implementation of "where
+      is the sprite in this frame", since the normaliser, the `scale` check and the
+      per-frame box all read the same number
+      _Depends 1.1_
+- [ ] 3.2 (Unit) Per set, each of those measurements as a median with its spread, written to
+      stdout as structured output: no image, no workspace
+      _Depends 3.1_
+- [ ] 4.1 (TDD) The scale decision: one visible-height factor across the frame sets of one
+      asset, resampled the way the project's single resampler allows — the sprite growing two
+      pixels when it starts walking is the defect, and it is arithmetic nobody sees go wrong
+      _Depends 3.2_
+- [ ] 4.2 (Unit) `ssc tool normalise` putting the sets of one asset on one baseline, one
+      centre column and one canvas, delegating padding to `tool expand` and layout to
+      `tool pack` rather than reimplementing either
+      _Depends 4.1_
+- [ ] 4.3 (Unit) Carry the `scale` check into `doctor` — the variation in visible height
+      across the sets of one asset, as a number, with `tool normalise` named as its fix — and
+      write the matching delta into the sheet-doctor spec
+      _Depends 4.2_
+- [ ] 5.1 (Unit) `ssc tool preview` rendering an animated GIF from a frame set, or from a
+      sheet plus its cell, honouring fps and loop mode
+- [ ] 5.2 (Unit) The contact sheet from the same input, each frame labelled with its index
+      _Depends 5.1_
+- [ ] 5.3 (Unit) Resolve an asset and its playback out of `dist/index.json` and render through
+      this, so `ssc preview` grows no second renderer, with the matching delta written into
+      the engine-index spec
+      _Depends 5.2_
 
 ## Done when
 

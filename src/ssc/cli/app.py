@@ -24,6 +24,7 @@ from ssc.cli.commands.doctor import doctor
 from ssc.cli.commands.gate import gate
 from ssc.cli.commands.gen import gen_group
 from ssc.cli.commands.index import index, preview
+from ssc.cli.commands.info import info
 from ssc.cli.commands.init import init
 from ssc.cli.commands.job import job
 from ssc.cli.commands.kind import kind
@@ -48,6 +49,7 @@ from ssc.cli.commands.sweep import sweep_command
 from ssc.cli.main import main, tool
 
 main.add_command(init)
+main.add_command(info)
 main.add_command(asset)
 main.add_command(clean)
 main.add_command(budget)

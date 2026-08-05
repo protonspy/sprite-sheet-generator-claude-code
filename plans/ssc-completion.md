@@ -6,7 +6,7 @@ worktree: per-group
 merge: auto
 status: approved
 lang: en
-checksum: 4b2c5c981686a4b1c8076b06dc0a249b5d59492e409100aececf1e99c0ff67ee
+checksum: 328a5e1a1c6245ec6e37616c7e57463b3f7a8e9dfa1f589590962b16297a52ce
 ---
 
 # ssc — harness, style and vision
@@ -134,14 +134,14 @@ The deterministic core, every asset kind and the paid generation path are built 
 
 ### M6 — computer vision · the `[cv]` extra
 
-- [ ] 8.1 (Unit) `--device auto|cpu|cuda|directml|coreml`: `auto` picks the best provider
+- [x] 8.1 (Unit) `--device auto|cpu|cuda|directml|coreml`: `auto` picks the best provider
       available, a device named explicitly fails loudly rather than falling back
-- [ ] 8.2 (Unit) The `[cv]` and `[cv-gpu]` extras installing the matching `onnxruntime` build
+- [x] 8.2 (Unit) The `[cv]` and `[cv-gpu]` extras installing the matching `onnxruntime` build
       per `adr:0011`, recorded in `docs/stack.md`
-- [ ] 8.3 (Unit) Fold the execution provider into the cache key, so a CPU result and a CUDA
+- [x] 8.3 (Unit) Fold the execution provider into the cache key, so a CPU result and a CUDA
       result are not the same entry
       _Depends 8.1_
-- [ ] 8.4 (Unit) `ssc info` reports the GPUs present and the providers usable independently of
+- [x] 8.4 (Unit) `ssc info` reports the GPUs present and the providers usable independently of
       the installed runtime, and returns a capable GPU under a CPU-only install as a
       structured hint carrying the exact install command
       _Depends 8.2_

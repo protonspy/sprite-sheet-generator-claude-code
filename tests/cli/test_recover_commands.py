@@ -8,6 +8,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+import yaml
 from click.testing import CliRunner
 from conftest import load_meta, save_meta
 from PIL import Image
@@ -235,6 +236,130 @@ def test_a_threshold_outside_zero_to_one_is_refused(tmp_path: Path, value: str) 
     code, payload = run("tool", "curate", "--threshold", value, "--in", str(frames_dir(tmp_path)))
     assert code == 2
     assert payload["error"]["code"] == "invalid-threshold"
+
+
+# plans/ssc-completion.md 3.2 — a dropped frame takes its authored entry with it.
+
+
+def asset_with_sidecar(tmp_path: Path, frames_block: str | None) -> Path:
+    """An asset directory holding the four curate frames and, optionally, a sidecar."""
+    asset = tmp_path / "hero"
+    for index, fill in enumerate((10, 10, 200, 200)):
+        image = np.zeros((8, 8, 4), dtype=np.uint8)
+        image[..., :3] = fill
+        image[..., 3] = 255
+        save(asset / "frames" / "cut" / f"{index:03d}.png", image)
+    (asset / "meta.json").write_text("{}", encoding="utf-8")
+    if frames_block is not None:
+        (asset / "asset.yaml").write_text(frames_block, encoding="utf-8")
+    return asset
+
+
+FOUR_ENTRIES = (
+    "playback:\n"
+    "  fps: 8\n"
+    "frames:\n"
+    "- markers: [a0]\n"
+    "- markers: [a1]\n"
+    "- markers: [a2]\n"
+    "- markers: [a3]\n"
+)
+
+
+def curate_drop(asset: Path) -> tuple[int, dict[str, Any]]:
+    return run(
+        "tool",
+        "curate",
+        "--drop",
+        "--in",
+        str(asset / "frames" / "cut"),
+        "--out",
+        str(asset / "frames" / "curated"),
+    )
+
+
+def test_curate_drop_carries_the_frames_block(tmp_path: Path) -> None:
+    asset = asset_with_sidecar(tmp_path, FOUR_ENTRIES)
+    code, payload = curate_drop(asset)
+    assert code == 0
+    assert payload["sidecar"] == str(asset / "asset.yaml")
+    document = yaml.safe_load((asset / "asset.yaml").read_text(encoding="utf-8"))
+    assert document["frames"] == [{"markers": ["a0"]}, {"markers": ["a2"]}]
+    # The rest of the sidecar is not curate's, and it survives.
+    assert document["playback"] == {"fps": 8}
+
+
+def test_curate_without_a_frames_block_rewrites_nothing(tmp_path: Path) -> None:
+    asset = asset_with_sidecar(tmp_path, "playback:\n  fps: 8\n")
+    before = (asset / "asset.yaml").read_bytes()
+    code, payload = curate_drop(asset)
+    assert code == 0
+    assert payload["sidecar"] is None
+    assert (asset / "asset.yaml").read_bytes() == before
+
+
+def test_curate_outside_an_asset_rewrites_nothing(tmp_path: Path) -> None:
+    code, payload = run(
+        "tool",
+        "curate",
+        "--drop",
+        "--in",
+        str(frames_dir(tmp_path)),
+        "--out",
+        str(tmp_path / "o"),
+    )
+    assert code == 0
+    assert payload["sidecar"] is None
+
+
+def test_curate_writing_outside_the_asset_leaves_its_sidecar_alone(tmp_path: Path) -> None:
+    # The asset's own frames did not change, so its sidecar must not either.
+    asset = asset_with_sidecar(tmp_path, FOUR_ENTRIES)
+    code, payload = run(
+        "tool",
+        "curate",
+        "--drop",
+        "--in",
+        str(asset / "frames" / "cut"),
+        "--out",
+        str(tmp_path / "elsewhere"),
+    )
+    assert code == 0
+    assert payload["sidecar"] is None
+    document = yaml.safe_load((asset / "asset.yaml").read_text(encoding="utf-8"))
+    assert len(document["frames"]) == 4
+
+
+def test_curate_refuses_a_block_it_cannot_line_up(tmp_path: Path) -> None:
+    short = "frames:\n- markers: [a0]\n- markers: [a1]\n"
+    asset = asset_with_sidecar(tmp_path, short)
+    code, payload = curate_drop(asset)
+    # Exit 1, not 2: the call was fine, the data was not — the same code every
+    # `invalid-sidecar` refusal carries.
+    assert code == 1
+    assert payload["error"]["code"] == "invalid-sidecar"
+    # Nothing half-done: no curated frames on disk, and the block still has its entries.
+    assert not (asset / "frames" / "curated").exists()
+    document = yaml.safe_load((asset / "asset.yaml").read_text(encoding="utf-8"))
+    assert len(document["frames"]) == 2
+
+
+def test_a_dry_run_carries_nothing(tmp_path: Path) -> None:
+    asset = asset_with_sidecar(tmp_path, FOUR_ENTRIES)
+    code, payload = run(
+        "tool",
+        "curate",
+        "--drop",
+        "--dry-run",
+        "--in",
+        str(asset / "frames" / "cut"),
+        "--out",
+        str(asset / "frames" / "curated"),
+    )
+    assert code == 0
+    assert payload["sidecar"] is None
+    document = yaml.safe_load((asset / "asset.yaml").read_text(encoding="utf-8"))
+    assert len(document["frames"]) == 4
 
 
 # R1.10, R3.7 — the two ceilings, and the third route to an asset.

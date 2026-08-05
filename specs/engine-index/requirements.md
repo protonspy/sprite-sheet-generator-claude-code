@@ -97,10 +97,28 @@ Phaser or Godot.
 - **R6.6** The `ssc` CLI shall write nothing outside `dist/preview/` while rendering a
   preview.
 
+## R7 · Per-frame data
+
+Delta from `plans/ssc-completion.md` group 3, which moved per-frame boxes and markers out
+of this spec's "out of scope" and into it.
+
+- **R7.1** (ADDED) The `ssc` CLI shall read hitboxes, hurtboxes and markers from the
+  sidecar's `frames:` block, one entry per frame of the set.
+- **R7.2** (ADDED) If a `frames:` block's length differs, then the `ssc` CLI shall refuse
+  the sheet, naming the block's length and the set's frame count.
+- **R7.3** (ADDED) The `ssc` CLI shall derive each frame's alpha bounding box from its
+  pixels, with no authoring at all.
+- **R7.4** (ADDED) The `ssc` CLI shall emit each sheet's per-frame bounds, hitboxes,
+  hurtboxes and markers into `dist/index.json`, carrying authored values only and inventing
+  none.
+- **R7.5** (ADDED) If a non-animating kind's asset authors one, then the `ssc` CLI shall skip that asset, saying why.
+- **R7.6** (ADDED) When `tool curate` drops frames of an asset, the `ssc` CLI shall keep
+  exactly the kept frames' authored entries, in the kept order.
+- **R7.7** (ADDED) If `tool curate` cannot line a block up, then the `ssc` CLI shall refuse
+  before writing anything.
+
 ## Out of scope
 
-- **Per-frame boxes and markers.** `specs/frame-metadata/` authors those into the same
-  sidecar and emits them into this index; nothing here derives or invents one.
 - **`ssc tool preview`**, which renders a frame set with no workspace and no index — that is
   `specs/frame-preview/`, and it takes over the renderer this leaf builds rather than growing
   a second one.

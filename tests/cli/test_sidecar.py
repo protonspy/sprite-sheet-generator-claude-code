@@ -17,8 +17,12 @@ from ssc.cli.errors import SscError, UsageError
 WHERE = "assets/character/hero/asset.yaml"
 
 
-def parse(text: str) -> sidecar.Playback:
+def parse(text: str) -> sidecar.Sidecar:
     return sidecar.parse(text.encode("utf-8"), WHERE)
+
+
+def playback(text: str) -> sidecar.Playback:
+    return parse(text).playback
 
 
 def refusal(text: str) -> SscError:
@@ -35,7 +39,7 @@ def refusal(text: str) -> SscError:
 
 
 def test_a_full_playback_is_read() -> None:
-    read = parse(
+    read = playback(
         """
         playback:
           fps: 12
@@ -57,15 +61,16 @@ def test_an_empty_file_declares_nothing() -> None:
     # `fps: None` rather than a default, so R4.2's fallback can tell "the author said 12"
     # from "the author said nothing".
     read = parse("")
-    assert read.fps is None
-    assert read.mode == sidecar.DEFAULT_MODE
-    assert read.sections == ()
+    assert read.playback.fps is None
+    assert read.playback.mode == sidecar.DEFAULT_MODE
+    assert read.playback.sections == ()
+    assert read.frames is None
 
 
 def test_sections_are_sorted_by_name() -> None:
     # R1.8 — a byte-identical second run means the order cannot come from the author's
     # keystrokes.
-    read = parse("playback:\n  sections:\n    z: [1, 2]\n    a: [0, 0]\n")
+    read = playback("playback:\n  sections:\n    z: [1, 2]\n    a: [0, 0]\n")
     assert [section.name for section in read.sections] == ["a", "z"]
 
 
@@ -95,9 +100,9 @@ def test_an_anchor_is_refused_like_ssc_yaml() -> None:
 
 
 def test_an_unknown_top_level_key() -> None:
-    # `frames:` is `specs/frame-metadata/`'s and does not exist yet. Refused rather than
-    # ignored: a key ssc silently drops is a value the author believes is in effect.
-    assert "frames" in refusal("frames: []\n").message
+    # Refused rather than ignored: a key ssc silently drops is a value the author
+    # believes is in effect.
+    assert "physics" in refusal("physics: []\n").message
 
 
 def test_playback_that_is_not_a_map() -> None:
@@ -141,6 +146,83 @@ def test_a_section_that_runs_backwards_or_before_the_start(span: str) -> None:
     assert "windup runs from" in refusal(f"playback:\n  sections:\n    windup: {span}\n").message
 
 
+# The frames block — hitboxes, hurtboxes and markers, one entry per frame
+# (plans/ssc-completion.md 3.1).
+
+
+def test_a_full_frames_block_is_read() -> None:
+    read = parse(
+        """
+        frames:
+          - hitboxes:
+              - [18, 8, 12, 10]
+            hurtboxes:
+              - [12, 4, 20, 24]
+            markers: [footstep]
+          - ~
+        """
+    )
+    assert read.frames is not None
+    first, second = read.frames
+    assert first.hitboxes == (sidecar.Box(x=18, y=8, width=12, height=10),)
+    assert first.hurtboxes == (sidecar.Box(x=12, y=4, width=20, height=24),)
+    assert first.markers == ("footstep",)
+    assert second == sidecar.AuthoredFrame()
+
+
+def test_an_absent_block_and_an_empty_frame_differ() -> None:
+    # `None` is nothing to validate; an authored entry is a claim about the set's length.
+    assert parse("").frames is None
+    assert parse("frames:\n  - ~\n").frames == (sidecar.AuthoredFrame(),)
+
+
+def test_marker_order_is_the_authors() -> None:
+    # Unlike sections there is nothing to sort by: order on one frame carries no meaning,
+    # and rewriting it would make the file differ from what the author typed.
+    read = parse("frames:\n  - markers: [spawn, footstep]\n")
+    assert read.frames is not None
+    assert read.frames[0].markers == ("spawn", "footstep")
+
+
+def test_a_frames_block_that_is_not_a_list() -> None:
+    assert "frames is a dict" in refusal("frames:\n  0: {}\n").message
+
+
+def test_a_frame_entry_that_is_not_a_map() -> None:
+    assert "frames[0] is a str" in refusal("frames:\n  - punch\n").message
+
+
+def test_an_unknown_frame_key() -> None:
+    assert "frames[1] declares damage" in refusal("frames:\n  - ~\n  - damage: 3\n").message
+
+
+@pytest.mark.parametrize("span", ["3", "[1, 2, 3]", "[1, 2, 3, four]", "[true, 0, 1, 1]"])
+def test_a_box_that_is_not_four_whole_numbers(span: str) -> None:
+    assert "frames[0].hitboxes[0]" in refusal(f"frames:\n  - hitboxes: [{span}]\n").message
+
+
+@pytest.mark.parametrize("span", ["[-1, 0, 4, 4]", "[0, 0, 0, 4]", "[0, 0, 4, 0]"])
+def test_a_box_off_the_cell_or_without_a_pixel(span: str) -> None:
+    assert "frames[0].hurtboxes[0]" in refusal(f"frames:\n  - hurtboxes:\n    - {span}\n").message
+
+
+def test_markers_that_are_not_names() -> None:
+    assert "frames[0].markers" in refusal("frames:\n  - markers: [1, 2]\n").message
+    assert "frames[0].markers" in refusal("frames:\n  - markers: ['']\n").message
+
+
+def test_a_box_as_a_dict_and_as_a_span() -> None:
+    box = sidecar.Box(x=1, y=2, width=3, height=4)
+    assert box.as_dict() == {"x": 1, "y": 2, "width": 3, "height": 4}
+    assert box.as_span() == [1, 2, 3, 4]
+
+
+def test_an_authored_frame_round_trips_to_what_was_written() -> None:
+    entry = sidecar.AuthoredFrame(hitboxes=(sidecar.Box(1, 2, 3, 4),), markers=("footstep",))
+    assert entry.as_authored() == {"hitboxes": [[1, 2, 3, 4]], "markers": ["footstep"]}
+    assert sidecar.AuthoredFrame().as_authored() is None
+
+
 # R4.2 — the kind's frame rate where the author declared none.
 
 
@@ -158,12 +240,12 @@ def test_the_kinds_frame_rate_where_nothing_was_declared() -> None:
 def test_load_reads_the_sidecar_beside_meta_json(tmp_path: Path) -> None:
     (tmp_path / sidecar.SIDECAR_NAME).write_text("playback:\n  fps: 8\n", encoding="utf-8")
     with Directory.open(tmp_path) as held:
-        assert sidecar.load(held).fps == 8
+        assert sidecar.load(held).playback.fps == 8
 
 
 def test_load_of_an_asset_with_no_sidecar_is_empty(tmp_path: Path) -> None:
     with Directory.open(tmp_path) as held:
-        assert sidecar.load(held) == sidecar.Playback()
+        assert sidecar.load(held) == sidecar.Sidecar()
 
 
 # R4.4 — authored, so nothing records it and nothing deletes it.

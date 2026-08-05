@@ -1,5 +1,15 @@
 # Wiki changelog
 
+## 2026-08-05 — the skills ship with the CLI
+
+Task 4.3 of `plans/ssc-completion.md`: the six `sprite-*` skills are a template `ssc`
+installs, not files a project copies. They live in `src/ssc/data/skills/` and `ssc init`
+writes them into the workspace's `.claude/skills/`.
+
+- **[[agent-workflow]]** — says where the skills come from: shipped in the package,
+  written out by `ssc init`, skippable with `--no-skills`, and never overwriting a skill
+  a project has edited.
+
 ## 2026-08-05 — the project-locked palette gets its own command
 
 Tasks 5.1 and 5.2 of `plans/ssc-completion.md`: `tool style` reads the workspace's locked

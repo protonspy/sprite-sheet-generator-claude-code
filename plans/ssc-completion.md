@@ -6,7 +6,7 @@ worktree: per-group
 merge: auto
 status: approved
 lang: en
-checksum: ec61c811869ca560d4c2e3e3e4511cb289822531ce8a81f02e90f04fa9809ea5
+checksum: 4b2c5c981686a4b1c8076b06dc0a249b5d59492e409100aececf1e99c0ff67ee
 ---
 
 # ssc — harness, style and vision
@@ -157,6 +157,10 @@ The deterministic core, every asset kind and the paid generation path are built 
 - [ ] 10.2 (Unit) A consistency embedding across the frames of a set, as a number `doctor` can
       carry as a check
       _Depends 10.1_
+- [x] 4.3 (Unit) Ship the six skills as templates inside the package and have `ssc init`
+      write them into the workspace's `.claude/skills/`, so a game project installs the
+      relay from the CLI rather than copying files out of this repository
+  _Reason the skills are templates ssc installs, not files a user copies; ssc init is where a workspace gets them_
 
 ## Done when
 

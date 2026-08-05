@@ -6,6 +6,12 @@ stops because a decision is a person's to make. The six skills under `.claude/sk
 are the vehicle — each owns a leg of the relay, names the commands it runs, stops at its
 gate, and says what it hands to the next.
 
+They are shipped inside the package and written out by `ssc init`, beside `ssc.yaml` and
+`assets/`. A game project installs `ssc` and has the relay; it does not copy files out of
+this repository, which is what would leave a project driving a version's commands with
+another version's skills. `ssc init --no-skills` lays out the workspace without them, and
+a skill a project has already edited is kept rather than overwritten.
+
 The commands themselves prove the relay holds: `tests/cli/test_chain.py` drives the whole
 chain on one fixture, and goes red when any leg's contract with the next drifts.
 

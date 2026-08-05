@@ -32,6 +32,11 @@ hold the reasoning behind it.
 - [[into-an-engine]] — what `ssc index` writes into `dist/`, where playback is authored, and
   what the Pixi, Phaser and Godot formats can and cannot say.
 
+## Building the tool
+
+- [[workspace-binding]] — why a checked path is not a safe path, what the Windows fallback
+  does and does not buy, and the two verification habits four review rounds paid for.
+
 ## Context
 
 - [[prior-art]] — what already exists, what was adopted, what was refused and why.

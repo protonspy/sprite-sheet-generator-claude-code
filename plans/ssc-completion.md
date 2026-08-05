@@ -88,16 +88,16 @@ The deterministic core, every asset kind and the paid generation path are built 
 
 ## Tasks
 
-- [ ] 1.1 (Unit) Settle in `docs/glossary.md` the vocabulary the nine leaves inherit —
+- [x] 1.1 (Unit) Settle in `docs/glossary.md` the vocabulary the nine leaves inherit —
       section, playback, marker, hitbox, hurtbox, preset, dither, recolour, device,
       execution provider — and the synonyms each one displaces
-- [ ] 1.2 (Unit) Record as an ADR that `dist/index.json` is a versioned contract with one
+- [x] 1.2 (Unit) Record as an ADR that `dist/index.json` is a versioned contract with one
       internal model behind per-engine emitters, since an engine reading it makes the shape
       expensive to change and three leaves write into it
-- [ ] 1.3 (Unit) Record as an ADR the `[cv]` and `[cv-gpu]` packaging split — which
+- [x] 1.3 (Unit) Record as an ADR the `[cv]` and `[cv-gpu]` packaging split — which
       `onnxruntime` build each installs, why detection is independent of the installed
       runtime, and that the execution provider is part of the cache key
-- [ ] 1.4 (Unit) Distil into `docs/wiki/pages/` what the workspace-binding rounds cost —
+- [x] 1.4 (Unit) Distil into `docs/wiki/pages/` what the workspace-binding rounds cost —
       a platform-conditional hardening needs the other platform run before the PR, and a
       guard that cannot work has to refuse rather than report success — and clear the three
       `wiki.changelog-desync` findings standing in `docs/wiki/changelog.md`

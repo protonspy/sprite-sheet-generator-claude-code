@@ -1,5 +1,31 @@
 # Wiki changelog
 
+## 2026-08-05 — what the binding rounds cost, and the vocabulary M4 through M6 inherit
+
+Group 1 of `plans/ssc-completion.md`: settle the words and the decisions the nine remaining
+leaves inherit, before any of them is built.
+
+- **[[workspace-binding]]** — new. Why a checked path is not a safe path, what the Windows
+  identity fallback does and does not buy against a descriptor, and the two habits four
+  review rounds paid for: a platform-conditional hardening is unverified until the other
+  platform has run it, and a guard that cannot prove it works has to refuse rather than
+  report success.
+- **[[into-an-engine]]** — moved into `pages/`, where pages live. No change to the text.
+- `index.md` — links the new page under a new "Building the tool" heading.
+- `docs/glossary.md` — **marker**, **hitbox**, **hurtbox**, **palette**, **preset**,
+  **recolour**, **device** and **execution provider** settled, before the leaves that use
+  them are built. An execution provider is said in full: a provider alone is the generation
+  provider.
+- `adr:0010-the-index-is-a-versioned-contract-behind-per-engine-emitters` — an engine reads
+  `dist/index.json`, so its shape is other people's code; one internal model, pure emitters,
+  and `schema` versions the shape rather than `ssc`.
+- `adr:0011-two-extras-for-onnxruntime-and-detection-that-ignores-them` — `onnxruntime` and
+  `onnxruntime-gpu` publish the same import name, so the split is two extras and not a flag;
+  hardware detection reads the machine rather than the installed runtime, because the CPU-only
+  install is exactly the one that has to be told about the GPU.
+- Earlier entries linked `[[index]]`, which is `docs/wiki/index.md` and not a page. They name
+  the file instead.
+
 ## 2026-08-04 — the handover, and where authored values live
 
 `specs/engine-index/` built `ssc index` and `ssc preview`, which is the first part of this
@@ -9,7 +35,7 @@ project that writes something an engine reads rather than something a later step
   rather than recorded, and the one thing the three engine formats cannot say: a playback
   mode. It is baked into the frame order instead, which is why a six-frame ping-pong
   animation appears with ten entries.
-- **[[index]]** — links the new page under a new "Handing it over" heading.
+- **`index.md`** — links the new page under a new "Handing it over" heading.
 - `docs/glossary.md` — **index**, **sidecar**, **tileset**, **playback mode** and
   **section** settled, before the JSON fields that use them shipped.
 - `adr:0009-authored-intent-lives-in-a-sidecar` — a frame rate is a decision, not
@@ -35,7 +61,7 @@ published OpenAPI documents rather than transcribing them.
   unrepresentable rather than merely awkward. Also that `seed` is absent from GPT Image
   1.5, that it can return alpha directly, and that BiRefNet is six models behind one
   endpoint.
-- **[[index]]** — links the new page under "Producing the art".
+- **`index.md`** — links the new page under "Producing the art".
 - **[[prior-art]]** — "sprite sheets" became "sheets"; `docs/glossary.md` now settles
   **sheet** as the canonical term.
 
@@ -50,7 +76,7 @@ plan on its first day.
   page; added, marked as the one defect measured by the loop score rather than by
   `doctor`. `seam` and `nineslice` were presented as current checks when they arrive with
   the tile and UI kinds; marked as such.
-- **[[index]]** — dropped the defect count, which was wrong and would go stale again on
+- **`index.md`** — dropped the defect count, which was wrong and would go stale again on
   the next check added.
 
 ## 2026-08-02 — the wiki opens
@@ -58,7 +84,7 @@ plan on its first day.
 Distilled from the `ssc` design document and three video transcripts collected in
 `docs/raw/`, which were removed once processed.
 
-- **[[index]]** — entry point.
+- **`index.md`** — entry point.
 - **[[game-ready-defects]]** — the defect vocabulary: fake pixels, frame bleeding, drift,
   halo, palette drift, flicker, silhouette loss, seam, nine-slice breakage, broken cycles.
   Written first because every other page depends on the vocabulary.

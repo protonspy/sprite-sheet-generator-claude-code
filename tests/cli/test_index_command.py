@@ -104,6 +104,24 @@ def test_the_sidecar_reaches_the_index(workspace: ws.Workspace) -> None:
     assert playback["mode"] == "ping-pong"
 
 
+def test_the_frames_block_reaches_the_index(workspace: ws.Workspace) -> None:
+    # plans/ssc-completion.md 3.3 — authored per-frame values travel; bounds are derived.
+    hero = workspace.asset_dir("character", "hero")
+    (hero / "asset.yaml").write_text(
+        "frames:\n- hitboxes:\n  - [1, 1, 4, 4]\n- markers: [footstep]\n- ~\n",
+        encoding="utf-8",
+    )
+    code, _ = run("index")
+    assert code == 0
+    per_frame = index_json(workspace)["sheets"][0]["per_frame"]
+    assert len(per_frame) == 3
+    assert per_frame[0]["hitboxes"] == [{"x": 1, "y": 1, "width": 4, "height": 4}]
+    assert per_frame[1]["markers"] == ["footstep"]
+    assert per_frame[2]["hitboxes"] == []
+    # The swatch frames are fully opaque, so each frame's bounds is the frame.
+    assert per_frame[0]["bounds"] == {"x": 0, "y": 0, "width": 16, "height": 16}
+
+
 # R1.7 — nothing outside dist/.
 
 

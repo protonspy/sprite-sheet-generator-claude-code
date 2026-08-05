@@ -6,7 +6,7 @@ worktree: per-group
 merge: auto
 status: approved
 lang: en
-checksum: fa0f57f144089aae105415843f48454f5708e7083a7989395b36c5bf66d0831b
+checksum: 70c8c95e60eae46b6b217fd42c349f39c753d1206588c910cd536bcc800edb63
 ---
 
 # ssc — harness, style and vision
@@ -74,13 +74,13 @@ The deterministic core, every asset kind and the paid generation path are built 
 
 ### M4 — the harness · what an agent and an engine read
 
-- [ ] 3.1 (Unit) Read hit boxes, hurt boxes and named markers (footstep, spawn, cancel
+- [x] 3.1 (Unit) Read hit boxes, hurt boxes and named markers (footstep, spawn, cancel
       window) from the sidecar's `frames:` block, which `src/ssc/cli/sidecar.py` refuses
       today, and validate its length against the asset's frame count
-- [ ] 3.2 (Unit) Derive the alpha bounding box per frame with no authoring at all, and carry
+- [x] 3.2 (Unit) Derive the alpha bounding box per frame with no authoring at all, and carry
       authored boxes and markers through curation so a dropped or reordered frame cannot
       silently shift them
-- [ ] 3.3 (Unit) Emit boxes and markers into `dist/index.json` behind the index's `schema`,
+- [x] 3.3 (Unit) Emit boxes and markers into `dist/index.json` behind the index's `schema`,
       carrying the authored values only — `ssc` never invents damage or knockback — and write
       the matching delta into the engine-index spec on the same branch
       _Depends 3.1, 3.2_

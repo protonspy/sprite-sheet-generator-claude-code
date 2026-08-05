@@ -17,7 +17,7 @@ from typing import Any
 import click
 import numpy as np
 
-from ssc.cli import kinds, listing, meta
+from ssc.cli import kinds, listing, meta, sidecar
 from ssc.cli import workspace as ws
 from ssc.cli.args import parse_hex
 from ssc.cli.atomic import Directory
@@ -414,6 +414,25 @@ def slice_sheet(
     )
 
 
+def _asset_holding(source: Path, out: Path) -> Path | None:
+    """The asset directory owning both the curated frames and their destination.
+
+    The nearest ancestor of `--in` carrying a `meta.json` — and `--out` has to sit inside
+    the same asset, because rewriting an asset's sidecar to match frames written somewhere
+    else would leave it wrong about the asset's own set.
+
+    `curate` is a loose-path tool, so there is deliberately no workspace containment here:
+    the only file this decision can reach is the found directory's own `asset.yaml`, and
+    the only content ever written there is a subset of that same file. The caller holds
+    one `Directory` across the read and the write, which is what stops the found path
+    being swapped for another between them.
+    """
+    for parent in source.resolve().parents:
+        if (parent / meta.META_NAME).is_file():
+            return parent if out.resolve().is_relative_to(parent) else None
+    return None
+
+
 @ssc_command("curate", help="Report which frames say nothing new, and drop them when asked.")
 @click.option("--drop", is_flag=True, help="Write only the frames that were kept.")
 @click.option("--threshold", type=float, default=0.02, help="How different is different enough.")
@@ -442,12 +461,49 @@ def curate(
     frames = read_frames(source)
     measured = differences([frame.image for frame in frames], threshold)
     redundant = [item.index for item in measured if item.redundant]
+    kept = [item.index for item in measured if not item.redundant]
 
     written: list[str] = []
+    sidecar_path: str | None = None
     if drop:
         assert out is not None
         surviving = [frames[item.index] for item in measured if not item.redundant]
-        written = [str(path) for path in write_frames(source, out, surviving, dry_run=dry_run)]
+        # A dropped frame takes its authored entry with it (plans/ssc-completion.md 3.2):
+        # the sidecar's frames block is one entry per frame, so a shorter set with the old
+        # list would land every later hitbox on the wrong pose. Carried here, in the one
+        # command that shortens a set, rather than guessed at read time. Planned before the
+        # frames are written — a block that cannot be lined up refuses the whole drop — and
+        # written after, so neither half lands without the other. One handle held across
+        # both: the read that decided the rewrite and the `replace` that performs it go to
+        # the same held directory, so a path component swapped while the frames were being
+        # written cannot point the rewrite somewhere else.
+        asset_dir = _asset_holding(source, out)
+        held = (
+            Directory.open(asset_dir)
+            if asset_dir is not None and redundant and not dry_run
+            else None
+        )
+        try:
+            carried: bytes | None = None
+            if held is not None:
+                carried = sidecar.carried_document(held, kept=kept, total=len(frames))
+                if carried is not None and not held.bindable:
+                    # A guard that cannot prove it is working refuses rather than reporting
+                    # success — see `Directory.bindable` and [[workspace-binding]].
+                    raise SscError(
+                        "no-file-identity",
+                        f"{asset_dir} is on a volume that reports no file identity, so ssc "
+                        f"cannot prove the sidecar it would rewrite is the one it checked",
+                        fix="keep the workspace on NTFS, or on any POSIX filesystem",
+                    )
+            written = [str(path) for path in write_frames(source, out, surviving, dry_run=dry_run)]
+            if carried is not None and held is not None:
+                held.replace(sidecar.SIDECAR_NAME, carried)
+                assert asset_dir is not None
+                sidecar_path = str(asset_dir / sidecar.SIDECAR_NAME)
+        finally:
+            if held is not None:
+                held.close()
 
     return Result(
         "tool curate",
@@ -456,9 +512,10 @@ def curate(
         {
             "frames": len(frames),
             "redundant": redundant,
-            "kept": [item.index for item in measured if not item.redundant],
+            "kept": kept,
             "differences": [item.as_dict() for item in measured],
             "written": written,
+            "sidecar": sidecar_path,
         },
         dry_run=dry_run,
     )

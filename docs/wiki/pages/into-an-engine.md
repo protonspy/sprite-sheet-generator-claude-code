@@ -94,8 +94,12 @@ A tile is previewed tiled because that is the only question a single tile raises
 [[game-ready-defects]] on `seam`. Two by two is the smallest arrangement that puts every edge
 against a copy of the opposite one.
 
-## What the index does not carry
+## What travels per frame
 
-Per-frame hit boxes, hurt boxes and markers are `specs/frame-metadata/`'s, authored into the
-same sidecar and emitted into the same index. `ssc` will carry those values; it will never
-invent damage or knockback.
+Hitboxes, hurtboxes and markers are authored into the same sidecar, one `frames:` entry per
+frame, and each sheet in `generic` carries them under `per_frame` beside a derived `bounds`
+— the alpha bounding box, which needs no authoring at all. `ssc` carries the authored
+values and never invents damage or knockback; the three engine formats have no slot for a
+hitbox, so a game that wants the boxes reads `generic` beside its engine format. A dropped
+frame takes its entry with it: `tool curate` carries the block when it drops, and the index
+refuses a block whose length stopped matching the set.

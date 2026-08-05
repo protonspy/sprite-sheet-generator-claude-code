@@ -20,7 +20,7 @@ from ssc.cli.errors import SscError
 from ssc.cli.kinds import Profile
 from ssc.cli.listing import asset_dirs, bound, chain_order, frames_of, media_of
 from ssc.cli.meta import AssetMeta, FileRecord
-from ssc.cli.sidecar import Playback, Section, frame_rate
+from ssc.cli.sidecar import AuthoredFrame, Box, Playback, Section, frame_rate
 from ssc.cli.sidecar import load as load_sidecar
 from ssc.cli.workspace import Workspace
 from ssc.core.assemble import pack
@@ -82,6 +82,8 @@ class Published:
     stage: str
     frames: list[np.ndarray]
     playback: Playback = field(default_factory=Playback)
+    #: The sidecar's `frames:` block — `None` where the author wrote none.
+    authored: tuple[AuthoredFrame, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -135,6 +137,17 @@ def gather(workspace: Workspace, *, stage: str | None = None) -> tuple[list[Grou
                 Skipped(record.kind, record.key, f"no kind {record.kind!r} in this workspace")
             )
             continue
+        if published.authored is not None and not resolved.profile.animates:
+            # Only a sheet carries per-frame data. Skipped rather than dropped: a frames
+            # block ssc silently ignored is a hitbox the author believes is in effect.
+            skipped.append(
+                Skipped(
+                    record.kind,
+                    record.key,
+                    f"authors a frames block, and {record.kind} does not animate",
+                )
+            )
+            continue
         profiles[record.kind] = resolved.profile
         by_kind.setdefault(record.kind, []).append(published)
 
@@ -161,13 +174,34 @@ def _publish(held: Directory, record: AssetMeta, stage: str | None) -> Published
         chosen = next((entry for entry in candidates if entry.stage == stage), None)
     if chosen is None:
         return None
+    authored = load_sidecar(held)
     return Published(
         kind=record.kind,
         key=record.key,
         stage=chosen.stage,
         frames=frames_of(held, record, chosen.stage),
-        playback=load_sidecar(held),
+        playback=authored.playback,
+        authored=authored.frames,
     )
+
+
+@dataclass(frozen=True)
+class FrameDetail:
+    """One frame's per-frame data: measured bounds, and what a person authored.
+
+    `bounds` is derived from the pixels and present with no authoring at all; the boxes and
+    markers are carried from the sidecar and never invented — `ssc` moves damage, it does
+    not deal any.
+    """
+
+    bounds: Box | None = None
+    authored: AuthoredFrame = field(default_factory=AuthoredFrame)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "bounds": None if self.bounds is None else self.bounds.as_dict(),
+            **self.authored.as_dict(),
+        }
 
 
 @dataclass(frozen=True)
@@ -186,6 +220,8 @@ class SheetEntry:
     fps: int
     mode: str
     sections: tuple[Section, ...] = ()
+    #: One entry per frame: derived bounds, and the sidecar's count-checked authored block.
+    per_frame: tuple[FrameDetail, ...] = ()
 
     @property
     def id(self) -> str:
@@ -210,6 +246,9 @@ class SheetEntry:
                 "mode": self.mode,
                 "sections": [section.as_dict() for section in self.sections],
             },
+            # Additive under adr:0010 — a loader that predates it ignores the key, so
+            # `schema` stays where it is.
+            "per_frame": [detail.as_dict() for detail in self.per_frame],
         }
 
 
@@ -260,8 +299,25 @@ def build_sheet(published: Published, profile: Profile) -> tuple[SheetEntry, np.
             frames=len(frames),
             where=f"{published.kind}/{published.key}",
         ),
+        per_frame=per_frame_of(published),
     )
     return entry, pixels
+
+
+def per_frame_of(published: Published) -> tuple[FrameDetail, ...]:
+    """Every frame's detail: measured bounds always, authored values where they exist."""
+    authored = resolve_authored(
+        published.authored,
+        frames=len(published.frames),
+        where=f"{published.kind}/{published.key}",
+    )
+    return tuple(
+        FrameDetail(
+            bounds=bounds_of(frame),
+            authored=authored[number] if authored is not None else AuthoredFrame(),
+        )
+        for number, frame in enumerate(published.frames)
+    )
 
 
 def entry_ids(published: Published) -> list[str]:
@@ -517,6 +573,49 @@ def build(
             )
 
     return built
+
+
+def bounds_of(frame: np.ndarray) -> Box | None:
+    """The tight box around a frame's opaque pixels — derived, with no authoring at all.
+
+    Geometry, not meaning: where the art is, which is measurable, as opposed to what deals
+    or receives, which never is. `None` for a fully transparent frame, because a zero-size
+    box has a position and an empty frame does not have one of those either.
+    """
+    alpha = frame[..., 3]
+    rows = np.flatnonzero(alpha.any(axis=1))
+    columns = np.flatnonzero(alpha.any(axis=0))
+    if rows.size == 0:
+        return None
+    return Box(
+        x=int(columns[0]),
+        y=int(rows[0]),
+        width=int(columns[-1] - columns[0] + 1),
+        height=int(rows[-1] - rows[0] + 1),
+    )
+
+
+def resolve_authored(
+    authored: tuple[AuthoredFrame, ...] | None, *, frames: int, where: str
+) -> tuple[AuthoredFrame, ...] | None:
+    """The sidecar's `frames:` block, checked against the set that actually exists.
+
+    The block is one entry per frame, so its length is its claim about the set. A mismatch
+    is refused rather than padded or truncated: an entry that silently lands on the wrong
+    frame is a hitbox that deals on the wrong pose, which nobody notices until something
+    takes damage it should not have.
+    """
+    if authored is None:
+        return None
+    if len(authored) != frames:
+        raise SscError(
+            "frames-block-mismatch",
+            f"{where}: the sidecar authors {len(authored)} frame "
+            f"entr{'y' if len(authored) == 1 else 'ies'}, and the set has {frames}",
+            fix="one entry per frame, ~ for a frame with nothing; "
+            "re-run tool curate with --drop to carry entries past a drop",
+        )
+    return authored
 
 
 def resolve_sections(

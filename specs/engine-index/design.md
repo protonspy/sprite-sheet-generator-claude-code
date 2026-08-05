@@ -60,7 +60,22 @@ playback:
   sections:
     windup: [0, 2]         # first and last frame, inclusive
     hit: [3, 4]
+frames:                    # R7 — one entry per frame, ~ for a frame with nothing
+  - hitboxes:
+      - [18, 8, 12, 10]    # [x, y, width, height], pixels within the cell
+    hurtboxes:
+      - [12, 4, 20, 24]
+    markers: [footstep]
+  - ~
 ```
+
+(R7, delta) Each sheet entry additionally carries `per_frame`: one object per frame with
+`bounds` — the alpha bounding box, derived, `null` for a fully transparent frame — and the
+authored `hitboxes`, `hurtboxes` and `markers`, empty where nothing was authored. Additive
+under `adr:0010`, so `schema` stays at 1. **`generic` alone carries `per_frame`**: Pixi,
+Phaser and Godot define no slot for a hitbox, and inventing a nonstandard one would make
+their documents unloadable-strict or silently ignored — a game that wants the boxes reads
+`generic` beside its engine format, which R5.5 already makes the same measurements.
 
 `dist/index.json`, in `generic`, is a flat list per artefact shape so that ordering is a
 sort and nothing nests by kind:

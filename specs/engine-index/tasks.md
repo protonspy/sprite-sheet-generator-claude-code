@@ -50,6 +50,14 @@ run green before this work started — 290 passed, 2 skipped.
 - [x] 5.1 (Unit) Register `ssc index` and `ssc preview`, and give the workspace its `dist` path — R1.7
 - [x] 5.2 (Unit) Record `adr:0009-authored-intent-lives-in-a-sidecar`, the glossary terms this leaf coins, and the wiki page for taking a workspace into an engine — R4.1
 
+## 6 · Per-frame data
+
+Delta from `plans/ssc-completion.md` group 3, built there and recorded here.
+
+- [x] 6.1 (Unit) Read hitboxes, hurtboxes and markers from the sidecar's `frames:` block, and validate its length against the published set — R7.1, R7.2
+- [x] 6.2 (Unit) Derive the alpha bounding box per frame, and carry the authored block through `tool curate` — refusing one it cannot line up — R7.3, R7.6, R7.7
+- [x] 6.3 (Unit) Emit `per_frame` in the `generic` format, and skip an authored block on a kind that does not animate — R7.4, R7.5
+
 ## Notes
 
 **1.4, 3.2 and 4.1 are the three that are TDD, and each for its own reason.** A section is a

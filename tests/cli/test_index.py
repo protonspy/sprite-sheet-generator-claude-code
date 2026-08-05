@@ -14,7 +14,7 @@ from ssc.cli import index, kinds, meta
 from ssc.cli import workspace as ws
 from ssc.cli.errors import SscError
 from ssc.cli.frames import encode
-from ssc.cli.sidecar import Playback, Section
+from ssc.cli.sidecar import AuthoredFrame, Box, Playback, Section
 
 WHERE = "character/hero-attack"
 
@@ -140,6 +140,53 @@ def test_the_refusal_names_the_first_section_that_is_wrong() -> None:
         )
     assert "late" in raised.value.message
     assert "early" not in raised.value.message
+
+
+# plans/ssc-completion.md 3.1 — an authored frames block is one entry per frame, and the
+# set decides whether its length is right.
+
+
+def test_an_authored_block_matching_the_set() -> None:
+    authored = (AuthoredFrame(markers=("footstep",)), AuthoredFrame())
+    assert index.resolve_authored(authored, frames=2, where=WHERE) == authored
+
+
+def test_nothing_authored_is_nothing_to_check() -> None:
+    assert index.resolve_authored(None, frames=8, where=WHERE) is None
+
+
+@pytest.mark.parametrize("entries", [1, 3])
+def test_a_block_of_the_wrong_length_is_refused_with_both_counts(entries: int) -> None:
+    authored = tuple(AuthoredFrame() for _ in range(entries))
+    with pytest.raises(SscError) as raised:
+        index.resolve_authored(authored, frames=2, where=WHERE)
+    assert raised.value.code == "frames-block-mismatch"
+    assert str(entries) in raised.value.message
+    assert "2" in raised.value.message
+    assert WHERE in raised.value.message
+
+
+# plans/ssc-completion.md 3.2 — the alpha bounding box, derived and never authored.
+
+
+def test_bounds_of_an_inset_figure() -> None:
+    frame = np.zeros((8, 8, 4), dtype=np.uint8)
+    frame[2:6, 3:5, :] = 255
+    assert index.bounds_of(frame) == Box(x=3, y=2, width=2, height=4)
+
+
+def test_bounds_of_a_fully_opaque_frame_is_the_frame() -> None:
+    assert index.bounds_of(swatch(8, 8)) == Box(x=0, y=0, width=8, height=8)
+
+
+def test_bounds_of_a_single_pixel() -> None:
+    frame = np.zeros((8, 8, 4), dtype=np.uint8)
+    frame[5, 6, :] = 255
+    assert index.bounds_of(frame) == Box(x=6, y=5, width=1, height=1)
+
+
+def test_a_transparent_frame_has_no_bounds() -> None:
+    assert index.bounds_of(np.zeros((8, 8, 4), dtype=np.uint8)) is None
 
 
 # R1.2 — which artefact a kind gives an engine, read off the profile.
@@ -284,7 +331,12 @@ def test_the_sidecar_travels_with_the_asset(tmp_path: Path) -> None:
 
 
 def published(
-    frames: list[np.ndarray], *, kind: str = "character", key: str = "hero", **playback: object
+    frames: list[np.ndarray],
+    *,
+    kind: str = "character",
+    key: str = "hero",
+    authored: tuple[AuthoredFrame, ...] | None = None,
+    **playback: object,
 ) -> index.Published:
     return index.Published(
         kind=kind,
@@ -292,6 +344,7 @@ def published(
         stage="cut",
         frames=frames,
         playback=Playback(**playback),  # type: ignore[arg-type]
+        authored=authored,
     )
 
 
@@ -345,6 +398,58 @@ def test_a_sheets_sections_are_resolved_against_its_frame_count() -> None:
     assert refused.value.code == "section-out-of-range"
 
 
+# plans/ssc-completion.md 3.3 — the per-frame data behind the index's schema: derived
+# bounds always, authored boxes and markers carried and never invented.
+
+
+def test_a_sheet_carries_derived_bounds_with_no_authoring_at_all() -> None:
+    frame = np.zeros((8, 8, 4), dtype=np.uint8)
+    frame[2:6, 3:5, :] = 255
+    entry, _ = index.build_sheet(published([frame, swatch()]), kinds.BUILT_INS["character"])
+    first, second = entry.as_dict()["per_frame"]
+    assert first["bounds"] == {"x": 3, "y": 2, "width": 2, "height": 4}
+    assert second["bounds"] == {"x": 0, "y": 0, "width": 8, "height": 8}
+    # Nothing was authored, and nothing is invented.
+    assert first["hitboxes"] == [] and first["hurtboxes"] == [] and first["markers"] == []
+
+
+def test_a_sheet_carries_the_authored_block_frame_by_frame() -> None:
+    authored = (
+        AuthoredFrame(
+            hitboxes=(Box(1, 2, 3, 4),),
+            hurtboxes=(Box(0, 0, 8, 8),),
+            markers=("footstep",),
+        ),
+        AuthoredFrame(),
+    )
+    entry, _ = index.build_sheet(
+        published([swatch(), swatch()], authored=authored), kinds.BUILT_INS["character"]
+    )
+    first, second = entry.as_dict()["per_frame"]
+    assert first["hitboxes"] == [{"x": 1, "y": 2, "width": 3, "height": 4}]
+    assert first["hurtboxes"] == [{"x": 0, "y": 0, "width": 8, "height": 8}]
+    assert first["markers"] == ["footstep"]
+    assert second["hitboxes"] == [] and second["markers"] == []
+
+
+def test_an_authored_block_of_the_wrong_length_refuses_the_sheet() -> None:
+    with pytest.raises(SscError) as refused:
+        index.build_sheet(
+            published([swatch()] * 3, authored=(AuthoredFrame(),)),
+            kinds.BUILT_INS["character"],
+        )
+    assert refused.value.code == "frames-block-mismatch"
+
+
+def test_an_authored_block_on_a_kind_that_does_not_animate_is_skipped(tmp_path: Path) -> None:
+    space = workspace(tmp_path)
+    asset(space, "icon", "potion", single=swatch(), sidecar_text="frames:\n- markers: [a]\n")
+    groups, skipped = index.gather(space)
+    assert groups == []
+    assert len(skipped) == 1
+    assert "does not animate" in skipped[0].why
+
+
 def test_a_frame_larger_than_its_kinds_cell_is_refused() -> None:
     # Widening the cell instead would hand an engine a cell size the project never declared,
     # which cuts every other sprite of that kind in the wrong place.
@@ -371,6 +476,7 @@ def test_a_sheet_as_a_dict_nests_playback() -> None:
         "anchor",
         "aligned",
         "playback",
+        "per_frame",
     }
 
 

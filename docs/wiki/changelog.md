@@ -1,5 +1,15 @@
 # Wiki changelog
 
+## 2026-08-05 — the index carries what a frame deals, receives and does
+
+Group 3 of `plans/ssc-completion.md`: per-frame data, end to end — sidecar to index.
+
+- **[[into-an-engine]]** — "What the index does not carry" became "What travels per
+  frame": the sidecar's `frames:` block, the derived `bounds`, `per_frame` in `generic`
+  only, and curation carrying entries past a drop. The old section promised this work to
+  `specs/frame-metadata/`, which was never written — the delta landed in
+  `specs/engine-index/` R7 instead.
+
 ## 2026-08-05 — the run, named end to end
 
 Group 2 of `plans/ssc-completion.md`: the chain is proven by one test, and the workflow

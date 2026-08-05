@@ -41,6 +41,16 @@ and not listed here is an undecided dependency.
 - **`[cv-gpu]`: onnxruntime-gpu, rembg** — the same models against a different runtime
   distribution rather than a runtime flag, which is why the extras split instead of taking
   a switch. `rembg` is in both extras because it is the model layer, not the runtime.
+- **`onnxruntime-directml` — accepted, and installed by hand.** DirectML ships in a third
+  distribution that neither extra carries, which
+  `adr:0011-two-extras-for-onnxruntime-and-detection-that-ignores-them` recorded as an open
+  gap. Resolved by keeping `--device directml` in the accepted set and naming the package
+  in the refusal: a Windows user with an AMD or Intel GPU is told what to install, and no
+  extra promises a build it does not deliver. It is not a dependency of this project, so
+  it is here as a decision rather than in `pyproject.toml`.
+
+The execution provider each of these gives is part of the cache key, so a CPU result and a
+CUDA result are never one entry — `ssc.cli.devices.cache_salt` is where that is folded in.
 
 ## Development
 

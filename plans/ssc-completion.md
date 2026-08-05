@@ -6,7 +6,7 @@ worktree: per-group
 merge: auto
 status: approved
 lang: en
-checksum: 67aee2647eeed778fe77e43540b0bc8013b2201c5b77bc466016e305d5f2c22a
+checksum: fa0f57f144089aae105415843f48454f5708e7083a7989395b36c5bf66d0831b
 ---
 
 # ssc — harness, style and vision
@@ -65,10 +65,10 @@ The deterministic core, every asset kind and the paid generation path are built 
       a platform-conditional hardening needs the other platform run before the PR, and a
       guard that cannot work has to refuse rather than report success — and clear the three
       `wiki.changelog-desync` findings standing in `docs/wiki/changelog.md`
-- [ ] 2.1 (Unit) Prove the chain end to end on a fixture: base image, poses, pixel art,
+- [x] 2.1 (Unit) Prove the chain end to end on a fixture: base image, poses, pixel art,
       sheet, `doctor`, `dist/index.json` — one test that goes red when any leaf's contract
       drifts, which is the failure no leaf's own suite can see
-- [ ] 2.2 (Unit) Write the agent workflow the six skills drive as a `docs/wiki/pages/` page
+- [x] 2.2 (Unit) Write the agent workflow the six skills drive as a `docs/wiki/pages/` page
       reachable from `index.md`, naming which skill owns which step and where each gate falls
       _Depends 2.1_
 

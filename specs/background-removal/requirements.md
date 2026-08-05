@@ -8,9 +8,10 @@ ci: wait
 ## Purpose
 
 `ssc tool bgremove` takes a background out by chroma key: local, free, deterministic, and
-usable on a directory of loose PNGs with no workspace. It is the free path to a transparent
-background — `gen bgremove` (a hosted model) and `tool bgremove --model` (a local one) are
-later leaves, and both cost something this one does not.
+usable on a directory of loose PNGs with no workspace. The key is the cheap path — it needs
+a flat backdrop and answers in microseconds. `--model` (R5) is the same command over a
+local model: also free, and paid for in a download and in seconds a frame instead. Only
+`gen bgremove`, over a hosted model, bills.
 
 Two things make it more than a colour comparison. **A green gem inside a character is not
 the background**, so matching every pixel of the key colour is the wrong default; only
@@ -44,11 +45,21 @@ that name.
 
 - **R4.1** When it removes a background, the `ssc` CLI shall report how many pixels it made transparent and how many it left opaque.
 
+## R5 · Removing a background by model
+
+- **R5.1** (ADDED) Where `--model birefnet` or `--model rembg` is given, the `ssc` CLI shall cut the subject out with that model instead of by chroma key.
+- **R5.2** (ADDED) If the `[cv]` extra is not installed, then the `ssc` CLI shall change nothing and shall refuse with the command that installs it.
+- **R5.3** (ADDED) When it cuts a frame out with a model, the `ssc` CLI shall give every pixel it writes an alpha of either 0 or 255, as R3.1 requires of the chroma path.
+- **R5.4** (ADDED) Where `--edge-trim` or `--despeckle` is given with `--model`, the `ssc` CLI shall apply them to the model's matte as it applies them to the key's.
+- **R5.5** (ADDED) Where `--device` is given, the `ssc` CLI shall run the model on that device, and shall report the execution provider it ran on.
+- **R5.6** (ADDED) While the command is standing in a workspace, the `ssc` CLI shall reuse a cached matte keyed on the frame, the flags and the execution provider.
+- **R5.7** (ADDED) The `ssc` CLI shall remove by chroma key unless `--model` is given.
+
 ## Out of scope
 
-- **Removing a background by model.** `--model birefnet|rembg` under the `[cv]` extra is
-  `specs/cv-background-removal/`, and `gen bgremove` over a hosted model is
-  `specs/gen-fal/`. This leaf is the chroma path, which needs neither a download nor a key.
+- **Removing a background over a hosted model.** `gen bgremove` bills and returns a job,
+  and `specs/gen-fal/` owns it. `--model` here is local and free: it costs a download
+  rather than a credential, which is why both live under `tool`.
 - **Choosing the key for the caller.** Detecting which colour the background *is* would be
   a guess, and a wrong guess eats the character. The key is given, and `green` is a default
   rather than an inference.

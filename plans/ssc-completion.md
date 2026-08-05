@@ -6,7 +6,7 @@ worktree: per-group
 merge: auto
 status: approved
 lang: en
-checksum: 328a5e1a1c6245ec6e37616c7e57463b3f7a8e9dfa1f589590962b16297a52ce
+checksum: 82faf8d04eb880ad8cc7bac764762f7d7c67c7c09614a26c7d187ec0fe95a43b
 ---
 
 # ssc — harness, style and vision
@@ -145,11 +145,11 @@ The deterministic core, every asset kind and the paid generation path are built 
       the installed runtime, and returns a capable GPU under a CPU-only install as a
       structured hint carrying the exact install command
       _Depends 8.2_
-- [ ] 9.1 (Unit) `ssc tool bgremove --model birefnet|rembg` under the `[cv]` extra, beside the
+- [x] 9.1 (Unit) `ssc tool bgremove --model birefnet|rembg` under the `[cv]` extra, beside the
       hosted `gen bgremove` path, with the matching delta written into the background-removal
       spec
       _Depends 8.3_
-- [ ] 9.2 (Unit) If the `[cv]` extra is absent, then the command refuses with the install
+- [x] 9.2 (Unit) If the `[cv]` extra is absent, then the command refuses with the install
       command rather than a traceback
       _Depends 9.1_
 - [ ] 10.1 (Unit) Pose tracking through an animation cycle, reported per frame

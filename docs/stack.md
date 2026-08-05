@@ -52,6 +52,14 @@ and not listed here is an undecided dependency.
 The execution provider each of these gives is part of the cache key, so a CPU result and a
 CUDA result are never one entry — `ssc.cli.devices.cache_salt` is where that is folded in.
 
+**What installing `[cv]` trusts.** `rembg` downloads its weights on first use, to a
+user-level cache, over a channel `ssc` neither controls nor checksums — and `onnxruntime`
+then loads that graph and runs it. Installing the extra is therefore trusting `rembg`'s
+distribution the way installing any dependency trusts its index, and it is recorded here
+rather than left implicit because `ssc tool bgremove --model` is the first command to put a
+downloaded model on that path. A project that cannot accept it has the chroma key, which
+downloads nothing.
+
 ## Development
 
 - **pytest** — the suite, and golden tests over small arrays for each pure core function.

@@ -12,6 +12,7 @@ never gives them meaning: nothing here invents damage or knockback.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -390,6 +391,59 @@ def carried_document(asset_dir: Directory, *, kept: list[int], total: int) -> by
     document = yaml.load(raw.decode("utf-8"), Loader=StrictLoader)
     authored = document["frames"]
     document["frames"] = [authored[number] for number in kept]
+    return yaml.safe_dump(document, sort_keys=False, default_flow_style=None).encode("utf-8")
+
+
+def transformed_document(
+    asset_dir: Directory,
+    *,
+    total: int,
+    move: Callable[[tuple[int, int, int, int]], tuple[int, int, int, int] | None],
+) -> bytes | None:
+    """The sidecar with every authored box moved by the transform its frames just took —
+    or `None` where there is nothing to move (plans/ssc-completion.md 7.8).
+
+    A mirrored frame with an unmirrored hurt box takes damage on the wrong side, so a
+    transform that lands in an asset moves the asset's boxes with it. Markers name moments,
+    not places, so they ride their frame untouched. `move` returning `None` is a box the
+    transform dropped with the pixels it covered — clipped off the canvas by an offset, or
+    outside a trim's crop — and it leaves the document the way an author's empty entry does.
+
+    Computed before the frames are written and applied by the caller after, like
+    `carried_document`: a block that cannot be lined up refuses the whole transform, and a
+    refusal costs nothing on disk.
+    """
+    where = str(asset_dir.path / SIDECAR_NAME)
+    try:
+        raw = asset_dir.read(SIDECAR_NAME, max_bytes=MAX_SIDECAR_BYTES)
+    except FileNotFoundError:
+        return None
+    parsed = parse(raw, where)
+    if parsed.frames is None:
+        return None
+    if len(parsed.frames) != total:
+        raise refuse(
+            where,
+            f"authors {len(parsed.frames)} frame entr"
+            f"{'y' if len(parsed.frames) == 1 else 'ies'}, and the set being transformed "
+            f"has {total}",
+            "one entry per frame of the set; fix the sidecar before transforming",
+        )
+
+    document = yaml.load(raw.decode("utf-8"), Loader=StrictLoader)
+    rewritten: list[Any] = []
+    for entry in document["frames"]:
+        if not isinstance(entry, dict):
+            rewritten.append(entry)
+            continue
+        for key in ("hitboxes", "hurtboxes"):
+            if key in entry:
+                moved = [move((span[0], span[1], span[2], span[3])) for span in entry[key]]
+                entry[key] = [list(span) for span in moved if span is not None]
+                if not entry[key]:
+                    del entry[key]
+        rewritten.append(entry or None)
+    document["frames"] = rewritten
     return yaml.safe_dump(document, sort_keys=False, default_flow_style=None).encode("utf-8")
 
 

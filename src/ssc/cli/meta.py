@@ -89,7 +89,23 @@ class AssetMeta(BaseModel):
     key: str
     kind: str
     created_at: str = Field(default_factory=now)
+    #: The parent a derived asset extends, or `None` for a source. Asset-level
+    #: provenance — the parent the whole asset derived from — distinct from a
+    #: file's `derived_from` lineage (R3.6), because a derived asset carries no
+    #: files to hang that lineage on. Additive under adr:0010, so the schema stays
+    #: at 1; the parent is recorded here because `meta.json` is the provenance
+    #: record (adr:0009), and the recipe carries the generation reference.
+    derived_from: str | None = None
     files: list[FileRecord] = Field(default_factory=list)
+
+    @field_validator("derived_from", mode="after")
+    @classmethod
+    def _derived_from_is_a_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        if not isinstance(value, str) or not value:
+            raise ValueError("derived_from must be a <kind>/<key> name or null")
+        return value
 
     @field_validator("key", "kind", mode="after")
     @classmethod

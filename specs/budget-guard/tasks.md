@@ -11,6 +11,8 @@ reader of `ssc.yaml` that `budget:` joins. 165 tests, run green before this work
 - [x] 1.1 (Unit) Refuse a paid call a deterministic command produces exactly, naming that command as the fix — R1.1, R1.3
 - [x] 1.2 (Unit) Report, without refusing, a deterministic command that may produce the same result — R1.2, R1.3
 - [x] 1.3 (Unit) `--dry-run` reports whichever of those two applies — R1.4
+- [x] 1.4 (Unit) Refuse a colour-variant paid call, naming ssc tool recolour — R1.5
+  _Reason R1.5 delta from plan task 5.4: a gen image colour variant of an existing tool style stage is exact, refused under R1.1 not reported under R1.2_
 
 ## 2 · The ceiling
 

@@ -1,5 +1,15 @@
 # Wiki changelog
 
+## 2026-08-05 — the project-locked palette gets its own command
+
+Tasks 5.1 and 5.2 of `plans/ssc-completion.md`: `tool style` reads the workspace's locked
+`palette.json`, where the page had been naming `tool pixelart` for that path; dither is a
+workspace decision under `style:` in `ssc.yaml`, never a per-call flag.
+
+- **[[agent-workflow]]** — the `sprite-style` row now names `tool style` against the
+  locked `palette.json`. `tool pixelart` is the ad-hoc sibling for loose PNGs with no
+  workspace, not the project-locked path the relay runs.
+
 ## 2026-08-05 — the index carries what a frame deals, receives and does
 
 Group 3 of `plans/ssc-completion.md`: per-frame data, end to end — sidecar to index.

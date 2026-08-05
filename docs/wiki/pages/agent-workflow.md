@@ -20,7 +20,7 @@ for everything that animates.
 | `sprite-resource` | the kinds that do not animate — tile, icon, ui: generation against the kind's profile, `tool tile` for wrap, `tool ninepatch` for stretch borders | approved sources, ready for style |
 | `sprite-animation` | poses and cycles: `tool board`, `gen image` for pose sheets, `gen video` for walk cycles, `tool cut`, `tool curate` — see [[generating-animations]] | a curated frame set per animation |
 | `sprite-cleanup` | the repairs of [[frame-normalisation]]: `tool snap`, `tool align`, and `tool doctor` to measure the result | frames that pass `doctor`, or a named defect it cannot repair |
-| `sprite-style` | the project's look: `tool pixelart` against `palette.json`, the workspace's dither decision, `tool recolour` for variants | frames quantized against the one palette |
+| `sprite-style` | the project's look: `tool style` against the locked `palette.json`, the workspace's dither decision, `tool recolour` for variants | frames quantized against the one palette |
 | `sprite-integrate` | the handover of [[into-an-engine]]: `ssc index`, then `ssc preview` on what the index declares | `dist/index.json`, and the preview a person approves |
 
 A skill runs its commands through the workspace's `pipeline:` where one is declared, so

@@ -23,6 +23,15 @@ what it cost once it has.
 - **R1.2** Where a deterministic command may produce the same result but cannot be shown to, the `ssc` CLI shall report it as an alternative and shall proceed.
 - **R1.3** The `ssc` CLI shall decide both from what the caller asked for, and not from an option that turns the check off.
 - **R1.4** While `--dry-run` is given, the `ssc` CLI shall report any free command that covers or may cover the call.
+- **R1.5** When the caller asks `gen image` for a colour variant of an existing stage, then the `ssc` CLI shall refuse the call and name `ssc tool recolour`.
+
+> **R1.5 is exact (R1.1), not reported (R1.2).** A colour variant of a `tool style`
+> output is flat-coloured regions, and a colour map reproduces what a model would
+> redraw, so paying for it buys a `recolour` the caller already has the data to run. The
+> asymmetry caveat that makes mirroring inexact does not apply: swapping red for blue does
+> not discover a pauldron. The signal is `--var recolor=<stage>` naming the stage to map
+> from, the structured way `direction=East` names mirroring — and the refusal names the
+> stage, so the caller builds the colour map against the right input.
 
 > **R1.2 exists because the plan and the wiki disagree, and the disagreement is real.**
 > `plans/ssc-pipeline.md` gives two free-path cases and says of both that "the deterministic

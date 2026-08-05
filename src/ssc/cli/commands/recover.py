@@ -11,6 +11,8 @@ produced the same detector twice, and the second copy is the one that drifts.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +21,7 @@ import numpy as np
 
 from ssc.cli import kinds, listing, meta, sidecar
 from ssc.cli import workspace as ws
-from ssc.cli.args import parse_hex
+from ssc.cli.args import parse_anchor, parse_hex
 from ssc.cli.atomic import Directory
 from ssc.cli.commands.convert import MAX_BOARD_SIDE, parse_size
 from ssc.cli.errors import SscError, UsageError
@@ -33,10 +35,28 @@ from ssc.core.assemble import (
     ANCHOR_MODES,
     CanvasTooLarge,
     expand,
-    flip,
+    mirror_anchor,
+    mirror_box,
+    offset_anchor,
+    offset_box,
     onion,
     pack,
     plan_alignment,
+    rotate_anchor,
+    rotate_box,
+    rotate_cell,
+    trim_anchor,
+    trim_box,
+    union_box,
+)
+from ssc.core.assemble import (
+    mirror as mirror_frame,
+)
+from ssc.core.assemble import (
+    offset as offset_frame,
+)
+from ssc.core.assemble import (
+    rotate as rotate_frame,
 )
 from ssc.core.curate import differences
 from ssc.core.recover import (
@@ -227,6 +247,96 @@ def record_frames(
     )
     meta.save(directory, record)
     return written
+
+
+def record_transform(
+    directory: Directory,
+    record: meta.AssetMeta,
+    images: list[np.ndarray],
+    *,
+    command: str,
+    stage: str,
+    params: dict[str, Any],
+    source: Path,
+    dry_run: bool,
+) -> list[str]:
+    """Write a transform's frames as one recorded stage under `frames/<stage>/`.
+
+    The same shape `tool cut` writes a frame set in, and the same one `ssc run` writes each
+    pipeline step as: a stage is unique per asset, and a frame set is one stage — so the
+    transform lands at `frames/<stage>/` rather than overwriting `frames/`. Recording it is
+    what makes `trim` and `offset` provenance steps a reader can follow, instead of implicit
+    moves `align` and `pack` made and left no trace of.
+    """
+    relative = f"{FRAMES_STAGE}/{stage}"
+    written = [f"{relative}/{index + 1:03d}.png" for index in range(len(images))]
+    if dry_run:
+        return written
+
+    data = b"".join(encode(image) for image in images)
+    with directory.child(FRAMES_STAGE) as frames_dir, frames_dir.child(stage) as into:
+        for name, image in zip(written, images, strict=True):
+            into.write_new(name.split("/", 2)[2], encode(image))
+    meta.record(
+        record,
+        path=relative,
+        stage=stage,
+        file_class="derived",
+        data=data,
+        produced_by=meta.Provenance(command=command, params=params),
+        derived_from=[source.name] if (directory.path / source.name).exists() else [],
+    )
+    meta.save(directory, record)
+    return written
+
+
+def transform_into_asset(
+    asset: str,
+    images: list[np.ndarray],
+    *,
+    command: str,
+    stage: str,
+    params: dict[str, Any],
+    source: Path,
+    total: int,
+    move: Callable[[tuple[int, int, int, int]], tuple[int, int, int, int] | None],
+    dry_run: bool,
+) -> tuple[list[str], str | None]:
+    """Record a transform's frames into the asset, moving the asset's authored boxes by the
+    same transform (plans/ssc-completion.md 7.8) — a mirrored frame with an unmirrored hurt
+    box takes damage on the wrong side.
+
+    The sidecar rewrite is planned before the frames land and applied after, the order
+    `curate` keeps: a block that cannot be lined up refuses the whole transform, and a
+    refusal costs nothing on disk. The same bindable refusal too — a guard that cannot
+    prove it is rewriting the file it checked refuses rather than reporting success.
+    """
+    directory, record = asset_dir_for(asset)
+    with directory:
+        carried = (
+            None if dry_run else sidecar.transformed_document(directory, total=total, move=move)
+        )
+        if carried is not None and not directory.bindable:
+            raise SscError(
+                "no-file-identity",
+                f"{directory.path} is on a volume that reports no file identity, so ssc "
+                f"cannot prove the sidecar it would rewrite is the one it checked",
+                fix="keep the workspace on NTFS, or on any POSIX filesystem",
+            )
+        written = record_transform(
+            directory,
+            record,
+            images,
+            command=command,
+            stage=stage,
+            params=params,
+            source=source,
+            dry_run=dry_run,
+        )
+        if carried is None:
+            return written, None
+        directory.replace(sidecar.SIDECAR_NAME, carried)
+        return written, str(directory.path / sidecar.SIDECAR_NAME)
 
 
 #: Shared by `cut` and `slice`, because they differ only in what they write.
@@ -584,17 +694,286 @@ def expand_canvas(
     )
 
 
-@ssc_command("mirror", help="Flip horizontally — the free way to get East from West.")
-@click.option("--out", required=True, type=click.Path(path_type=Path))
+@ssc_command("mirror", help="Flip about an axis — the free way to get East from West.")
+@click.option(
+    "--axis",
+    type=click.Choice(["vertical", "horizontal"]),
+    default="vertical",
+    help="Mirror about the vertical (left↔right, default) or horizontal (top↔bottom) axis.",
+)
+@click.option(
+    "--anchor", "anchor_in", default=None, help="Recorded anchor x,y moved with the frames."
+)
+@click.option("--asset", default=None, help="Record into this <kind>/<key>.")
+@click.option("--out", default=None, type=click.Path(path_type=Path), help="Or here.")
 @click.option("--in", "source", required=True, type=click.Path(path_type=Path))
-def mirror(source: Path, out: Path, *, dry_run: bool) -> Result:
+def mirror(
+    source: Path,
+    out: Path | None,
+    asset: str | None,
+    axis: str,
+    anchor_in: str | None,
+    *,
+    dry_run: bool,
+) -> Result:
+    destination(asset, out)
+    anchor = parse_anchor(anchor_in)
     frames = read_frames(source)
-    flipped = [Frame(frame.name, flip(frame.image)) for frame in frames]
-    written = write_frames(source, out, flipped, dry_run=dry_run)
+    flipped = [Frame(frame.name, mirror_frame(frame.image, axis)) for frame in frames]
+    images = [frame.image for frame in flipped]
+    sidecar_path: str | None = None
+    if asset is not None:
+        pre_h, pre_w = frames[0].image.shape[:2]
+        written, sidecar_path = transform_into_asset(
+            asset,
+            images,
+            command="tool mirror",
+            stage="mirror",
+            params={"axis": axis},
+            source=source,
+            total=len(frames),
+            move=partial(mirror_box, width=pre_w, height=pre_h, axis=axis),
+            dry_run=dry_run,
+        )
+    else:
+        assert out is not None
+        written = [str(p) for p in write_frames(source, out, flipped, dry_run=dry_run)]
+    payload: dict[str, Any] = {
+        "frames": len(flipped),
+        "mirrored": True,
+        "axis": axis,
+        "written": written,
+    }
+    if asset is not None:
+        payload["sidecar"] = sidecar_path
+    if anchor is not None:
+        height, width = frames[0].image.shape[:2]
+        moved = mirror_anchor(anchor, width=width, height=height, axis=axis)
+        payload["anchor"] = {"x": moved[0], "y": moved[1]}
     return Result(
         "tool mirror",
-        f"{len(flipped)} frame{'' if len(flipped) == 1 else 's'} mirrored",
-        {"frames": len(flipped), "mirrored": True, "written": [str(p) for p in written]},
+        f"{len(flipped)} frame{'' if len(flipped) == 1 else 's'} mirrored about the {axis} axis",
+        payload,
+        dry_run=dry_run,
+    )
+
+
+@ssc_command(
+    "rotate", help="Turn by quarter turns; other angles need a resampler ssc does not use."
+)
+@click.option(
+    "--angle",
+    type=int,
+    required=True,
+    help="Degrees; 90, 180 or 270 (negatives allowed). Anything else is refused.",
+)
+@click.option(
+    "--anchor", "anchor_in", default=None, help="Recorded anchor x,y moved with the frames."
+)
+@click.option(
+    "--cell",
+    "cell_in",
+    default=None,
+    help="Cell WxH the frames were packed to; an odd turn "
+    "swaps the sides and the cell stops matching.",
+)
+@click.option("--asset", default=None, help="Record into this <kind>/<key>.")
+@click.option("--out", default=None, type=click.Path(path_type=Path), help="Or here.")
+@click.option("--in", "source", required=True, type=click.Path(path_type=Path))
+def rotate(
+    source: Path,
+    out: Path | None,
+    asset: str | None,
+    angle: int,
+    anchor_in: str | None,
+    cell_in: str | None,
+    *,
+    dry_run: bool,
+) -> Result:
+    destination(asset, out)
+    if angle % 90 != 0 or angle % 360 == 0:
+        raise UsageError(
+            "not-a-quarter-turn",
+            f"{angle}° is not one, two or three quarter turns",
+            fix="ssc resamples only with nearest neighbour (R4.4); give 90, 180 or 270",
+        )
+    turns = (angle // 90) % 4
+    anchor = parse_anchor(anchor_in)
+    cell = parse_size(cell_in, "a cell") if cell_in is not None else None
+    frames = read_frames(source)
+    turned = [Frame(frame.name, rotate_frame(frame.image, turns)) for frame in frames]
+    images = [frame.image for frame in turned]
+    sidecar_path: str | None = None
+    if asset is not None:
+        pre_frame_h, pre_frame_w = frames[0].image.shape[:2]
+        written, sidecar_path = transform_into_asset(
+            asset,
+            images,
+            command="tool rotate",
+            stage="rotate",
+            params={"angle": angle, "turns": turns},
+            source=source,
+            total=len(frames),
+            move=partial(rotate_box, width=pre_frame_w, height=pre_frame_h, turns=turns),
+            dry_run=dry_run,
+        )
+    else:
+        assert out is not None
+        written = [str(p) for p in write_frames(source, out, turned, dry_run=dry_run)]
+    height, width = turned[0].image.shape[:2]
+    payload: dict[str, Any] = {
+        "frames": len(turned),
+        "angle": angle,
+        "turns": turns,
+        "size": {"width": width, "height": height},
+        "written": written,
+    }
+    if asset is not None:
+        payload["sidecar"] = sidecar_path
+    if anchor is not None:
+        pre_h, pre_w = frames[0].image.shape[:2]
+        moved = rotate_anchor(anchor, width=pre_w, height=pre_h, turns=turns)
+        payload["anchor"] = {"x": moved[0], "y": moved[1]}
+    if cell is not None:
+        # the cell a pack laid the frames into; an odd turn swaps the frame's sides, so the
+        # turned frames fit `rotate_cell` and no longer fit the cell they came from.
+        matches = width == cell[0] and height == cell[1]
+        payload["cell"] = {"width": cell[0], "height": cell[1]}
+        payload["cell_matches"] = matches
+        if not matches:
+            fit = rotate_cell(cell, turns=turns)
+            payload["turned_cell"] = {"width": fit[0], "height": fit[1]}
+    return Result(
+        "tool rotate",
+        f"{len(turned)} frame{'' if len(turned) == 1 else 's'} rotated {angle}°",
+        payload,
+        dry_run=dry_run,
+    )
+
+
+@ssc_command("trim", help="Crop every frame to one box — the union of all opaque pixels.")
+@click.option(
+    "--anchor", "anchor_in", default=None, help="Recorded anchor x,y moved with the frames."
+)
+@click.option("--asset", default=None, help="Record into this <kind>/<key>.")
+@click.option("--out", default=None, type=click.Path(path_type=Path), help="Or here.")
+@click.option("--in", "source", required=True, type=click.Path(path_type=Path))
+def trim(
+    source: Path, out: Path | None, asset: str | None, anchor_in: str | None, *, dry_run: bool
+) -> Result:
+    destination(asset, out)
+    anchor = parse_anchor(anchor_in)
+    frames = read_frames(source)
+    box = union_box([frame.image for frame in frames])
+    if box is None:
+        raise SscError(
+            "nothing-to-trim",
+            "no frame in the set holds an opaque pixel",
+            fix="trim crops to opaque content; give a set with something to keep",
+        )
+    rect = Rect(*box)
+    trimmed = [Frame(frame.name, crop(frame.image, rect)) for frame in frames]
+    images = [frame.image for frame in trimmed]
+    sidecar_path: str | None = None
+    if asset is not None:
+        written, sidecar_path = transform_into_asset(
+            asset,
+            images,
+            command="tool trim",
+            stage="trim",
+            params={"box": rect.as_dict()},
+            source=source,
+            total=len(frames),
+            move=partial(trim_box, kept=box),
+            dry_run=dry_run,
+        )
+    else:
+        assert out is not None
+        written = [str(p) for p in write_frames(source, out, trimmed, dry_run=dry_run)]
+    height, width = trimmed[0].image.shape[:2]
+    payload: dict[str, Any] = {
+        "frames": len(trimmed),
+        "box": rect.as_dict(),
+        "size": {"width": width, "height": height},
+        "written": written,
+    }
+    if asset is not None:
+        payload["sidecar"] = sidecar_path
+    if anchor is not None:
+        moved = trim_anchor(anchor, box=box)
+        payload["anchor"] = {"x": moved[0], "y": moved[1]}
+    return Result(
+        "tool trim",
+        f"{len(trimmed)} frame{'' if len(trimmed) == 1 else 's'} trimmed to {width}x{height}",
+        payload,
+        dry_run=dry_run,
+    )
+
+
+@ssc_command("offset", help="Slide every frame by whole pixels — placement, never a resample.")
+@click.option("--x", "dx", type=int, default=0, help="Pixels right (negative moves left).")
+@click.option("--y", "dy", type=int, default=0, help="Pixels down (negative moves up).")
+@click.option(
+    "--anchor", "anchor_in", default=None, help="Recorded anchor x,y moved with the frames."
+)
+@click.option("--asset", default=None, help="Record into this <kind>/<key>.")
+@click.option("--out", default=None, type=click.Path(path_type=Path), help="Or here.")
+@click.option("--in", "source", required=True, type=click.Path(path_type=Path))
+def offset(
+    source: Path,
+    out: Path | None,
+    asset: str | None,
+    dx: int,
+    dy: int,
+    anchor_in: str | None,
+    *,
+    dry_run: bool,
+) -> Result:
+    destination(asset, out)
+    if dx == 0 and dy == 0:
+        raise UsageError(
+            "no-offset",
+            "both --x and --y are 0, so nothing moves",
+            fix="give at least one of --x or --y a value other than 0",
+        )
+    anchor = parse_anchor(anchor_in)
+    frames = read_frames(source)
+    moved = [Frame(frame.name, offset_frame(frame.image, dx, dy)) for frame in frames]
+    images = [frame.image for frame in moved]
+    sidecar_path: str | None = None
+    if asset is not None:
+        pre_h, pre_w = frames[0].image.shape[:2]
+        written, sidecar_path = transform_into_asset(
+            asset,
+            images,
+            command="tool offset",
+            stage="offset",
+            params={"dx": dx, "dy": dy},
+            source=source,
+            total=len(frames),
+            move=partial(offset_box, dx=dx, dy=dy, width=pre_w, height=pre_h),
+            dry_run=dry_run,
+        )
+    else:
+        assert out is not None
+        written = [str(p) for p in write_frames(source, out, moved, dry_run=dry_run)]
+    height, width = moved[0].image.shape[:2]
+    payload: dict[str, Any] = {
+        "frames": len(moved),
+        "dx": dx,
+        "dy": dy,
+        "size": {"width": width, "height": height},
+        "written": written,
+    }
+    if asset is not None:
+        payload["sidecar"] = sidecar_path
+    if anchor is not None:
+        moved_anchor = offset_anchor(anchor, dx=dx, dy=dy)
+        payload["anchor"] = {"x": moved_anchor[0], "y": moved_anchor[1]}
+    return Result(
+        "tool offset",
+        f"{len(moved)} frame{'' if len(moved) == 1 else 's'} by ({dx}, {dy}), {width}x{height}",
+        payload,
         dry_run=dry_run,
     )
 

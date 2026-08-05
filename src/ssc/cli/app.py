@@ -29,16 +29,21 @@ from ssc.cli.commands.job import job
 from ssc.cli.commands.kind import kind
 from ssc.cli.commands.media import image, video
 from ssc.cli.commands.model import model
+from ssc.cli.commands.recolour import recolour
 from ssc.cli.commands.recover import (
     align,
     curate,
     cut,
     expand_canvas,
     mirror,
+    offset,
     pack_sheet,
+    rotate,
     slice_sheet,
+    trim,
 )
 from ssc.cli.commands.run import run, status
+from ssc.cli.commands.style import style
 from ssc.cli.commands.sweep import sweep_command
 from ssc.cli.main import main, tool
 
@@ -61,6 +66,8 @@ main.add_command(tool)
 tool.add_command(doctor)
 tool.add_command(snap)
 tool.add_command(pixelart)
+tool.add_command(style)
+tool.add_command(recolour)
 tool.add_command(board)
 tool.add_command(bgremove)
 tool.add_command(cut)
@@ -68,6 +75,9 @@ tool.add_command(slice_sheet)
 tool.add_command(curate)
 tool.add_command(expand_canvas)
 tool.add_command(mirror)
+tool.add_command(rotate)
+tool.add_command(trim)
+tool.add_command(offset)
 tool.add_command(align)
 tool.add_command(pack_sheet)
 tool.add_command(tile_wrap)

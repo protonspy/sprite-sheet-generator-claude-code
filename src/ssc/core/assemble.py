@@ -78,8 +78,190 @@ class Layout:
 
 
 def flip(frame: np.ndarray) -> np.ndarray:
-    """Mirror horizontally (R2.1) — the free way to get East from West."""
+    """Mirror about the vertical axis (R2.1) — the free way to get East from West."""
     return np.ascontiguousarray(frame[:, ::-1])
+
+
+def mirror(frame: np.ndarray, axis: str) -> np.ndarray:
+    """Mirror a frame about an axis (R2.1), defaulting to the vertical one.
+
+    `vertical` flips left↔right (East from West); `horizontal` flips top↔bottom.
+    Both are placements, not resamples — no pixel is recomputed, so neither can
+    reintroduce the blur `snap` exists to remove. The axis string is validated by
+    the command surface (`click.Choice`), so a value that reaches here unrecognised
+    is a programmer error and is treated as the default rather than silently doing
+    the wrong flip.
+    """
+    if axis == "horizontal":
+        return np.ascontiguousarray(frame[::-1, :])
+    return np.ascontiguousarray(frame[:, ::-1])
+
+
+def rotate(frame: np.ndarray, turns: int) -> np.ndarray:
+    """Rotate by `turns` quarter turns counterclockwise.
+
+    A placement, not a resample: `np.rot90` transposes and reverses axes, so no
+    pixel is recomputed and the nearest-neighbour invariant (R4.4) holds — which is
+    why `ssc tool rotate` accepts only quarter turns and refuses any other angle
+    with the resampler as the stated reason. `turns` is 1, 2 or 3, normalised and
+    validated by the command surface; a value outside that is a programmer error.
+    """
+    return np.ascontiguousarray(np.rot90(frame, k=turns))
+
+
+def union_box(frames: list[np.ndarray]) -> tuple[int, int, int, int] | None:
+    """The smallest box `(x, y, width, height)` covering every opaque pixel across
+    every frame, or `None` where no frame holds anything opaque.
+
+    One box for the set, not one per frame: a per-frame trim moves pixels to
+    different places between frames and breaks the registration `align` just
+    locked, so `trim` crops the set to a shared box. The frames are a set and share
+    a shape; mixed sizes raise on the `|=` and the command surface reports that.
+    """
+    union = np.zeros(frames[0].shape[:2], dtype=bool)
+    for frame in frames:
+        union |= alpha_mask(frame)
+    if not union.any():
+        return None
+    rows = np.where(union.any(axis=1))[0]
+    cols = np.where(union.any(axis=0))[0]
+    return int(cols[0]), int(rows[0]), int(cols[-1] - cols[0] + 1), int(rows[-1] - rows[0] + 1)
+
+
+def offset(frame: np.ndarray, dx: int, dy: int) -> np.ndarray:
+    """Shift a frame by whole pixels `(dx, dy)`: positive `dx` moves right, positive
+    `dy` moves down. Content shifted off the canvas is dropped; the gap left behind
+    is transparent. A placement, not a resample, so the nearest-neighbour invariant
+    (R4.4) holds — which is why `ssc tool offset` takes whole pixels only.
+    """
+    height, width = frame.shape[:2]
+    out = np.zeros_like(frame)
+    y0, y1 = max(0, dy), min(height, dy + height)
+    x0, x1 = max(0, dx), min(width, dx + width)
+    if y0 < y1 and x0 < x1:
+        out[y0:y1, x0:x1] = frame[y0 - dy : y1 - dy, x0 - dx : x1 - dx]
+    return np.ascontiguousarray(out)
+
+
+#: An anchor is a recorded point `(x, y) = (column, row)` — the pixel an engine pins the
+#: sprite to. Every transform that moves the frames moves the anchor by the same placement,
+#: or the sprite jitters against its anchor when the animation turns. These four mirror the
+#: frame ops above one-for-one; the frame op is the source of truth for *which* pixels move,
+#: and these restate where the anchor among them lands.
+Anchor = tuple[int, int]
+
+
+def mirror_anchor(anchor: Anchor, *, width: int, height: int, axis: str) -> Anchor:
+    """The anchor after a mirror. `vertical` (left↔right) maps `x` to `width - 1 - x`;
+    `horizontal` (top↔bottom) maps `y` to `height - 1 - y`.
+
+    The `- 1` is the whole point: pixels are 0-indexed, so a width-6 frame's rightmost
+    column is 5, and mapping `x` to `width - x` sends column 0 to 6 — one past the edge.
+    The sprite then sits a pixel off its anchor on the mirror, which reads as a one-pixel
+    jitter when an animation turns to its mirrored frame. The axis string is validated
+    on the command surface, so an unrecognised value here is a programmer error and is
+    treated as the vertical mirror.
+    """
+    x, y = anchor
+    if axis == "horizontal":
+        return (x, height - 1 - y)
+    return (width - 1 - x, y)
+
+
+def rotate_anchor(anchor: Anchor, *, width: int, height: int, turns: int) -> Anchor:
+    """The anchor after `turns` quarter turns counterclockwise.
+
+    `width` and `height` are the frame's shape *before* the turn. An odd turn swaps them,
+    which is why the cell and the anchor stop matching after one (7.6) until both are
+    moved. Built one quarter turn at a time so the shape swap is hard to get wrong: each
+    step maps `(x, y)` to `(y, width - 1 - x)` and swaps the running shape.
+    """
+    x, y = anchor
+    w, h = width, height
+    for _ in range(turns % 4):
+        x, y = y, w - 1 - x
+        w, h = h, w
+    return (x, y)
+
+
+def offset_anchor(anchor: Anchor, *, dx: int, dy: int) -> Anchor:
+    """The anchor after an offset — the same `(dx, dy)` the frames shifted by."""
+    return (anchor[0] + dx, anchor[1] + dy)
+
+
+def trim_anchor(anchor: Anchor, *, box: tuple[int, int, int, int]) -> Anchor:
+    """The anchor after a trim to `box = (x, y, width, height)`. Cropping to the box moves
+    every pixel — and the anchor — by the box's origin, so the anchor's offset into the
+    kept content is what survives."""
+    return (anchor[0] - box[0], anchor[1] - box[1])
+
+
+#: An authored box `(x, y, width, height)` in frame pixels — a hitbox or a hurtbox. These
+#: four restate the frame ops for a box the way the anchor ops above do for a point: a
+#: mirrored frame with an unmirrored hurt box takes damage on the wrong side, so a box moves
+#: by exactly the transform its pixels took, or it is wrong.
+BoxSpan = tuple[int, int, int, int]
+
+
+def mirror_box(box: BoxSpan, *, width: int, height: int, axis: str) -> BoxSpan:
+    """The box after a mirror. Its left edge lands where its *right* edge was: a span
+    `[x, x + w)` maps to `[width - x - w, width - x)`, which is `width - 1 - (x + w - 1)`
+    at the near end — the same `- 1` `mirror_anchor` keeps, applied to the far corner."""
+    x, y, w, h = box
+    if axis == "horizontal":
+        return (x, height - y - h, w, h)
+    return (width - x - w, y, w, h)
+
+
+def rotate_box(box: BoxSpan, *, width: int, height: int, turns: int) -> BoxSpan:
+    """The box after `turns` quarter turns counterclockwise, `width` and `height` the
+    frame's shape before the turn. One step maps a pixel `(x, y)` to `(y, width - 1 - x)`,
+    so the box's rows become its columns and its far column becomes its near row; width and
+    height swap, on the box and on the running shape alike."""
+    x, y, w, h = box
+    canvas_w, canvas_h = width, height
+    for _ in range(turns % 4):
+        x, y, w, h = y, canvas_w - x - w, h, w
+        canvas_w, canvas_h = canvas_h, canvas_w
+    return (x, y, w, h)
+
+
+def offset_box(box: BoxSpan, *, dx: int, dy: int, width: int, height: int) -> BoxSpan | None:
+    """The box after an offset, clipped to the canvas the way the pixels were: content
+    shifted off the edge is dropped, so the part of a box past the edge is too, and a box
+    entirely off the canvas is `None` — gone with the pixels it covered."""
+    x, y, w, h = box
+    x0, y0 = max(0, x + dx), max(0, y + dy)
+    x1, y1 = min(width, x + dx + w), min(height, y + dy + h)
+    if x0 >= x1 or y0 >= y1:
+        return None
+    return (x0, y0, x1 - x0, y1 - y0)
+
+
+def trim_box(box: BoxSpan, *, kept: tuple[int, int, int, int]) -> BoxSpan | None:
+    """The box after a trim to `kept = (x, y, width, height)` — moved by the kept box's
+    origin like `trim_anchor`, then clipped to the kept canvas. A box can outgrow the
+    opaque content that decided the trim, so the part outside the crop is dropped, and a
+    box wholly outside is `None`."""
+    x, y, w, h = box
+    kx, ky, kw, kh = kept
+    x0, y0 = max(0, x - kx), max(0, y - ky)
+    x1, y1 = min(kw, x - kx + w), min(kh, y - ky + h)
+    if x0 >= x1 or y0 >= y1:
+        return None
+    return (x0, y0, x1 - x0, y1 - y0)
+
+
+def rotate_cell(cell: tuple[int, int], *, turns: int) -> tuple[int, int]:
+    """The cell a frame of this cell's size becomes after `turns` quarter turns — width and
+    height swap on an odd turn, which is the mismatch `ssc tool rotate` reports when the
+    frames came out of a pack to a fixed cell. A 16x8 frame turned a quarter is 8x16, and the
+    sheet's 16x8 cell no longer fits it; the cell it now fits is `(8, 16)`.
+    """
+    width, height = cell
+    if turns % 2:
+        return (height, width)
+    return (width, height)
 
 
 def expand(

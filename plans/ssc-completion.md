@@ -3,9 +3,10 @@ autonomy: auto
 ci: wait
 pr: per-group
 worktree: per-group
-merge: manual
-status: draft
+merge: auto
+status: approved
 lang: en
+checksum: 67aee2647eeed778fe77e43540b0bc8013b2201c5b77bc466016e305d5f2c22a
 ---
 
 # ssc — harness, style and vision

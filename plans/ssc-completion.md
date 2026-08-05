@@ -6,7 +6,7 @@ worktree: per-group
 merge: auto
 status: approved
 lang: en
-checksum: 82faf8d04eb880ad8cc7bac764762f7d7c67c7c09614a26c7d187ec0fe95a43b
+checksum: c41b745add210c46b4cd1f2f15fb03eb67cc860760f555f0ab3c175df564e92c
 ---
 
 # ssc — harness, style and vision
@@ -152,9 +152,9 @@ The deterministic core, every asset kind and the paid generation path are built 
 - [x] 9.2 (Unit) If the `[cv]` extra is absent, then the command refuses with the install
       command rather than a traceback
       _Depends 9.1_
-- [ ] 10.1 (Unit) Pose tracking through an animation cycle, reported per frame
+- [x] 10.1 (Unit) Pose tracking through an animation cycle, reported per frame
       _Depends 8.3_
-- [ ] 10.2 (Unit) A consistency embedding across the frames of a set, as a number `doctor` can
+- [x] 10.2 (Unit) A consistency embedding across the frames of a set, as a number `doctor` can
       carry as a check
       _Depends 10.1_
 - [x] 4.3 (Unit) Ship the six skills as templates inside the package and have `ssc init`

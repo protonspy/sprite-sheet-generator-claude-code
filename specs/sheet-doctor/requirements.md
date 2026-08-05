@@ -15,7 +15,7 @@ about whether something "looks right" is not.
 
 ## R1 · What doctor measures
 
-- **R1.1** (MODIFIED) The `ssc` CLI shall measure `pixel_grid`, `bleed`, `drift`, `halo`, `palette`, `flicker` and `silhouette` on every input, and `seam` or `nineslice` where either was asked for — see `specs/tile-assets/` and `specs/ui-assets/`, which own those checks.
+- **R1.1** (MODIFIED) The `ssc` CLI shall measure `pixel_grid`, `bleed`, `drift`, `halo`, `palette`, `flicker`, `silhouette` and `consistency` on every input, and `seam` or `nineslice` where either was asked for — see `specs/tile-assets/` and `specs/ui-assets/`, which own those checks. `consistency` arrives with the motion-consistency leaf (plan task 10.2) as a delta against this spec.
 - **R1.2** The `ssc` CLI shall report every check as a number rather than as a judgement.
 - **R1.3** Where a check does not apply to the input it was given, the `ssc` CLI shall report that check as skipped, with the reason.
 - **R1.4** The `ssc` CLI shall name, on every defect it reports, the command that repairs it.
@@ -32,6 +32,7 @@ about whether something "looks right" is not.
 - **R2.7** The `ssc` CLI shall measure `silhouette` on the alpha mask reduced to the target cell, as the count of enclosed background regions and the count of separate opaque regions.
 - **R2.8** (ADDED) The `ssc` CLI shall measure `seam` as the difference across each wrap boundary against the same difference between the image's own neighbouring lines, per axis.
 - **R2.9** (ADDED) The `ssc` CLI shall measure `nineslice` as the largest variation within a stretched region along the axis that region stretches on.
+- **R2.10** (ADDED) The `ssc` CLI shall measure `consistency` as the mean cosine similarity across the per-frame shape embeddings of the set, reduced to a low-resolution silhouette, and shall report it as a number, judging it only where a minimum similarity was given.
 
 ## R3 · Running it
 

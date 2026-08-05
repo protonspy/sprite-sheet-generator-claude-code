@@ -5,6 +5,7 @@ Pure: arrays in, findings out. The command that reads files is `ssc.cli.commands
 
 from ssc.core.doctor.checks import (
     BleedParams,
+    ConsistencyParams,
     DriftParams,
     FlickerParams,
     HaloParams,
@@ -14,6 +15,7 @@ from ssc.core.doctor.checks import (
     SeamParams,
     SilhouetteParams,
     check_bleed,
+    check_consistency,
     check_drift,
     check_flicker,
     check_halo,
@@ -29,6 +31,7 @@ from ssc.core.doctor.finding import Check, Finding, Report, Status
 __all__ = [
     "BleedParams",
     "Check",
+    "ConsistencyParams",
     "DriftParams",
     "Finding",
     "FlickerParams",
@@ -41,6 +44,7 @@ __all__ = [
     "SilhouetteParams",
     "Status",
     "check_bleed",
+    "check_consistency",
     "check_drift",
     "check_flicker",
     "check_halo",

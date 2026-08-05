@@ -246,6 +246,7 @@ def test_showing_an_image_measures_it(workspace: Path) -> None:
         "silhouette",
         "seam",
         "nineslice",
+        "consistency",
     }
     assert payload["doctor_skipped"] is None
 

@@ -22,7 +22,7 @@ from ssc.cli.frames import MAX_FILE_BYTES, decode_image, encode
 from ssc.cli.main import ssc_command
 from ssc.cli.names import check_name, check_relative_path
 from ssc.cli.output import Result
-from ssc.cli.preview import animated_gif
+from ssc.cli.preview import render
 from ssc.cli.workspace import Workspace
 from ssc.core import preview as core_preview
 
@@ -461,18 +461,16 @@ def preview(
     named = f"{subject.key}{'-' + section if section else ''}"
     if "seam" in profile.checks:
         data, suffix = encode(core_preview.tiled(subject.frames[0])), "png"
-    elif as_contact:
-        ordered = [
-            subject.frames[number]
-            for number in core_preview.order(len(subject.frames), subject.mode, span)
-        ]
-        data, suffix = encode(core_preview.contact(ordered)), "png"
     else:
-        ordered = [
-            subject.frames[number]
-            for number in core_preview.order(len(subject.frames), subject.mode, span)
-        ]
-        data, suffix = animated_gif(ordered, subject.fps), "gif"
+        # The index path renders through the same renderer `tool preview` uses: one GIF or
+        # contact encoder, shared, so the index path grows no second one (engine-index R6.7).
+        data, suffix = render(
+            subject.frames,
+            fps=subject.fps,
+            mode=subject.mode,
+            section=span,
+            contact=as_contact,
+        )
 
     relative = f"preview/{subject.kind}/{named}.{suffix}"
     if not dry_run:

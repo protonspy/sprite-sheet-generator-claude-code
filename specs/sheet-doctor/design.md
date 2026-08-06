@@ -63,7 +63,12 @@ against.
 frame set, sorted by filename, which is what `drift` and `flicker` need — they are the two
 checks that cannot be computed from a single image and are skipped when given one.
 `bleed` is the mirror case: it needs a grid, so it is skipped unless `--cols` and `--rows`
-say what the grid is.
+say what the grid is. `scale` is the one check that reads more than one `--in`: the first is
+the set the seven run on, and each further `--in` names another set of the same asset, whose
+median visible height `scale` ranges against the rest — skipped on a single set, where there
+is nothing cross-set to vary. Its per-set height is `set_visible_height` in `masks.py`, the
+same number `tool normalise` scales onto one target, so the check and the fix agree on what a
+set's height is.
 
 | Check | Needs | Skipped when |
 |---|---|---|
@@ -74,6 +79,7 @@ say what the grid is.
 | `bleed` | a sheet plus `--cols`/`--rows` | the grid was not given |
 | `drift` | two or more frames | one image |
 | `flicker` | two or more frames | one image |
+| `scale` | two or more sets of one asset | one set, or fewer than two sets with visible height |
 
 ## Settling `silhouette`
 

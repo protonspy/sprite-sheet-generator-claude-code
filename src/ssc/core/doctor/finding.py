@@ -23,7 +23,8 @@ class Check(StrEnum):
     report `skipped` everywhere else. `consistency` arrives with the motion-consistency leaf
     (plan task 10.2) the same way — a set-level number like `drift` and `flicker`, skipped
     on a single frame, and reported as a number rather than a judgement unless a threshold
-    was given.
+    was given. `scale` arrives with the normalisation gate (plan task 4.3) — a cross-set
+    number, skipped on a single set, with `tool normalise` as its fix.
     """
 
     PIXEL_GRID = "pixel_grid"
@@ -36,6 +37,7 @@ class Check(StrEnum):
     SEAM = "seam"
     NINESLICE = "nineslice"
     CONSISTENCY = "consistency"
+    SCALE = "scale"
 
 
 class Status(StrEnum):

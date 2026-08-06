@@ -28,6 +28,9 @@ hold the reasoning behind it.
 
 - [[pixel-snapping]] — recovering real pixels from fake ones, and why it happens twice.
 - [[frame-normalisation]] — recovering frames, locking the anchor, and repacking.
+- [[sprite-normalisation-gate]] — the six-step gate from `tool bounds` through `tool
+  preview`, where `doctor`'s `scale` check reads between the leaves, and why it stops being
+  one command.
 
 ## Handing it over
 

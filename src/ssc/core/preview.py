@@ -85,3 +85,36 @@ def contact(frames: list[np.ndarray], columns: int = 0) -> np.ndarray:
         [Cell(image=frame, label=str(number)) for number, frame in enumerate(frames)],
         ContactParams(columns=columns),
     )
+
+
+def frames_from_sheet(
+    sheet: np.ndarray, cell: tuple[int, int], columns: int, rows: int, frames: int
+) -> list[np.ndarray]:
+    """Cut a sheet back into its frames by its grid (frame-preview R1.2, R1.4).
+
+    The pure mirror of the index reader's `cut_sheet`, for a caller that has the grid from
+    `--cell`/`--cols`/`--rows` rather than from `index.json`. The grid is checked against the
+    image before a single frame is cut, the same bound the index reader uses: a frame count
+    no picture could hold cannot survive a grid that has to fit inside the pixels that are
+    actually there. `cell` is `(width, height)`, matching the index's shape.
+    """
+    width, height = cell
+    if width < 1 or height < 1:
+        raise ValueError(f"a cell of {width}x{height} is not a positive size")
+    if columns < 1 or rows < 1:
+        raise ValueError(f"a grid of {columns}x{rows} is not a positive grid")
+    if frames < 1 or frames > columns * rows:
+        raise ValueError(f"{frames} frames do not fit a {columns}x{rows} grid")
+
+    tall, wide = sheet.shape[:2]
+    if columns * width > wide or rows * height > tall:
+        raise ValueError(
+            f"a {columns}x{rows} grid of {width}x{height} cells does not fit a {wide}x{tall} sheet"
+        )
+
+    cut: list[np.ndarray] = []
+    for number in range(frames):
+        row, column = divmod(number, columns)
+        top, left = row * height, column * width
+        cut.append(sheet[top : top + height, left : left + width])
+    return cut

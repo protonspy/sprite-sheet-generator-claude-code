@@ -15,7 +15,7 @@ about whether something "looks right" is not.
 
 ## R1 · What doctor measures
 
-- **R1.1** (MODIFIED) The `ssc` CLI shall measure `pixel_grid`, `bleed`, `drift`, `halo`, `palette`, `flicker`, `silhouette` and `consistency` on every input, and `seam` or `nineslice` where either was asked for — see `specs/tile-assets/` and `specs/ui-assets/`, which own those checks. `consistency` arrives with the motion-consistency leaf (plan task 10.2) as a delta against this spec.
+- **R1.1** (MODIFIED) The `ssc` CLI shall measure `pixel_grid`, `bleed`, `drift`, `halo`, `palette`, `flicker`, `silhouette`, `consistency` and `scale` on every input, and `seam` or `nineslice` where either was asked for — see `specs/tile-assets/` and `specs/ui-assets/`, which own those checks. `consistency` arrives with the motion-consistency leaf (plan task 10.2) as a delta against this spec; `scale` arrives with the normalisation gate (plan task 4.3) the same way.
 - **R1.2** The `ssc` CLI shall report every check as a number rather than as a judgement.
 - **R1.3** Where a check does not apply to the input it was given, the `ssc` CLI shall report that check as skipped, with the reason.
 - **R1.4** The `ssc` CLI shall name, on every defect it reports, the command that repairs it.
@@ -33,10 +33,11 @@ about whether something "looks right" is not.
 - **R2.8** (ADDED) The `ssc` CLI shall measure `seam` as the difference across each wrap boundary against the same difference between the image's own neighbouring lines, per axis.
 - **R2.9** (ADDED) The `ssc` CLI shall measure `nineslice` as the largest variation within a stretched region along the axis that region stretches on.
 - **R2.10** (ADDED) The `ssc` CLI shall measure `consistency` as the mean cosine similarity across the per-frame shape embeddings of the set, reduced to a low-resolution silhouette, and shall report it as a number, judging it only where a minimum similarity was given.
+- **R2.11** (ADDED) The `ssc` CLI shall measure `scale` as the variation in visible height across the sets of one asset — the range of the per-set median visible heights — and shall report it as a number, naming `ssc tool normalise` as its fix where the variation exceeds a stated tolerance.
 
 ## R3 · Running it
 
-- **R3.1** The `ssc` CLI shall accept `--in` naming one image or a directory of frames, and shall run it without a workspace.
+- **R3.1** (MODIFIED) The `ssc` CLI shall accept `--in` naming one image or a directory of frames, and shall run it without a workspace. The first `--in` is the set the checks run on; `--in` may be repeated to name the other sets of one asset, which the cross-set `scale` check compares, and which no other check reads.
 - **R3.2** Where the input is a sheet, the `ssc` CLI shall take its grid from `--cols` and `--rows`.
 - **R3.3** Where a check needs a target cell or a palette and neither is given, the `ssc` CLI shall skip that check rather than assume one.
 - **R3.4** The `ssc` CLI shall exit `0` once it has measured the input, whether or not it found defects.

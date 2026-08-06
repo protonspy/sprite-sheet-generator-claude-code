@@ -40,10 +40,14 @@ def test_every_check_appears_in_every_report() -> None:
         "seam",
         "nineslice",
         "consistency",
+        "scale",
     }
     assert checks(payload)["seam"]["status"] == "skipped"
     assert checks(payload)["seam"]["reason"]
     assert checks(payload)["nineslice"]["status"] == "skipped"
+    # `scale` is cross-set; a single image has nothing to vary, so it is skipped rather
+    # than left out — the same contract every inapplicable check already has.
+    assert checks(payload)["scale"]["status"] == "skipped"
 
 
 def test_a_skipped_check_carries_its_reason_and_no_measurement() -> None:
@@ -183,3 +187,42 @@ def test_bleed_keys_on_chroma_where_the_sheet_has_no_alpha(tmp_path: Path) -> No
 
     _, payload = run("--in", str(path), "--cols", "2", "--rows", "1", "--chroma", "00ff00")
     assert checks(payload)["bleed"]["status"] == "defect"
+
+
+def _write_set(directory: Path, height: int, *, frames: int = 2) -> None:
+    """Fill `directory` with `frames` PNGs holding one opaque rectangle of `height`."""
+    import numpy as np
+    from PIL import Image
+
+    directory.mkdir(parents=True, exist_ok=True)
+    for index in range(frames):
+        image = np.zeros((16, 16, 4), dtype=np.uint8)
+        image[1 : 1 + height, 1 : 1 + height, :3] = 200
+        image[1 : 1 + height, 1 : 1 + height, 3] = 255
+        Image.fromarray(image, mode="RGBA").save(directory / f"{index:03d}.png")
+
+
+def test_scale_reports_the_cross_set_variation_and_names_normalise(tmp_path: Path) -> None:
+    """Plan 4.3 — the sets of one asset given with repeated `--in`; the two-pixel gap is the
+    defect, and `tool normalise` is the fix."""
+    idle = tmp_path / "idle"
+    walk = tmp_path / "walk"
+    _write_set(idle, 4)
+    _write_set(walk, 6)
+
+    _, payload = run("--in", str(idle), "--in", str(walk))
+    entry = checks(payload)["scale"]
+    assert entry["status"] == "defect"
+    assert entry["measurement"]["variation_px"] == 2.0  # type: ignore[index]
+    assert entry["fix"] == "ssc tool normalise"
+
+
+def test_scale_is_skipped_on_a_single_set(tmp_path: Path) -> None:
+    """The seven checks run on the first `--in`; `scale` needs a second set to vary against."""
+    idle = tmp_path / "idle"
+    _write_set(idle, 4)
+
+    _, payload = run("--in", str(idle))
+    entry = checks(payload)["scale"]
+    assert entry["status"] == "skipped"
+    assert entry["reason"]

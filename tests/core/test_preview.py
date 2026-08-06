@@ -9,6 +9,7 @@ one does not complain — it stutters at the ends, and only a person watching no
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from ssc.core import preview
@@ -71,3 +72,52 @@ def test_a_section_outside_the_set_is_refused() -> None:
     # too, because a pure function that trusts its caller is a pure function with a hole.
     with pytest.raises(ValueError):
         preview.order(4, "loop", section=(2, 9))
+
+
+# `frames_from_sheet` — cutting a sheet by its grid (frame-preview R1.2, R1.4).
+
+
+def sheet(columns: int, rows: int, cell: tuple[int, int]) -> np.ndarray:
+    """A sheet of `columns`x`rows` cells, each cell a solid colour keyed by its frame index.
+
+    Each frame a different shade so a cut that picked the wrong cell is visible in the pixels
+    rather than only in the count.
+    """
+    width, height = cell
+    image = np.zeros((rows * height, columns * width, 4), dtype=np.uint8)
+    for number in range(columns * rows):
+        row, column = divmod(number, columns)
+        image[row * height : (row + 1) * height, column * width : (column + 1) * width] = (
+            number * 10,
+            0,
+            0,
+            255,
+        )
+    return image
+
+
+def test_a_sheet_is_cut_into_its_frames_in_grid_order() -> None:
+    cut = preview.frames_from_sheet(sheet(3, 2, (4, 4)), (4, 4), 3, 2, 6)
+
+    assert len(cut) == 6
+    # Frame 0 is the top-left cell; frame 1 the next to its right; frame 3 wraps to row 1.
+    assert cut[0][0, 0, 0] == 0
+    assert cut[1][0, 0, 0] == 10
+    assert cut[3][0, 0, 0] == 30
+
+
+def test_a_frame_count_below_the_grid_cuts_only_that_many() -> None:
+    """Trailing cells may be padding; `--frames` says how many are real."""
+    cut = preview.frames_from_sheet(sheet(3, 2, (4, 4)), (4, 4), 3, 2, 4)
+
+    assert len(cut) == 4
+
+
+def test_a_grid_the_sheet_cannot_hold_is_refused() -> None:
+    with pytest.raises(ValueError, match="does not fit"):
+        preview.frames_from_sheet(sheet(2, 2, (4, 4)), (8, 8), 2, 2, 4)
+
+
+def test_a_frame_count_the_grid_cannot_hold_is_refused() -> None:
+    with pytest.raises(ValueError, match="do not fit"):
+        preview.frames_from_sheet(sheet(2, 2, (4, 4)), (4, 4), 2, 2, 9)

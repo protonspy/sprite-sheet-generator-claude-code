@@ -7,6 +7,7 @@ in a third module is what keeps that a one-way dependency instead of a cycle.
 from __future__ import annotations
 
 from ssc.cli.commands.asset import asset
+from ssc.cli.commands.bounds import bounds
 from ssc.cli.commands.budget import budget
 from ssc.cli.commands.clean import clean
 from ssc.cli.commands.convert import (
@@ -30,7 +31,9 @@ from ssc.cli.commands.job import job
 from ssc.cli.commands.kind import kind
 from ssc.cli.commands.media import image, video
 from ssc.cli.commands.model import model
+from ssc.cli.commands.normalise import normalise
 from ssc.cli.commands.pose import pose
+from ssc.cli.commands.preview import preview as tool_preview
 from ssc.cli.commands.recolour import recolour
 from ssc.cli.commands.recover import (
     align,
@@ -67,6 +70,7 @@ main.add_command(index)
 main.add_command(preview)
 main.add_command(tool)
 tool.add_command(doctor)
+tool.add_command(bounds)
 tool.add_command(snap)
 tool.add_command(pixelart)
 tool.add_command(style)
@@ -83,6 +87,8 @@ tool.add_command(rotate)
 tool.add_command(trim)
 tool.add_command(offset)
 tool.add_command(align)
+tool.add_command(normalise)
+tool.add_command(tool_preview)
 tool.add_command(pack_sheet)
 tool.add_command(tile_wrap)
 tool.add_command(normal_map)

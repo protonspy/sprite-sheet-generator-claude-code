@@ -7,6 +7,8 @@ their answer to it.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import cv2
 import numpy as np
 
@@ -44,6 +46,109 @@ def anchor(mask: np.ndarray) -> tuple[float, float] | None:
     bottom = int(rows[-1])
     columns = np.flatnonzero(mask[bottom])
     return (float(bottom), float((columns[0] + columns[-1]) / 2.0))
+
+
+@dataclass(frozen=True)
+class Bounds:
+    """Where the sprite is in one frame: its alpha bounding box, plus the two lines the
+    normaliser aligns across a frame set.
+
+    `width` and `height` are the visible width and visible height — the alpha bounding
+    box, never the canvas. `baseline` is the canvas row the sprite's feet land on, the
+    lowest occupied row, which is the anchor's row once `align` has run and the thing that
+    has to agree between two animations. `centre` is the column of the body's centre in
+    that row — the same number `anchor` returns — so the normaliser, the `scale` check and
+    the per-frame box read one implementation of "where is the sprite in this frame".
+    """
+
+    x: int
+    y: int
+    width: int
+    height: int
+    baseline: int
+    centre: float
+
+    def as_dict(self) -> dict[str, int | float]:
+        return {
+            "x": self.x,
+            "y": self.y,
+            "width": self.width,
+            "height": self.height,
+            "baseline": self.baseline,
+            "centre": self.centre,
+        }
+
+
+def bounds_of(image: np.ndarray) -> Bounds | None:
+    """The alpha bounding box of one frame and the two lines a set is normalised on.
+
+    `None` for a frame with no coverage — the one `align` reports as `empty` and the
+    normaliser refuses to guess a position for, rather than averaging a zero frame into a
+    set's baseline.
+    """
+    mask = alpha_mask(image)
+    rows = np.flatnonzero(mask.any(axis=1))
+    if rows.size == 0:
+        return None
+    columns = np.flatnonzero(mask.any(axis=0))
+    placed = anchor(mask)
+    # `rows` is non-empty, so `anchor` found a bottom row and a centre in it.
+    assert placed is not None
+    bottom, centre = placed
+    return Bounds(
+        x=int(columns[0]),
+        y=int(rows[0]),
+        width=int(columns[-1] - columns[0] + 1),
+        height=int(rows[-1] - rows[0] + 1),
+        baseline=int(bottom),
+        centre=float(centre),
+    )
+
+
+def set_visible_height(frames: list[np.ndarray]) -> int:
+    """The one height that represents a frame set: the median of its frames' visible heights.
+
+    A set whose every frame is blank has no height, and returns `0` so `scale_target`
+    refuses it and the `scale` check reads it as "no measurement" — a blank set is a set
+    `bounds` reported empty, and neither the normaliser nor the check guesses a height for it.
+    The same number the normaliser scales onto one target and the `scale` check compares
+    across sets, in one place, so the two cannot disagree about what a set's height is.
+    """
+    heights = [box.height for box in (bounds_of(frame) for frame in frames) if box is not None]
+    if not heights:
+        return 0
+    return round(float(np.median(heights)))
+
+
+#: The fields a set is summarised over, in the order the report prints them.
+BOUND_FIELDS: tuple[str, ...] = ("x", "y", "width", "height", "baseline", "centre")
+
+
+def summarise_bounds(boxes: list[Bounds | None]) -> dict[str, dict[str, float]]:
+    """Per-measurement median and spread across one frame set.
+
+    The median is the set's representative value — the baseline one animation has to agree
+    with another on, the visible height the `scale` check compares across sets. The spread
+    is the range across the frames that had coverage: how much the measurement moves
+    within one animation, which is the within-set jitter the cross-set check has to be
+    larger than to be a defect rather than noise.
+
+    Frames without coverage are excluded: a blank frame is not a measurement of the
+    sprite's position, and including a zero would move the median off the sprite. An empty
+    set — every frame blank — returns nothing, so a caller reads a missing field as "no
+    measurement" rather than as a zero it would mistake for a sprite at the origin.
+    """
+    present = [box for box in boxes if box is not None]
+    if not present:
+        return {}
+    summary: dict[str, dict[str, float]] = {}
+    for field in BOUND_FIELDS:
+        values = np.array([getattr(box, field) for box in present], dtype=float)
+        summary[field] = {
+            "median": float(np.median(values)),
+            "spread": float(values.max() - values.min()),
+        }
+    return summary
 
 
 def reduce_mask(mask: np.ndarray, width: int, height: int) -> np.ndarray:

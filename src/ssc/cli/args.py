@@ -60,6 +60,33 @@ def parse_anchor(value: str | None) -> tuple[int, int] | None:
     return int(parts[0]), int(parts[1])
 
 
+def parse_cell(value: str | None) -> tuple[int, int] | None:
+    """`WxH` into a cell size, or `None` where no cell was given.
+
+    `W` is the column count the cell spans, `H` the row count — width, then height, the order
+    the index records a cell in. Two callers share this: `tool preview` cuts a sheet by it,
+    and `doctor` measures a silhouette at it (still through its own inline copy, which is not
+    this change's to touch).
+    """
+    if value is None:
+        return None
+    parts = value.lower().split("x")
+    if len(parts) != 2 or not all(INTEGER.match(part) for part in parts):
+        raise UsageError(
+            "invalid-cell",
+            f"{value!r} is not a size like 64x64",
+            fix="use WxH — width, then height",
+        )
+    width, height = int(parts[0]), int(parts[1])
+    if width < 1 or height < 1:
+        raise UsageError(
+            "invalid-cell",
+            f"{value!r} is not a positive size",
+            fix="use WxH with both sides at least 1",
+        )
+    return width, height
+
+
 def parse_guides(value: str | None) -> tuple[int, int, int, int] | None:
     """`left,right,top,bottom`, each a distance inwards from that edge."""
     if value is None:

@@ -28,6 +28,8 @@ into and must stay green.
 - [x] 3.3 (Unit) Measure `bleed` as the count of cells whose content touches a shared boundary, keying on chroma where there is no alpha — R2.2, R3.6
 - [x] 3.4 (Unit) Measure consistency across frames — R2.10
   _Reason plan task 10.2 ships the consistency check; this task reaches R2.10 so the spec's traceability holds_
+- [x] 3.5 (Unit) Measure scale across the sets of one asset — R2.11
+  _Reason plan task 4.3 ships the scale check; this task reaches R2.11 so the spec's traceability holds_
 
 ## 4 · The command
 

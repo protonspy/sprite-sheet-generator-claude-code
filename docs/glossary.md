@@ -44,6 +44,11 @@ here.
 - **frame** — one image of an animation, occupying one cell.
 - **sheet** — a grid of equal cells holding the frames of one animation.
   Avoid: sprite sheet, spritesheet
+- **frame set** — the frames of one animation taken as one unit: the thing `tool
+  normalise` puts on a common baseline, centre column and scale alongside an asset's
+  other sets. A sheet is the image that holds a frame set; the set is what the gates
+  measure and the normaliser treats as one.
+  Avoid: animation sequence
 - **atlas** — a packed image of unrelated entries at differing sizes, each carrying its own
   rect and id. What a sheet is to an animation, an atlas is to a non-animated kind.
   Avoid: texture atlas, sprite atlas
@@ -74,6 +79,21 @@ here.
   frame usually has both and they are rarely the same rectangle.
   Avoid: collision box, hit area
 
+## Measurements
+
+- **visible height** — the height of a frame's alpha bounding box: the pixels the
+  sprite actually occupies, never the canvas height. The number `tool bounds` reports
+  per frame and `tool normalise` equalises across the sets of one asset.
+  Avoid: sprite height, content height
+- **baseline** — the canvas row a frame set's feet land on. It is the anchor's row
+  once `tool align` has run, and the thing that must agree between two animations of
+  one asset, or the feet drift through the floor mid-animation.
+  Avoid: ground row, foot row, floor line
+- **centre column** — the canvas column a frame set's sprite is horizontally centred
+  on, the column `tool normalise` aligns across the sets of one asset so a sprite does
+  not jump sideways between animations.
+  Avoid: center column, mid column
+
 ## Defects and repairs
 
 - **snap** — recovering the real pixel grid from art that only looks like pixel art:
@@ -85,6 +105,10 @@ here.
 - **flicker** — a region that did not move changing colour between adjacent frames,
   because each frame was quantized on its own. Fixed structurally, by quantizing a whole
   frame set against one palette.
+- **scale** — the visible-height disagreement between the frame sets of one asset: the
+  sprite that grows two pixels when it starts walking. `doctor` reports it as a number,
+  `tool normalise` is its fix.
+  Avoid: size drift, height mismatch
 - **seam** — the visible discontinuity where a tile's opposite edges meet as it repeats.
 - **dither** — approximating a colour a palette cannot hold by mixing colours it can.
   `ordered` offsets each pixel by its cell of a fixed matrix, so the same pixel is offset

@@ -25,6 +25,7 @@ from ssc.core.doctor.masks import (
     label_regions,
     reduce_mask,
     region_areas,
+    set_visible_height,
 )
 
 
@@ -555,3 +556,51 @@ def check_consistency(frames: list[np.ndarray], params: ConsistencyParams | None
         if value < params.min_consistency:
             return defect(Check.CONSISTENCY, fix="ssc tool align --anchor feet", **measurement)
     return ok(Check.CONSISTENCY, **measurement)
+
+
+# ── scale ─────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class ScaleParams:
+    """The cross-set number `doctor` carries — the variation in visible height across the
+    sets of one asset.
+
+    One pixel of height difference between idle and walk is invisible and, sitting at the
+    nearest-neighbour resampler's own ±1 rounding floor, is not a variation `tool normalise`
+    can be asked to remove; two is the defect the gate exists for. `max_px` is where that line
+    sits, and like `drift`'s it defaults to one.
+    """
+
+    #: How many pixels the sets' visible heights may span before the variation is a defect.
+    max_px: float = 1.0
+
+
+def check_scale(sets: list[list[np.ndarray]], params: ScaleParams | None = None) -> Finding:
+    """The variation in visible height across the sets of one asset (plan task 4.3).
+
+    Each set is reduced to its median visible height — the same representative `tool
+    normalise` scales onto one target — and the variation is the range across the sets. It is
+    skipped on a single set (there is nothing cross-set to vary) and on a set whose every
+    frame is blank, which has no height to compare. The fix is `ssc tool normalise`, the
+    command that resamples each set onto one visible height.
+    """
+    params = params or ScaleParams()
+    if len(sets) < 2:
+        return skipped(Check.SCALE, "scale needs at least two sets of one asset")
+
+    heights = [set_visible_height(frames) for frames in sets]
+    measured = [height for height in heights if height > 0]
+    if len(measured) < 2:
+        return skipped(Check.SCALE, "fewer than two sets have any visible height to compare")
+
+    variation = float(max(measured) - min(measured))
+    measurement: dict[str, object] = {
+        "variation_px": round(variation, 3),
+        "heights": heights,
+        "sets": len(sets),
+        "max_px": params.max_px,
+    }
+    if variation > params.max_px:
+        return defect(Check.SCALE, fix="ssc tool normalise", **measurement)
+    return ok(Check.SCALE, **measurement)

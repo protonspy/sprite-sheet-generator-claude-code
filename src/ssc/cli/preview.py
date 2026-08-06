@@ -2,6 +2,10 @@
 
 The composition is `core/preview.py`; this is the encoder, and it is here for the reason
 `frames.encode` is here — `core/` takes and returns arrays, and a GIF is bytes.
+
+`render` is the one renderer both paths use: `ssc tool preview` takes frames off disk and
+`ssc preview` resolves them out of `dist/index.json`, and both end at this function so the
+index path grows no second renderer (engine-index R6.7).
 """
 
 from __future__ import annotations
@@ -12,6 +16,8 @@ import numpy as np
 from PIL import Image
 
 from ssc.cli.errors import SscError
+from ssc.cli.frames import encode
+from ssc.core import preview as core_preview
 
 #: GIF has 256 palette entries and one of them has to be the transparent one. 255 colours of
 #: art is far more than pixel art uses and exactly one fewer than the format allows.
@@ -71,3 +77,25 @@ def animated_gif(frames: list[np.ndarray], fps: int) -> bytes:
         optimize=False,
     )
     return buffer.getvalue()
+
+
+def render(
+    frames: list[np.ndarray],
+    *,
+    fps: int,
+    mode: str,
+    section: tuple[int, int] | None = None,
+    contact: bool = False,
+) -> tuple[bytes, str]:
+    """The one renderer both preview paths share — a GIF, or a labelled contact sheet.
+
+    Orders the frames through `core.preview.order` (which applies the mode and an optional
+    section), then encodes. `ssc tool preview` calls this with frames off disk and flags;
+    `ssc preview` calls it with frames cut from the index and the playback the index declares.
+    Neither owns its own GIF or contact encoder — that is the point: there is one renderer,
+    and the index path does not grow a second one.
+    """
+    ordered = [frames[number] for number in core_preview.order(len(frames), mode, section)]
+    if contact:
+        return encode(core_preview.contact(ordered)), "png"
+    return animated_gif(ordered, fps), "gif"

@@ -33,6 +33,7 @@ from ssc.core.doctor import (
     check_nineslice,
     check_palette,
     check_pixel_grid,
+    check_scale,
     check_seam,
     check_silhouette,
 )
@@ -57,6 +58,7 @@ def measure(
     nineslice: tuple[int, int, int, int] | None = None,
     want_nineslice: bool = False,
     min_consistency: float | None = None,
+    extra_sets: list[list[np.ndarray]] | None = None,
 ) -> Report:
     """Every check, in a stable order, on whatever was given.
 
@@ -69,7 +71,10 @@ def measure(
     by default it would report every character frame as broken for the unremarkable fact
     that its left edge is not its right edge. `consistency` is always on, like `drift` and
     `flicker`: it needs a set, skips on a single frame, and reports a number rather than a
-    judgement unless `min_consistency` was given.
+    judgement unless `min_consistency` was given. `scale` is the cross-set check: the seven
+    run on `frames` (the first `--in`), and `scale` runs across `frames` and every set in
+    `extra_sets` — the other animations of the same asset — skipped when only one set was
+    given, because there is nothing cross-set to vary.
     """
     first = frames[0]
     palette_params = PaletteParams(limit=colour_limit, allowed=palette)
@@ -98,6 +103,7 @@ def measure(
                 "nineslice applies to panels; ask for it with --check nineslice",
             ),
             check_consistency(frames, consistency_params),
+            check_scale([frames, *(extra_sets or [])]),
         ]
     )
 
@@ -138,13 +144,15 @@ def parse_hex(value: str) -> tuple[int, int, int]:
 )
 @click.option(
     "--in",
-    "source",
+    "sources",
     required=True,
+    multiple=True,
     type=click.Path(path_type=Path),
-    help="An image, or a directory of frames.",
+    help="An image, or a directory of frames. The first is measured; repeat to name the"
+    " other sets of one asset, which the cross-set `scale` check compares.",
 )
 def doctor(
-    source: Path,
+    sources: tuple[Path, ...],
     cols: int | None,
     rows: int | None,
     cell: str | None,
@@ -158,7 +166,8 @@ def doctor(
     *,
     dry_run: bool,
 ) -> Result:
-    frames = load_input(source)
+    frames = load_input(sources[0])
+    extra_sets = [load_input(source) for source in sources[1:]]
     # Two ways to ask for the same check, because there are two callers. A person types
     # `--check seam`; a harness names the asset's kind and gets whatever that profile
     # declares, which is where a project decides what its tiles are measured against.
@@ -193,6 +202,7 @@ def doctor(
         want_nineslice=str(Check.NINESLICE) in wanted,
         nineslice=parse_guides(guides),
         min_consistency=min_consistency,
+        extra_sets=extra_sets,
     )
 
     if grid is None and (cols is not None or rows is not None):

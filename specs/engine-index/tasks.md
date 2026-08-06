@@ -44,6 +44,8 @@ run green before this work started — 290 passed, 2 skipped.
 - [x] 4.3 (Unit) Render a contact sheet instead, each frame labelled with its index — R6.2
 - [x] 4.4 (Unit) Tile a seam-checked kind's asset 2×2 — R6.3
 - [x] 4.5 (Unit) `ssc preview` — resolve the asset through `dist/index.json`, refuse when there is none, and write only under `dist/preview/` — R6.5, R6.6
+- [x] 4.6 (Unit) Render the index path through the same renderer as tool preview — R6.7
+  _Reason plan task 5.3 ships the shared renderer; this task reaches R6.7 so the spec's traceability holds_
 
 ## 5 · Wiring
 

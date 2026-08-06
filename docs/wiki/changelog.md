@@ -1,5 +1,24 @@
 # Wiki changelog
 
+## 2026-08-05 — the gate that holds between one asset's animations
+
+`plans/sprite-normalisation-gate.md`: three leaves — `tool bounds`, `tool normalise`,
+`tool preview` — and the `scale` check on `tool doctor` that ties them. The cross-set
+instability that survives every within-set repair gets a number, a fix, and a six-step
+gate that runs by a person.
+
+- **[[sprite-normalisation-gate]]** — new. The six steps as one ordered sequence: `tool
+  bounds` measures each frame, `tool doctor` repairs one set, `tool doctor` with repeated
+  `--in` measures across sets, `tool normalise` resamples and aligns them, `tool doctor`
+  confirms `scale` at `0`, and `tool preview` renders what a number cannot catch. Each
+  step carries its exact command and flags, what `doctor` reports between them, and the
+  one failure mode it is there to catch.
+- `index.md` — links the new page under "Repairing it".
+- `docs/glossary.md` — **frame set**, **visible height**, **baseline**, **centre
+  column** and **scale** settled, the vocabulary the gate measures with. `visible height`
+  is the alpha box's height, never the canvas; `scale` is its disagreement across one
+  asset's sets, with `tool normalise` as its fix.
+
 ## 2026-08-05 — the skills ship with the CLI
 
 Task 4.3 of `plans/ssc-completion.md`: the six `sprite-*` skills are a template `ssc`

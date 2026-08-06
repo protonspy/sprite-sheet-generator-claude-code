@@ -96,6 +96,7 @@ Phaser or Godot.
   naming `ssc index` as the fix.
 - **R6.6** The `ssc` CLI shall write nothing outside `dist/preview/` while rendering a
   preview.
+- **R6.7** (ADDED) The `ssc` CLI shall render a preview through the same renderer `ssc tool preview` uses, and shall grow no second renderer for the index path.
 
 ## R7 · Per-frame data
 
@@ -120,8 +121,8 @@ of this spec's "out of scope" and into it.
 ## Out of scope
 
 - **`ssc tool preview`**, which renders a frame set with no workspace and no index — that is
-  `specs/frame-preview/`, and it takes over the renderer this leaf builds rather than growing
-  a second one.
+  `specs/frame-preview/`, which owns the renderer this leaf renders through (R6.7) rather than
+  growing a second one.
 - **Engine-native resource files.** `ssc` emits JSON and PNG; a `.tres`, `.atlas` or `.plist`
   is the engine importer's job.
 - **Running the pipeline.** `ssc index` reads what is on disk, produces no stage, and opens no

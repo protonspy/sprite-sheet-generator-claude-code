@@ -7,6 +7,17 @@ name = "sprite-sheet-generator-claude-code"
 version = "0.1.0"
 description = "Turn AI-generated art into game-ready 2D assets"
 readme = "README.md"
+authors = [{ name = "Mateus Andrade" }]
+keywords = ["sprites", "2d", "pixel-art", "game-assets", "spritesheet"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Graphics",
+]
 # 3.12, not 3.11: numpy's own type stubs use `type` statements, so a 3.11 floor is one
 # this project cannot type-check. See docs/adr/0001-python-and-uv.md.
 requires-python = ">=3.12"
@@ -29,6 +40,11 @@ dependencies = [
 [project.optional-dependencies]
 cv = ["onnxruntime>=1.18", "rembg>=2.0"]
 cv-gpu = ["onnxruntime-gpu>=1.18", "rembg>=2.0"]
+
+[project.urls]
+Homepage = "https://github.com/protonspy/sprite-sheet-generator-claude-code"
+Repository = "https://github.com/protonspy/sprite-sheet-generator-claude-code"
+Issues = "https://github.com/protonspy/sprite-sheet-generator-claude-code/issues"
 
 [project.scripts]
 ssc = "ssc.cli.app:main"

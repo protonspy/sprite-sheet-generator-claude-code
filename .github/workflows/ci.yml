@@ -53,3 +53,21 @@ jobs:
           node-version: "22"
       - name: scc validate
         run: npx --yes @protonspy/scc validate
+
+  build:
+    # The wheel is the deliverable, so a PR that breaks the build should never look green
+    # just because the suite passed. `uv build` is the same command publish uses; this only
+    # fails, it does not upload.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Build wheels and sdist
+        run: uv build
+      - name: Upload the distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/

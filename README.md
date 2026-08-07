@@ -8,8 +8,10 @@ systematic rather than accidental — fake pixels, frame bleeding, drift, halos,
 drift, flicker, visible tiling seams — so each one can be **measured** rather than judged.
 `ssc` is the set of primitives that measures them and repairs them, one command at a time.
 
-> **Status: planning.** The decomposition is in [`plans/ssc-pipeline.md`](plans/ssc-pipeline.md);
-> the reasoning behind it is in [`docs/wiki/`](docs/wiki/index.md). No implementation yet.
+> **Status: implemented.** Install it with `pip install sprite-sheet-generator-claude-code`
+> (or `uv tool install .`), run `ssc init` in a project, and drive the pipeline. The
+> decomposition lives in [`plans/ssc-pipeline.md`](plans/ssc-pipeline.md) and the reasoning
+> behind it in [`docs/wiki/`](docs/wiki/index.md).
 
 ## Principles
 

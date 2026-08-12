@@ -21,6 +21,7 @@ from ssc.cli.errors import SscError, UsageError
 
 NANO = "fal-ai/nano-banana-2"
 GPT = "fal-ai/gpt-image-1.5"
+PIXELS = "openai/gpt-image-2"
 
 
 @pytest.fixture
@@ -33,7 +34,7 @@ def registry() -> models.Registry:
 
 
 def test_every_shipped_model_is_read(registry: models.Registry) -> None:
-    assert len(registry.models) == 6
+    assert len(registry.models) == 10
     assert NANO in {model.endpoint for model in registry.models}
 
 
@@ -144,6 +145,42 @@ def test_a_value_of_the_wrong_type_stops_the_call(registry: models.Registry) -> 
         registry.check(NANO, {"prompt": "x", "num_images": "several"})
 
     assert refused.value.code == "invalid-option"
+
+
+# specs/model-options/ R2.2 — a field that takes an object as well as a preset.
+
+
+def test_a_field_offering_an_object_branch_is_marked_as_taking_one(
+    registry: models.Registry,
+) -> None:
+    """`image_size` on GPT Image 2 reads as a string with seven presets, because that is the
+    branch carrying a type. The object branch is a `$ref`, and it is the one `--size` uses."""
+    option = registry.get(PIXELS).options["image_size"]
+
+    assert option.objects is True
+    assert option.type == "string"
+    assert "square_hd" in (option.allowed or [])
+    assert registry.get(NANO).options["resolution"].objects is False
+
+
+def test_an_object_reaches_a_field_that_takes_one(registry: models.Registry) -> None:
+    checked = registry.check(PIXELS, {"prompt": "x", "image_size": {"width": 2000, "height": 1152}})
+
+    assert checked["image_size"] == {"width": 2000, "height": 1152}
+
+
+def test_a_preset_still_reaches_the_same_field(registry: models.Registry) -> None:
+    assert registry.check(PIXELS, {"prompt": "x", "image_size": "square_hd"})["image_size"] == (
+        "square_hd"
+    )
+
+
+def test_an_object_on_a_field_that_takes_none_stops_the_call(registry: models.Registry) -> None:
+    with pytest.raises(UsageError) as refused:
+        registry.check(NANO, {"prompt": "x", "resolution": {"width": 16}})
+
+    assert refused.value.code == "invalid-option"
+    assert "object" in refused.value.message
 
 
 def test_a_required_option_that_is_missing_stops_the_call(registry: models.Registry) -> None:
@@ -257,10 +294,57 @@ def test_a_configured_model_nobody_knows_is_refused_by_name(registry: models.Reg
 
 
 def test_a_media_nobody_configured_is_refused(registry: models.Registry) -> None:
+    """A media the package has no default for. `image` and `video` both have one now — see
+    `specs/model-options/` R1.5 — so the refusal is reached with a media that does not."""
     with pytest.raises(SscError) as refused:
-        registry.chosen("video", config={})
+        registry.chosen("audio", config={})
 
     assert refused.value.code == "no-model-configured"
+
+
+# specs/model-options/ R1.5, R1.6 — the default a workspace inherits.
+
+
+def test_the_package_default_is_used_when_nothing_else_names_one(
+    registry: models.Registry,
+) -> None:
+    """A fresh `ssc.yaml` holds only `schema:`, so without this every paid command in a new
+    workspace refuses before it can generate anything."""
+    assert registry.chosen("image", config={}) == "openai/gpt-image-2"
+    assert registry.chosen("video", config={}) == "xai/grok-imagine-video/image-to-video"
+
+
+def test_the_workspace_beats_the_package_default(registry: models.Registry) -> None:
+    assert registry.chosen("image", config={"models": {"image": NANO}}) == NANO
+
+
+def test_the_kind_beats_the_package_default(registry: models.Registry) -> None:
+    assert registry.chosen("image", config={}, from_kind=NANO) == NANO
+
+
+def test_a_default_is_reported_per_media(registry: models.Registry) -> None:
+    assert registry.default_for("image") == "openai/gpt-image-2"
+    assert registry.default_for("audio") is None
+
+
+def test_a_default_naming_no_model_is_a_packaging_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Refused at load, where the mistake is, rather than on somebody's `gen image`."""
+    real = models._shipped
+
+    def shipped(name: str) -> dict[str, Any]:
+        found = real(name)
+        if name == "core.json":
+            found = {**found, "defaults": {"image": "fal-ai/imaginary"}}
+        return found
+
+    monkeypatch.setattr(models, "_shipped", shipped)
+    with pytest.raises(SscError) as refused:
+        models.load(fetch=lambda endpoint: None)
+
+    assert refused.value.code == "registry-invalid"
+    assert "fal-ai/imaginary" in refused.value.message
 
 
 def test_a_kind_can_name_a_model_for_each_media() -> None:

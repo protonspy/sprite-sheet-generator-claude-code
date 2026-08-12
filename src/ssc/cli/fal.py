@@ -218,21 +218,24 @@ class Fal:
             ) from refused
 
 
-def file_url(result: dict[str, Any]) -> str:
-    """Where a finished call put the file it produced (R1.5).
+def file_urls(result: dict[str, Any]) -> tuple[str, ...]:
+    """Every file a finished call produced, in the order it returned them
+    (`specs/model-options/` R5.1).
 
-    The four models answer in three shapes — `images: [{url}]`, `image: {url}`,
-    `video: {url}` — so the known keys are tried in order and anything else falls back to the
-    first `url` at any depth. A result nobody can find a file in is a refusal rather than an
-    empty write: the call was paid for, and the honest report is that the payload is not what
-    this build expects.
+    The models answer in three shapes — `images: [{url}]`, `image: {url}`, `video: {url}` — so
+    the known keys are tried in order and anything else falls back to the urls at any depth.
+    More than one is the `--count` case, and it is why this returns a set: the provider billed
+    for every image, so taking the first would discard what was paid for.
+
+    A result nobody can find a file in is a refusal rather than an empty write: the call was
+    paid for, and the honest report is that the payload is not what this build expects.
     """
     for key in RESULT_KEYS:
-        found = _url_in(result.get(key))
-        if found is not None:
+        found = _urls_in(result.get(key))
+        if found:
             return found
-    found = _url_in(result)
-    if found is not None:
+    found = _urls_in(result)
+    if found:
         return found
     raise SscError(
         "no-result-file",
@@ -241,23 +244,36 @@ def file_url(result: dict[str, Any]) -> str:
     )
 
 
-def _url_in(value: Any) -> str | None:
-    """The first `url` in whatever this is, breadth-first and bounded by the payload."""
+def file_url(result: dict[str, Any]) -> str:
+    """Where a finished call put the file it produced (R1.5).
+
+    The single-file answer, for the paths where one file is the whole result by construction —
+    a clip, a cut-out. Those read better as taking one than as taking a set and using part.
+    """
+    return file_urls(result)[0]
+
+
+def _urls_in(value: Any) -> tuple[str, ...]:
+    """Every `url` in whatever this is, depth-first, in order and without duplicates.
+
+    A dict carrying `url` is one file and is not descended into: a result entry legitimately
+    holds a thumbnail or a preview beside the file itself, and collecting those as siblings
+    would file the same image twice under two stages.
+    """
     if isinstance(value, dict):
         found = value.get("url")
         if isinstance(found, str) and found:
-            return found
+            return (found,)
+        collected: list[str] = []
         for item in value.values():
-            nested = _url_in(item)
-            if nested is not None:
-                return nested
-        return None
+            collected.extend(url for url in _urls_in(item) if url not in collected)
+        return tuple(collected)
     if isinstance(value, list):
+        collected = []
         for item in value:
-            nested = _url_in(item)
-            if nested is not None:
-                return nested
-    return None
+            collected.extend(url for url in _urls_in(item) if url not in collected)
+        return tuple(collected)
+    return ()
 
 
 #: How many hops a result URL may take before this gives up. A CDN legitimately redirects

@@ -15,8 +15,9 @@ each model actually accepts, read from the provider rather than transcribed, and
 runs **before** anything is submitted. It is for an agent choosing parameters whose effect it
 cannot see, and for whoever has to explain the bill.
 
-`docs/wiki/model-parameters.md` records what these schemas actually say, including the three
-incompatible ways the four models ask about size.
+`docs/wiki/model-parameters.md` records what these schemas actually say, including the four
+incompatible ways the models ask about size — one of which is explicit pixels, whose real
+bounds the schema states only in prose (`specs/model-options/` R2.1).
 
 ## R1 · Reading what a model accepts
 

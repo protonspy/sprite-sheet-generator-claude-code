@@ -54,6 +54,21 @@ def cache_key(
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
+def manifest_key(key: str) -> str:
+    """Where a set's manifest lives, derived rather than stored beside the key.
+
+    Hashed rather than suffixed: `path_for` shards on the first two characters, and a key with
+    a suffix would file the manifest under the same shard as a real blob whose key starts the
+    same way — legible, and one character from colliding with a content address.
+    """
+    return hashlib.sha256(f"set:{key}".encode()).hexdigest()
+
+
+def member_key(key: str, index: int) -> str:
+    """The key one member of a set is stored under."""
+    return hashlib.sha256(f"member:{key}:{index}".encode()).hexdigest()
+
+
 class Cache:
     """The store under `cache/`. Nothing here fails because the directory is missing."""
 
@@ -75,6 +90,48 @@ class Cache:
         between two runs into a failure.
         """
         return replace(self.path_for(key), data)
+
+    def put_set(self, key: str, members: Sequence[bytes]) -> None:
+        """Store several files under one key (`specs/model-options/` R5.3).
+
+        One call with `--count 4` produces four files and one key, and a key here *is* a
+        content's identity — so the set needs an indirection rather than a bigger value. What
+        `key` holds is a manifest naming each member's own key, and each member is stored
+        under that key like any other blob.
+
+        The single-file case does not go through this: `get`/`put` stay exactly what they
+        were, so nothing that files one result pays for a manifest.
+        """
+        entries = [member_key(key, index) for index in range(len(members))]
+        for entry, data in zip(entries, members, strict=True):
+            self.put(entry, data)
+        self.put(manifest_key(key), json.dumps({"members": entries}).encode())
+
+    def get_set(self, key: str) -> list[bytes] | None:
+        """Every file stored under one key, or `None` if any of them is missing.
+
+        Partly-present is a miss rather than a partial answer: `cache/` may be deleted at any
+        time, in whole or in part, and half a set written into an asset is worse than paying
+        for the call again.
+        """
+        manifest = self.get(manifest_key(key))
+        if manifest is None:
+            return None
+        try:
+            entries = json.loads(manifest)["members"]
+        except (ValueError, KeyError, TypeError):
+            return None
+        if not isinstance(entries, list) or not entries:
+            return None
+        found: list[bytes] = []
+        for entry in entries:
+            if not isinstance(entry, str):
+                return None
+            data = self.get(entry)
+            if data is None:
+                return None
+            found.append(data)
+        return found
 
     def use(self, key: str, compute: Callable[[], bytes]) -> tuple[bytes, bool]:
         """Return the cached result, or compute and store it. The flag says which (R5.2).

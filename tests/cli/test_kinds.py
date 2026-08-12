@@ -131,6 +131,61 @@ def test_outside_a_workspace_the_built_ins_are_still_there() -> None:
     assert set(kinds.every(None)) == set(kinds.BUILT_INS)
 
 
+# specs/model-options/ R4.1, R4.4 — a kind's default options.
+
+
+def test_a_kind_can_default_the_options_a_call_does_not_name(tmp_path: Path) -> None:
+    space = workspace_with(tmp_path, {"icon": {"options": {"quality": "medium", "count": 2}}})
+    resolved = kinds.resolve("icon", space)
+
+    assert resolved.profile.options == (("count", 2), ("quality", "medium"))
+    assert resolved.source["options"] == kinds.DECLARED
+
+
+def test_a_kind_defaults_nothing_by_default(tmp_path: Path) -> None:
+    space = workspace_with(tmp_path, {"icon": {"cell": "16x16"}})
+
+    assert kinds.resolve("icon", space).profile.options == ()
+
+
+def test_a_kind_cannot_default_what_is_per_call(tmp_path: Path) -> None:
+    """A kind is a property of the asset. Defaulting the prompt, the input image or the size
+    would make a call nobody wrote."""
+    space = workspace_with(tmp_path, {"icon": {"options": {"prompt": "a sword"}}})
+    with pytest.raises(SscError) as refused:
+        kinds.resolve("icon", space)
+
+    assert refused.value.code == "invalid-kind"
+    assert "prompt" in refused.value.message
+
+
+def test_a_kind_cannot_default_something_that_is_not_a_core_option(tmp_path: Path) -> None:
+    space = workspace_with(tmp_path, {"icon": {"options": {"num_images": 2}}})
+    with pytest.raises(SscError) as refused:
+        kinds.resolve("icon", space)
+
+    assert refused.value.code == "invalid-kind"
+    assert "count" in (refused.value.fix or "")
+
+
+def test_options_that_are_not_a_map_are_refused(tmp_path: Path) -> None:
+    space = workspace_with(tmp_path, {"icon": {"options": ["count=2"]}})
+    with pytest.raises(SscError) as refused:
+        kinds.resolve("icon", space)
+
+    assert refused.value.code == "invalid-kind"
+
+
+def test_kind_show_reports_the_defaults(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """R4.4 — an agent reads what a kind already sets before deciding what to pass."""
+    monkeypatch.chdir(tmp_path)
+    workspace_with(tmp_path, {"icon": {"options": {"format": "webp"}}})
+    code, payload = run("kind", "show", "icon")
+
+    assert code == 0
+    assert payload["options"] == {"format": "webp"}
+
+
 # R1.5 — a declaration that is not one.
 
 

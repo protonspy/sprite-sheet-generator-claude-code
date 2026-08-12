@@ -91,6 +91,33 @@ def source_image(
         return gen.image_in(held, entry.path)
 
 
+def imaging(command: Any) -> Any:
+    """The three options every image-making model has some of (`specs/model-options/` R3.2).
+
+    Named flags rather than `--opt num_images=2`, because an agent driving this tool cannot use
+    an option it has to already know exists — and `--count` is the one that multiplies what a
+    call costs, so it is the last one to leave to a raw pass-through. Not in `shared`: no video
+    model in the registry has any of the three, and a flag that always refuses is worse than
+    an absent one.
+    """
+    for option in reversed(
+        [
+            click.option(
+                "--count",
+                type=int,
+                default=None,
+                help="How many images one call returns. Every one is billed.",
+            ),
+            click.option(
+                "--quality", default=None, help="The model's quality tier, where it has one."
+            ),
+            click.option("--format", "image_format", default=None, help="jpeg, png or webp."),
+        ]
+    ):
+        command = option(command)
+    return command
+
+
 def shared(command: Any) -> Any:
     """The options every paid command has. Declared once: four copies of `--no-wait` is four
     chances for one of them to mean something slightly different — the shape `recover.py`
@@ -132,6 +159,7 @@ def shared(command: Any) -> Any:
 
 @ssc_command("image", help="Generate an image into an asset. Costs money.", needs_workspace=True)
 @shared
+@imaging
 @click.option("--seed", type=int, default=None, help="Where the model supports one.")
 @click.option("--size", default=None, help="The size the layout needs, as WxH.")
 @click.option("--ref", "reference", default=None, type=click.Path(path_type=Path))
@@ -151,6 +179,9 @@ def gen_image(
     reference: Path | None,
     size: str | None,
     seed: int | None,
+    count: int | None,
+    quality: str | None,
+    image_format: str | None,
     stage: str | None,
     model: str | None,
     template: str | None,
@@ -186,6 +217,9 @@ def gen_image(
         image=image,
         size=parse_size(size),
         seed=seed,
+        count=count,
+        quality=quality,
+        image_format=image_format,
         model=model,
         template=template,
         options=gen.parse_options(options),
@@ -277,6 +311,7 @@ def gen_video(
     "expand", help="Outpaint an image to a larger canvas. Costs money.", needs_workspace=True
 )
 @shared
+@imaging
 @click.option("--size", default=None, help="The canvas to reach, as WxH.")
 @click.option("--in", "source", default=None, type=click.Path(path_type=Path))
 @click.option("--from-stage", default=None, help="Which stage of the asset to expand.")
@@ -287,6 +322,9 @@ def gen_expand(
     from_stage: str | None,
     source: Path | None,
     size: str | None,
+    count: int | None,
+    quality: str | None,
+    image_format: str | None,
     stage: str | None,
     model: str | None,
     options: tuple[str, ...],
@@ -309,6 +347,9 @@ def gen_expand(
         prompt=prompt,
         image=source_image(workspace, asset, from_stage, source),
         size=parse_size(size),
+        count=count,
+        quality=quality,
+        image_format=image_format,
         model=model,
         options=gen.parse_options(options),
         upload=upload,
@@ -331,12 +372,14 @@ def gen_expand(
     needs_workspace=True,
 )
 @shared
+@click.option("--format", "image_format", default=None, help="png, webp or gif.")
 @click.option("--in", "source", default=None, type=click.Path(path_type=Path))
 @click.option("--from-stage", default=None, help="Which stage of the asset to key.")
 def gen_bgremove(
     asset: str,
     from_stage: str | None,
     source: Path | None,
+    image_format: str | None,
     stage: str | None,
     model: str | None,
     options: tuple[str, ...],
@@ -358,6 +401,7 @@ def gen_bgremove(
         stage=stage or "nobg",
         role="background-removal",
         image=source_image(workspace, asset, from_stage, source),
+        image_format=image_format,
         model=model,
         options=gen.parse_options(options),
         upload=upload,

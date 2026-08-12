@@ -1,5 +1,20 @@
 # Wiki changelog
 
+## 2026-08-12 — four endpoints, a size in pixels, and options with names
+
+`specs/model-options/`: GPT Image 2 and Grok Imagine Image join the registry, each with its
+`/edit` twin; GPT Image 2 becomes the model a workspace reaches for by default, which is what
+lets a freshly created one generate at all. `count`, `quality` and `format` become core options
+with flags of their own rather than things a caller had to know `--opt` could carry, and a kind
+may default them. Every image a call produced is filed, where `--count 4` used to bill four and
+keep one.
+
+- **[[model-parameters]]** — rewritten. Eight endpoints instead of four; the default model and
+  why it lives in the package rather than in `ssc.yaml`; GPT Image 2 taking a size in explicit
+  pixels, with its real bounds stated in the field's description rather than in the schema; the
+  three newly-named options, what `--count` costs, and the asymmetry between an option a caller
+  named and one a kind defaulted.
+
 ## 2026-08-05 — the gate that holds between one asset's animations
 
 `plans/sprite-normalisation-gate.md`: three leaves — `tool bounds`, `tool normalise`,

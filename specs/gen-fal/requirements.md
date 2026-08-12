@@ -21,7 +21,7 @@ the check that runs before submission, and `specs/job-store/` is the record.
 ## R1 · Paying for something
 
 - **R1.1** The `ssc` CLI shall record a job for a generation call before that call is submitted.
-- **R1.2** The `ssc` CLI shall report the job's id, the model that ran and the file it wrote.
+- **R1.2** The `ssc` CLI shall report the job's id, the model that ran and every file it wrote.
 - **R1.3** If no Fal credential is available, then the `ssc` CLI shall refuse the call before submitting anything and name what is missing.
 - **R1.4** Where the caller asks not to wait, the `ssc` CLI shall report the job it submitted and collect nothing.
 - **R1.5** The `ssc` CLI shall file an already-paid result into an asset given that job's id, without submitting anything.
@@ -61,8 +61,8 @@ the check that runs before submission, and `specs/job-store/` is the record.
 
 ## R4 · What is written
 
-- **R4.1** The `ssc` CLI shall record a collected file as a `source`, carrying the job, the model and the call that produced it.
-- **R4.2** The `ssc` CLI shall store a collected result under a key covering the resolved call, the model id and the images that were sent.
+- **R4.1** The `ssc` CLI shall record every collected file as a `source`, carrying the job, the model and the call that produced it.
+- **R4.2** The `ssc` CLI shall store every file of a collected result under a key covering the resolved call, the model id and the images that were sent.
 - **R4.3** While `--dry-run` is given, the `ssc` CLI shall report the fully resolved call and shall submit and write nothing.
 
 ## Out of scope

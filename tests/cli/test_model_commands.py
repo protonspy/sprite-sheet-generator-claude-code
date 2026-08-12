@@ -30,8 +30,27 @@ def test_every_model_is_listed_with_its_media(offline: None) -> None:
     code, payload = run("model", "list")
 
     assert code == 0
-    assert payload["count"] == 6
+    assert payload["count"] == 10
     assert {entry["media"] for entry in payload["models"]} == {"image", "video"}
+
+
+def test_the_listing_names_the_default_for_each_media(offline: None) -> None:
+    """`specs/model-options/` R1.7 — an agent picking a model reads the default here rather
+    than learning it by generating."""
+    _, payload = run("model", "list")
+
+    assert payload["defaults"] == {
+        "image": "openai/gpt-image-2",
+        "video": "xai/grok-imagine-video/image-to-video",
+    }
+    flagged = {entry["id"] for entry in payload["models"] if entry["default"]}
+    assert flagged == {"openai/gpt-image-2", "xai/grok-imagine-video/image-to-video"}
+
+
+def test_a_narrowed_listing_names_only_that_media_s_default(offline: None) -> None:
+    _, payload = run("model", "list", "--media", "image")
+
+    assert payload["defaults"] == {"image": "openai/gpt-image-2"}
 
 
 def test_a_media_narrows_the_listing(offline: None) -> None:
@@ -67,6 +86,30 @@ def test_show_carries_the_core_mapping_beside_the_schema(offline: None) -> None:
     assert nano["core"]["seed"] == "seed"
     assert gpt["core"]["seed"] is None
     assert gpt["core"]["size"] == {"kind": "enum", "field": "image_size"}
+
+
+def test_show_says_what_each_core_option_accepts(offline: None) -> None:
+    """`specs/model-options/` R3.6 — the mapping says which field, this says what the field
+    takes, so choosing a value costs no second command."""
+    _, payload = run("model", "show", "openai/gpt-image-2")
+    described = payload["core_options"]
+
+    assert described["quality"]["field"] == "quality"
+    assert described["quality"]["allowed"] == ["auto", "low", "medium", "high"]
+    assert described["count"]["field"] == "num_images"
+    assert described["count"]["maximum"] == 4
+    assert described["format"]["allowed"] == ["jpeg", "png", "webp"]
+    assert described["size"]["shape"]["kind"] == "pixels"
+    assert described["seed"] is None
+    assert payload["default"] is True
+
+
+def test_show_says_a_concept_the_model_does_not_have_is_absent(offline: None) -> None:
+    _, payload = run("model", "show", NANO)
+
+    assert payload["core_options"]["quality"] is None
+    assert payload["core_options"]["seed"]["field"] == "seed"
+    assert payload["default"] is False
 
 
 def test_a_model_nobody_has_exits_two_naming_the_ones_there_are(offline: None) -> None:

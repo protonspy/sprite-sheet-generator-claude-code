@@ -22,6 +22,10 @@ EXPECTED_ENDPOINTS = {
     "fal-ai/nano-banana-2/edit",
     "fal-ai/gpt-image-1.5",
     "fal-ai/gpt-image-1.5/edit",
+    "openai/gpt-image-2",
+    "openai/gpt-image-2/edit",
+    "xai/grok-imagine-image/v2.0/text-to-image",
+    "xai/grok-imagine-image/v2.0/edit",
     "xai/grok-imagine-video/image-to-video",
     "fal-ai/birefnet/v2",
 }
@@ -87,6 +91,47 @@ def test_seed_is_not_universal(by_endpoint: dict[str, dict[str, Any]]) -> None:
     """A normalised --seed cannot be assumed to reach the model."""
     assert "seed" in properties(by_endpoint["fal-ai/nano-banana-2"])
     assert "seed" not in properties(by_endpoint["fal-ai/gpt-image-1.5"])
+    for endpoint in (
+        "openai/gpt-image-2",
+        "openai/gpt-image-2/edit",
+        "xai/grok-imagine-image/v2.0/text-to-image",
+        "xai/grok-imagine-image/v2.0/edit",
+    ):
+        assert "seed" not in properties(by_endpoint[endpoint]), endpoint
+
+
+def test_gpt_image_2_takes_a_size_in_pixels(by_endpoint: dict[str, dict[str, Any]]) -> None:
+    """The one model that does, and the reason `core.json` grew a third size shape.
+
+    The bounds it really enforces — multiple of 16, 3840 per edge, 3:1, 655360 to 8294400
+    pixels — are in the description and nowhere machine-readable, which is what this pins:
+    the moment Fal states them in the schema, `core.json` should stop transcribing them.
+    """
+    node = properties(by_endpoint["openai/gpt-image-2"])["image_size"]
+    branches = node["anyOf"]
+    assert any("$ref" in branch for branch in branches)
+    assert any(branch.get("type") == "string" for branch in branches)
+    assert "multiples of 16" in node["description"]
+
+
+def test_grok_imagine_image_asks_for_a_ratio_and_a_tier(
+    by_endpoint: dict[str, dict[str, Any]],
+) -> None:
+    """Lower-case tiers, where Nano Banana 2 spells the same idea `1K` and `2K`."""
+    model = by_endpoint["xai/grok-imagine-image/v2.0/text-to-image"]
+    assert "image_size" not in properties(model)
+    assert enum_of(model, "resolution") == ["1k", "2k"]
+    assert enum_of(model, "quality") == ["low", "medium"]
+
+
+def test_a_count_is_bounded_per_model(by_endpoint: dict[str, dict[str, Any]]) -> None:
+    """`--count` bills per image, so the ceiling is a fact worth pinning rather than
+    discovering from an invoice."""
+    for endpoint in (
+        "openai/gpt-image-2",
+        "xai/grok-imagine-image/v2.0/text-to-image",
+    ):
+        assert properties(by_endpoint[endpoint])["num_images"]["maximum"] == 4, endpoint
 
 
 def test_a_reference_image_is_an_endpoint_not_a_parameter(

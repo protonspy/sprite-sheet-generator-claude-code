@@ -22,6 +22,7 @@ from ssc.cli.gen import reconcile_size
 GPT = "fal-ai/gpt-image-1.5"
 NANO = "fal-ai/nano-banana-2"
 GROK = "xai/grok-imagine-video/image-to-video"
+PIXELS = "openai/gpt-image-2"
 BIREFNET = "fal-ai/birefnet/v2"
 
 
@@ -116,6 +117,77 @@ def test_the_video_model_uses_its_own_tiers(registry: models.Registry) -> None:
     assert chosen.fields["resolution"] == "720p"
 
 
+# specs/model-options/ R2.3, R2.4, R2.5 — the one model that takes pixels. Its real bounds
+# are in `core.json` because GPT Image 2 states them only in the field's description: both
+# sides a multiple of 16, 3840 per edge, 3:1, and 655360 to 8294400 pixels.
+
+
+def test_a_size_already_inside_the_bounds_is_sent_unchanged(registry: models.Registry) -> None:
+    """2000x1152 is what a caller would compute for a sheet, and every bound holds for it:
+    both sides are multiples of 16, the ratio is 1.74:1 and the total is 2.3 megapixels."""
+    chosen = resolve(registry, PIXELS, (2000, 1152))
+    assert chosen is not None
+    assert chosen.fields == {"image_size": {"width": 2000, "height": 1152}}
+    assert chosen.report["chosen"] == "2000x1152"
+    assert chosen.report["requested"] == "2000x1152"
+    assert chosen.report["aspect_error"] == pytest.approx(0.0)
+    assert chosen.report["below_request"] is False
+
+
+def test_a_side_off_the_multiple_is_brought_to_it(registry: models.Registry) -> None:
+    """The model rejects a side that is not a multiple of 16, and a rejected call is a call
+    that was built wrong rather than a model that misbehaved."""
+    chosen = resolve(registry, PIXELS, (2001, 1153))
+    assert chosen is not None
+    assert chosen.fields["image_size"] == {"width": 2000, "height": 1152}
+
+
+def test_a_request_below_the_pixel_floor_is_grown_to_it(registry: models.Registry) -> None:
+    """A 64x64 cell is four thousand pixels and the model's floor is 655360, so asking for the
+    cell exactly is a refused call. It comes back square and large enough."""
+    chosen = resolve(registry, PIXELS, (64, 64))
+    assert chosen is not None
+    sent = chosen.fields["image_size"]
+    assert sent["width"] == sent["height"]
+    assert sent["width"] % 16 == 0
+    assert 655360 <= sent["width"] * sent["height"] <= 8294400
+    assert chosen.report["aspect_error"] == pytest.approx(0.0)
+
+
+def test_a_request_past_the_ceiling_comes_back_under_it(registry: models.Registry) -> None:
+    chosen = resolve(registry, PIXELS, (8000, 4000))
+    assert chosen is not None
+    sent = chosen.fields["image_size"]
+    assert max(sent["width"], sent["height"]) <= 3840
+    assert sent["width"] * sent["height"] <= 8294400
+    assert sent["width"] % 16 == 0 and sent["height"] % 16 == 0
+    # Scale is a compromise this project reports; aspect is one it does not make.
+    assert chosen.report["aspect_error"] == pytest.approx(0.0)
+    assert chosen.report["below_request"] is True
+
+
+def test_a_portrait_request_stays_portrait(registry: models.Registry) -> None:
+    chosen = resolve(registry, PIXELS, (1152, 2000))
+    assert chosen is not None
+    assert chosen.fields["image_size"] == {"width": 1152, "height": 2000}
+
+
+def test_a_shape_past_the_widest_ratio_is_refused(registry: models.Registry) -> None:
+    """A 6:1 pose board again, and the same answer as GPT Image 1.5 gives — except here the
+    limit is a number in `core.json` rather than three enumerated shapes."""
+    with pytest.raises(UsageError) as refused:
+        resolve(registry, PIXELS, (3840, 640))
+
+    assert refused.value.code == "size-unrepresentable"
+    assert "3" in refused.value.message
+
+
+def test_the_edit_endpoint_takes_the_same_pixels(registry: models.Registry) -> None:
+    chosen = resolve(registry, f"{PIXELS}/edit", (2000, 1152))
+    assert chosen is not None
+    assert chosen.fields["image_size"] == {"width": 2000, "height": 1152}
+
+
 def test_a_model_with_no_size_refuses_a_size(registry: models.Registry) -> None:
     """BiRefNet takes an image and gives one back; a `--size` at it is a caller believing
     something about the call that is not true."""
@@ -202,6 +274,30 @@ def test_an_option_colliding_with_the_chosen_size_is_refused(
         gen.build(registry, ask, profile_named(), {})
     assert refused.value.code == "size-conflict"
     assert "image_size" in refused.value.message
+
+
+def test_a_pixel_size_reaches_the_call_and_both_sizes_are_reported(
+    registry: models.Registry,
+) -> None:
+    """`specs/model-options/` R2.2, R2.4 — the payload carries the object the model wants, and
+    the report carries what was asked for beside what was sent."""
+    ask = gen.Ask(
+        verb="gen image",
+        media="image",
+        stage="gen",
+        prompt="a knight",
+        model=PIXELS,
+        size=(2001, 1153),
+    )
+    call = gen.build(registry, ask, profile_named(), {})
+
+    assert call.checked["image_size"] == {"width": 2000, "height": 1152}
+    assert call.arguments(None)["image_size"] == {"width": 2000, "height": 1152}
+    report = call.report()
+    assert report["size"]["requested"] == "2001x1153"
+    assert report["size"]["chosen"] == "2000x1152"
+    # The key has to survive a nested value, or every pixel-sized call is a cache miss.
+    assert call.key() == gen.build(registry, ask, profile_named(), {}).key()
 
 
 def test_one_model_in_a_role_is_chosen_without_being_named(

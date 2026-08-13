@@ -1,10 +1,10 @@
 # What the models actually accept
 
-Eight endpoints carry the generation path: GPT Image 2, Nano Banana 2 and Grok Imagine Image
-for images — each with an `/edit` twin — plus Grok Imagine Video for motion and BiRefNet for
-hosted background removal. What each one accepts is not a detail: it decides what `ssc gen
-image` can ask for, and it is the reason [[reference-boards]] computes a layout instead of
-trusting a `--size` somebody typed.
+Thirteen endpoints carry the generation path: GPT Image 2, Nano Banana 2 and Grok Imagine
+Image for images — each with an `/edit` twin — four image-to-video models for motion, and
+BiRefNet for hosted background removal. What each one accepts is not a detail: it decides
+what `ssc gen image` can ask for, and it is the reason [[reference-boards]] computes a
+layout instead of trusting a `--size` somebody typed.
 
 ## The schemas are published, not transcribed
 
@@ -26,6 +26,9 @@ wrong quietly.
 | Grok Imagine Image | `xai/grok-imagine-image/v2.0/text-to-image`, `…/edit` | |
 | GPT Image 1.5 | `fal-ai/gpt-image-1.5`, `fal-ai/gpt-image-1.5/edit` | |
 | Grok Imagine Video | `xai/grok-imagine-video/image-to-video` | video |
+| Grok Imagine Video 1.5 | `xai/grok-imagine-video/v1.5/image-to-video` | |
+| Kling 2.5 Turbo Pro | `fal-ai/kling-video/v2.5-turbo/pro/image-to-video` | |
+| Seedance 2.5 | `bytedance/seedance-2.5/image-to-video` | |
 | BiRefNet | `fal-ai/birefnet/v2` | |
 
 The default is in the package, in `core.json`, and is not written into a workspace's
@@ -101,6 +104,42 @@ prompt, the input image or the size, each of which is per call by construction. 
 chosen model does not have is skipped and named in the result, where a *named* option the model
 does not have is a refusal: asking for something and not getting it has to be visible, while a
 policy that has to work at two models does not.
+
+## The price is published too — as a sentence, not a number
+
+The OpenAPI document carries no price of any kind. Fal publishes one per endpoint in a
+different document, the model listing, and it is prose:
+
+| Model | What it says |
+|---|---|
+| Kling 2.5 Turbo Pro | flat for the first 5s, then per second |
+| Grok Imagine Video 1.5 | per second, by resolution tier |
+| Seedance 2.5 | per second **and** per 1000 tokens, with the token count given as a formula |
+| Nano Banana 2 | per image, times a resolution multiplier, plus extras for web search |
+| GPT Image 2 | per token, input/cached/output, moved sharply by `quality` |
+
+Five billing shapes in five sentences. **Nothing parses them into an amount**, and that is
+deliberate: a parser over prose from a marketing page is wrong the first time one sentence
+is rewritten, and it is wrong *silently* — the number still renders and the invoice is what
+disagrees. `ssc model show` reports the text with the date it was fetched and a caveat
+naming it indicative; `ssc budget` records what a call actually cost, which is the number
+that is true.
+
+`scripts/fetch_model_schemas.py` reads both documents and writes `models.json`. It needs no
+credentials, and an endpoint it cannot reach keeps whatever the catalogue already held —
+dropping it would surface as `unknown-model` on a workspace that worked yesterday.
+
+## The three added video models take no `--size`
+
+`--size` needs a field that *enumerates* ratios. Grok Imagine Video 1.5 and Kling have no
+`aspect_ratio` field at all, and Seedance 2.5 has one that is a free string defaulting to
+`auto`. So `core.json` maps `size` to `null` for all three, which makes `--size` refuse
+rather than drop the value silently. Their own fields still reach them: `--opt
+resolution=720p`, `--opt duration=5`, checked against the schema like any other option.
+
+The default for `video` stays Grok Imagine Video, the endpoint without the `v1.5`. The 1.5
+is a different endpoint at a higher rate, and changing what every existing workspace pays
+for is a decision to take deliberately rather than as a side effect of adding a model.
 
 ## Two things worth knowing before designing around them
 

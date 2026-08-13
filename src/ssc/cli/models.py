@@ -107,6 +107,12 @@ class Model:
     #: whether it was checked against today's schema or last release's.
     source: str = "package"
 
+    #: What the provider published this model costs, as the provider's own sentence, with
+    #: the day it was read (`specs/model-pricing/` R2.1). `None` where none is published —
+    #: never a number, because the source is prose in a different billing shape per model
+    #: and a parsed amount is wrong silently. `ssc budget` is what a run actually cost.
+    price: dict[str, Any] | None = None
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "id": self.endpoint,
@@ -114,6 +120,7 @@ class Model:
             "role": self.role,
             "provider": self.provider,
             "source": self.source,
+            "price": self.price,
             "options": [option.as_dict() for option in self.options.values()],
         }
 
@@ -492,6 +499,10 @@ def load(*, fetch: Fetcher | None = None) -> Registry:
                 provider=str(described.get("provider", "")),
                 options=_options(schema),
                 source=source,
+                # The price is the shipped file's alone. A live fetch replaces the schema
+                # and nothing else: the endpoint's OpenAPI document carries no price at
+                # all, so believing it over the package would erase every one of them.
+                price=described.get("price") if isinstance(described.get("price"), dict) else None,
             )
         )
     defaults = {

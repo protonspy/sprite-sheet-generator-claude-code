@@ -57,6 +57,28 @@ re-centring the sprite. `ssc preview <key>` renders the animation as a GIF (or
 `--contact` a labelled sheet, `--section windup` one range) straight from
 `dist/`, so a person approves exactly what a renderer will load. **GATE here.**
 
+## The paid calls, and what to set on each
+
+Three of the stages above spend; nothing else in this run does. `ssc model show <id>`
+gives a model's options and the provider's price text before you commit to either.
+
+- **Stage 1, the anchor** — `gen image` on the default image model,
+  `openai/gpt-image-2`. One image, `--quality high`, the size the kind asks for. This is
+  the frame every other paid call derives from, so it is the one to pay properly for.
+- **Stage 2, the pose sheets** — `gen image` again, and this is the call where `--count`
+  earns its cost: generate several boards cheaply (`--count 3-4`, quality and size tier
+  down), pick the composition that reads, then regenerate that one at full quality.
+- **Stage 2, the walk cycle** — `gen video` on the default video model,
+  `xai/grok-imagine-video/image-to-video`. Video bills per second of output, so generate
+  the shortest clip that shows the cycle and loop it rather than cutting a long one down.
+  `fal-ai/kling-video/v2.5-turbo/pro/image-to-video` and
+  `bytedance/seedance-2.5/image-to-video` are the alternatives when the default's motion
+  does not hold; both take `--opt duration=…` rather than `--size`.
+
+Everything after Stage 2 is a `tool` command: free, local, deterministic. A restyle is
+`tool style`, a variant is `tool recolour`, a background is `tool bgremove` — never a
+second paid call.
+
 ## The defect set `doctor` names, and the fix each carries
 
 - `pixel_grid` (fake pixels) → `tool snap`

@@ -24,6 +24,13 @@ kind's profile carries the cell size and the checks — you do not invent them.
 on this path — and `tool bgremove` strips the chroma-key background, the same
 free path the other resource kinds use.
 
+  *The one paid call, and what to set on it.* The default image model,
+  `openai/gpt-image-2`. One image at `--quality high`, at the kind's cell size —
+  a tile is judged on whether it wraps, and `tool tile` in Stage 2 closes the
+  wrap for free, so paying for several candidates buys a choice you do not need.
+  Raise `--count` only when the texture itself is what is in question.
+  `ssc model show openai/gpt-image-2` names the options and the price text.
+
 **Stage 2 — close the wrap.** `tool tile` makes the tile meet itself on every
 side. `edge`, the default, copies the last column over the first and the last
 row over the first, so across the wrap neighbouring pixels are identical by

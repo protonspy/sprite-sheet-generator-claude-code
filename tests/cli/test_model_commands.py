@@ -30,7 +30,7 @@ def test_every_model_is_listed_with_its_media(offline: None) -> None:
     code, payload = run("model", "list")
 
     assert code == 0
-    assert payload["count"] == 10
+    assert payload["count"] == 13
     assert {entry["media"] for entry in payload["models"]} == {"image", "video"}
 
 
@@ -56,7 +56,12 @@ def test_a_narrowed_listing_names_only_that_media_s_default(offline: None) -> No
 def test_a_media_narrows_the_listing(offline: None) -> None:
     _, payload = run("model", "list", "--media", "video")
 
-    assert [entry["id"] for entry in payload["models"]] == ["xai/grok-imagine-video/image-to-video"]
+    assert [entry["id"] for entry in payload["models"]] == [
+        "xai/grok-imagine-video/image-to-video",
+        "xai/grok-imagine-video/v1.5/image-to-video",
+        "fal-ai/kling-video/v2.5-turbo/pro/image-to-video",
+        "bytedance/seedance-2.5/image-to-video",
+    ]
 
 
 def test_show_reports_the_options_with_their_types_and_ranges(offline: None) -> None:
@@ -118,6 +123,45 @@ def test_a_model_nobody_has_exits_two_naming_the_ones_there_are(offline: None) -
     assert code == 2
     assert payload["error"]["code"] == "no-model"
     assert NANO in payload["error"]["fix"]
+
+
+def test_show_reports_the_price_as_the_providers_own_text_with_its_date(
+    offline: None,
+) -> None:
+    """`specs/model-pricing/` R2.2 — the sentence, not a number derived from it."""
+    _, payload = run("model", "show", "fal-ai/kling-video/v2.5-turbo/pro/image-to-video")
+
+    price = payload["price"]
+    assert "$0.35" in price["text"]
+    assert price["fetched"]
+    assert set(price) == {"text", "fetched", "source"}
+
+
+def test_show_carries_the_caveat_beside_the_price(offline: None) -> None:
+    """R2.6 — a reader who takes the text for a quote has been told, where they read it."""
+    _, payload = run("model", "show", NANO)
+
+    assert "ssc budget" in payload["price_caveat"]
+    assert "indicative" in payload["price_caveat"].lower()
+
+
+def test_show_reports_a_null_price_rather_than_omitting_it(offline: None) -> None:
+    """R2.5 — `fal-ai/birefnet/v2` is the model the provider publishes no price for."""
+    _, payload = run("model", "show", "fal-ai/birefnet/v2")
+
+    assert "price" in payload
+    assert payload["price"] is None
+    assert payload["price_caveat"]
+
+
+def test_the_listing_says_which_models_have_a_price(offline: None) -> None:
+    """R2.3 — a boolean per row; the sentence itself lives in `show`."""
+    _, payload = run("model", "list")
+
+    priced = {entry["id"]: entry["priced"] for entry in payload["models"]}
+    assert priced["fal-ai/birefnet/v2"] is False
+    assert priced["bytedance/seedance-2.5/image-to-video"] is True
+    assert all(isinstance(value, bool) for value in priced.values())
 
 
 def test_no_command_here_spends_anything(offline: None) -> None:

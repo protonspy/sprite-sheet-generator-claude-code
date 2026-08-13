@@ -694,6 +694,259 @@ def test_gen_image_records_submits_collects_and_files(
     assert recorded.sha256 == meta.digest(PNG)
 
 
+# --------------------------------------- named options  specs/model-options/ R3.2, R3.3, R3.4
+
+
+def test_a_count_past_what_the_model_offers_is_refused_before_it_bills(
+    space: Path, api: FakeClient, keyed: None
+) -> None:
+    """The TDD task of this leaf. `--count` multiplies what one call costs, so the ceiling has
+    to be enforced where the schema states it and before anything is submitted: nine images at
+    a model that makes four is a rejected call that was already paid for."""
+    code, payload = run(
+        "gen", "image", "--asset", "character/hero", "--prompt", "a knight", "--count", "9"
+    )
+
+    assert code == 2
+    assert payload["error"]["code"] == "invalid-option"
+    assert "4" in payload["error"]["message"]
+    assert api.submitted == []
+    assert list((space / "jobs").glob("*.json")) == []
+
+
+def test_a_count_the_model_offers_reaches_it_under_its_own_name(
+    space: Path, api: FakeClient
+) -> None:
+    code, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--count",
+        "2",
+        "--dry-run",
+    )
+
+    assert code == 0
+    assert payload["arguments"]["num_images"] == 2
+
+
+def test_a_format_reaches_the_model_s_own_field(space: Path, api: FakeClient) -> None:
+    code, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--format",
+        "webp",
+        "--dry-run",
+    )
+
+    assert code == 0
+    assert payload["arguments"]["output_format"] == "webp"
+
+
+def test_a_quality_at_a_model_that_has_none_is_refused_by_name(
+    space: Path, api: FakeClient
+) -> None:
+    """Nano Banana 2 has no quality tier. Dropping the option silently is the failure
+    `model-registry` R2.4 exists to prevent — a caller cannot tell it did not happen."""
+    code, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--quality",
+        "medium",
+        "--dry-run",
+    )
+
+    assert code == 2
+    assert payload["error"]["code"] == "no-such-concept"
+    assert "quality" in payload["error"]["message"]
+
+
+def test_a_quality_reaches_a_model_that_has_one(space: Path, api: FakeClient) -> None:
+    code, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--model",
+        "openai/gpt-image-2",
+        "--quality",
+        "medium",
+        "--dry-run",
+    )
+
+    assert code == 0
+    assert payload["arguments"]["quality"] == "medium"
+
+
+def test_an_option_nobody_named_is_left_to_the_model(space: Path, api: FakeClient) -> None:
+    """R3.5 — absent means the model's own default, not this project's opinion of one."""
+    code, payload = run(
+        "gen", "image", "--asset", "character/hero", "--prompt", "a knight", "--dry-run"
+    )
+
+    assert code == 0
+    assert "num_images" not in payload["arguments"]
+    assert "output_format" not in payload["arguments"]
+
+
+# -------------------------------------- more than one image  specs/model-options/ R5.1 to R5.4
+
+
+def three_images(api: FakeClient) -> None:
+    api.payload = {
+        "images": [
+            {"url": "https://v3.fal.media/files/a.png"},
+            {"url": "https://v3.fal.media/files/b.png"},
+            {"url": "https://v3.fal.media/files/c.png"},
+        ]
+    }
+
+
+def test_every_image_a_call_produced_is_filed(space: Path, api: FakeClient, keyed: None) -> None:
+    """The TDD task of this leaf, and the reason it is one: `--count 3` bills three times, and
+    filing the first while dropping two is money spent on files nobody can find."""
+    three_images(api)
+    code, payload = run(
+        "gen", "image", "--asset", "character/hero", "--prompt", "a knight", "--count", "3"
+    )
+
+    assert code == 0
+    assert [entry["stage"] for entry in payload["files"]] == ["gen-1", "gen-2", "gen-3"]
+    assert [entry["file"] for entry in payload["files"]] == [
+        "001_hero.gen-1.png",
+        "002_hero.gen-2.png",
+        "003_hero.gen-3.png",
+    ]
+    for entry in payload["files"]:
+        assert (space / "assets" / "character" / "hero" / entry["file"]).read_bytes() == PNG
+
+    recorded = asset_meta(space)
+    assert [item.stage for item in recorded.files] == ["gen-1", "gen-2", "gen-3"]
+    assert {item.file_class for item in recorded.files} == {"source"}
+
+
+def test_one_image_keeps_the_stage_it_was_asked_for(
+    space: Path, api: FakeClient, keyed: None
+) -> None:
+    """The suffix is for a set. A single result is the overwhelming case and `--from-stage gen`
+    has to keep meaning what it meant."""
+    code, payload = run("gen", "image", "--asset", "character/hero", "--prompt", "a knight")
+
+    assert code == 0
+    assert payload["file"] == "001_hero.gen.png"
+    assert [entry["stage"] for entry in payload["files"]] == ["gen"]
+
+
+def test_a_second_identical_call_writes_the_whole_set_from_the_cache(
+    space: Path, api: FakeClient, keyed: None
+) -> None:
+    """R5.3 — the cache has to hold the set, or the second call pays three times again."""
+    three_images(api)
+    argv = ("gen", "image", "--asset", "character/hero", "--prompt", "a knight", "--count", "3")
+    assert run(*argv)[0] == 0
+    api.submitted.clear()
+
+    CliRunner().invoke(main, ["asset", "new", "twin", "--kind", "character"])
+    code, payload = run(
+        "gen", "image", "--asset", "character/twin", "--prompt", "a knight", "--count", "3"
+    )
+
+    assert code == 0
+    assert payload["cached"] is True
+    assert api.submitted == []
+    assert [entry["stage"] for entry in payload["files"]] == ["gen-1", "gen-2", "gen-3"]
+    for entry in payload["files"]:
+        assert (space / "assets" / "character" / "twin" / entry["file"]).read_bytes() == PNG
+
+
+# ------------------------------------------- kind defaults  specs/model-options/ R4.1 to R4.3
+
+
+def defaulting(space: Path, options: dict[str, Any], model: str = NANO) -> None:
+    """Rewrite the workspace's config so `character` starts from these options."""
+    (space / "ssc.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "schema": 1,
+                "models": {"image": model, "video": GROK},
+                "kinds": {"character": {"options": options}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_a_kind_s_default_reaches_a_call_that_did_not_name_it(space: Path, api: FakeClient) -> None:
+    defaulting(space, {"format": "webp", "count": 2})
+    code, payload = run(
+        "gen", "image", "--asset", "character/hero", "--prompt", "a knight", "--dry-run"
+    )
+
+    assert code == 0
+    assert payload["arguments"]["output_format"] == "webp"
+    assert payload["arguments"]["num_images"] == 2
+    assert payload["skipped_defaults"] == []
+
+
+def test_the_command_line_beats_the_kind(space: Path, api: FakeClient) -> None:
+    defaulting(space, {"format": "webp"})
+    code, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--format",
+        "png",
+        "--dry-run",
+    )
+
+    assert code == 0
+    assert payload["arguments"]["output_format"] == "png"
+
+
+def test_a_default_the_model_does_not_have_is_skipped_and_said_to_be(
+    space: Path, api: FakeClient
+) -> None:
+    """R4.2. Nano Banana 2 has no quality tier, and a kind that sets one is still a legitimate
+    kind — it has to work at both models. So this is the one case that drops an option, and it
+    is reported for exactly that reason."""
+    defaulting(space, {"quality": "medium", "format": "webp"})
+    code, payload = run(
+        "gen", "image", "--asset", "character/hero", "--prompt", "a knight", "--dry-run"
+    )
+
+    assert code == 0
+    assert "quality" not in payload["arguments"]
+    assert payload["arguments"]["output_format"] == "webp"
+    assert payload["skipped_defaults"] == ["quality"]
+
+
+def test_the_same_default_applies_at_a_model_that_has_it(space: Path, api: FakeClient) -> None:
+    defaulting(space, {"quality": "medium"}, model="openai/gpt-image-2")
+    code, payload = run(
+        "gen", "image", "--asset", "character/hero", "--prompt", "a knight", "--dry-run"
+    )
+
+    assert code == 0
+    assert payload["arguments"]["quality"] == "medium"
+    assert payload["skipped_defaults"] == []
+
+
 def test_the_job_is_written_before_the_call_is_made(
     space: Path, api: FakeClient, keyed: None
 ) -> None:

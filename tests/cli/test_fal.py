@@ -228,6 +228,49 @@ def test_a_result_with_no_file_is_a_refusal_that_says_the_call_was_paid_for() ->
     assert "job resume" in (refused.value.fix or "")
 
 
+# specs/model-options/ R5.1 — `--count` means a result carries more than one file, and every
+# one of them was billed.
+
+
+def test_every_produced_file_is_found_in_order() -> None:
+    payload = {
+        "images": [
+            {"url": "https://f/a.png"},
+            {"url": "https://f/b.png"},
+            {"url": "https://f/c.png"},
+        ]
+    }
+
+    assert fal.file_urls(payload) == ("https://f/a.png", "https://f/b.png", "https://f/c.png")
+    assert fal.file_url(payload) == "https://f/a.png"
+
+
+def test_a_single_file_is_a_set_of_one() -> None:
+    assert fal.file_urls({"image": {"url": "https://f/b.png"}}) == ("https://f/b.png",)
+
+
+def test_a_preview_beside_a_file_is_not_a_second_file() -> None:
+    """A result entry carrying `url` is one file. Descending into it would collect a thumbnail
+    as a sibling and file the same image twice, under two stages."""
+    payload = {"images": [{"url": "https://f/a.png", "preview": {"url": "https://f/a-thumb.png"}}]}
+
+    assert fal.file_urls(payload) == ("https://f/a.png",)
+
+
+def test_the_same_url_twice_is_one_file() -> None:
+    payload = {
+        "outputs": {"first": {"url": "https://f/a.png"}, "second": {"url": "https://f/a.png"}}
+    }
+
+    assert fal.file_urls(payload) == ("https://f/a.png",)
+
+
+def test_a_result_with_no_file_refuses_for_the_set_too() -> None:
+    with pytest.raises(SscError) as refused:
+        fal.file_urls({"seed": 7})
+    assert refused.value.code == "no-result-file"
+
+
 def test_only_https_is_fetched() -> None:
     with pytest.raises(SscError) as refused:
         fal.fetch("file:///etc/passwd")

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from ssc.cli.cache import Cache, cache_key
+from ssc.cli.cache import Cache, cache_key, manifest_key, member_key
 from ssc.cli.errors import SscError
 
 A = "a" * 64
@@ -100,6 +100,56 @@ def test_storing_and_reading_back(tmp_path: Path) -> None:
     assert cache.get(key) is None
     cache.put(key, b"snapped")
     assert cache.get(key) == b"snapped"
+
+
+# specs/model-options/ R5.3 — one call, several files, one key.
+
+
+def test_a_set_is_stored_and_read_back_in_order(tmp_path: Path) -> None:
+    cache = Cache(tmp_path)
+    key = cache_key("gen image", params={"num_images": 3}, inputs=[])
+    assert cache.get_set(key) is None
+
+    cache.put_set(key, [b"first", b"second", b"third"])
+    assert cache.get_set(key) == [b"first", b"second", b"third"]
+
+
+def test_a_set_does_not_answer_the_single_key(tmp_path: Path) -> None:
+    """The manifest is stored somewhere derived rather than at the key itself, or a `get`
+    would hand a caller the manifest's bytes as if they were an image."""
+    cache = Cache(tmp_path)
+    key = cache_key("gen image", params={"num_images": 2}, inputs=[])
+    cache.put_set(key, [b"first", b"second"])
+
+    assert cache.get(key) is None
+
+
+def test_a_set_missing_a_member_is_a_miss_rather_than_a_partial_answer(tmp_path: Path) -> None:
+    """`cache/` may be deleted at any time, in whole or in part. Half a set written into an
+    asset is worse than paying for the call again."""
+    cache = Cache(tmp_path)
+    key = cache_key("gen image", params={"num_images": 2}, inputs=[])
+    cache.put_set(key, [b"first", b"second"])
+    member = cache.path_for(member_key(key, 1))
+    member.unlink()
+
+    assert cache.get_set(key) is None
+
+
+def test_a_manifest_that_is_not_one_is_a_miss(tmp_path: Path) -> None:
+    cache = Cache(tmp_path)
+    key = cache_key("gen image", params={}, inputs=[])
+    cache.put(manifest_key(key), b"not json")
+
+    assert cache.get_set(key) is None
+
+
+def test_two_calls_do_not_share_a_member() -> None:
+    first = cache_key("gen image", params={"prompt": "a"}, inputs=[])
+    second = cache_key("gen image", params={"prompt": "b"}, inputs=[])
+
+    assert member_key(first, 0) != member_key(second, 0)
+    assert manifest_key(first) != manifest_key(second)
 
 
 def test_entries_are_spread_so_one_directory_does_not_hold_everything(tmp_path: Path) -> None:

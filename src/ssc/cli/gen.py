@@ -147,10 +147,11 @@ def reconcile_size(
 ) -> Size | None:
     """The size a layout needs, in the shape this model asks the question in (R3.1, R3.2).
 
-    Three shapes, because the models disagree about the question and not merely the spelling:
-    an enum of literal sizes on GPT Image 1.5, an aspect ratio plus a resolution tier on the
-    other two, and nothing at all on BiRefNet. `docs/wiki/model-parameters.md` measured that,
-    and `model-registry` records it as the shape rather than as a field name.
+    Four shapes, because the models disagree about the question and not merely the spelling: an
+    enum of literal sizes on GPT Image 1.5, an aspect ratio plus a resolution tier on Nano
+    Banana 2 and the Grok models, explicit pixels on GPT Image 2, and nothing at all on
+    BiRefNet. `docs/wiki/model-parameters.md` measured that, and `model-registry` records it as
+    the shape rather than as a field name.
 
     `None` back means nothing to set: a caller who did not ask for a size gets the model's own
     default rather than this project's opinion of one.
@@ -225,11 +226,82 @@ def reconcile_size(
             },
         )
 
+    if form == "pixels":
+        pixel_field = str(shape["field"])
+        width, height = _pixels_for(endpoint, shape, requested)
+        return Size(
+            fields={pixel_field: {"width": width, "height": height}},
+            report={
+                "requested": asked,
+                "chosen": f"{width}x{height}",
+                "aspect_error": round(_stretch(wanted, width / height), 4),
+                "below_request": max(width, height) < max(requested),
+            },
+        )
+
     raise SscError(
         "size-unknown",
         f"the registry records a size shape for {endpoint} this build does not know: {shape!r}",
         fix="upgrade ssc, or drop --size",
     )
+
+
+def _pixels_for(
+    endpoint: str, shape: dict[str, Any], requested: tuple[int, int]
+) -> tuple[int, int]:
+    """The nearest size this model will actually accept (`specs/model-options/` R2.3, R2.5).
+
+    Every candidate is enumerated rather than arrived at by scaling and then rounding, because
+    the bounds interact: rounding a side up to the multiple can cross the pixel ceiling, and
+    scaling down to the ceiling can cross the floor. Walking the multiples of the long edge is
+    240 candidates at 16 and 3840 — microseconds, and obviously right where a sequence of
+    nudges is neither.
+
+    The long edge nearest the one asked for wins, and a tie goes to the least distorted. Scale
+    is a compromise this reports; aspect is one it does not make.
+    """
+    multiple = max(1, int(shape.get("multiple") or 1))
+    max_edge = int(shape.get("max_edge") or 0)
+    min_pixels = int(shape.get("min_pixels") or 0)
+    max_pixels = int(shape.get("max_pixels") or 0)
+    max_ratio = float(shape.get("max_ratio") or 0.0)
+
+    width, height = requested
+    long_side, short_side = max(width, height), min(width, height)
+    ratio = long_side / short_side
+    if max_ratio and ratio > max_ratio:
+        raise UsageError(
+            "size-unrepresentable",
+            f"{endpoint} cannot make {width}x{height}: it is {ratio:.2f}:1 and the model takes "
+            f"at most {max_ratio:g}:1",
+            fix="lay the board out closer to square, or generate the cells one at a time",
+        )
+
+    best: tuple[tuple[int, float], tuple[int, int]] | None = None
+    for candidate in range(multiple, max_edge + multiple, multiple):
+        if max_edge and candidate > max_edge:
+            break
+        other = max(multiple, round(candidate / ratio / multiple) * multiple)
+        if other > candidate:
+            # `candidate` is the long edge by construction. The shorter side rounding past it
+            # happens only at the very bottom, where the square case is enumerated anyway.
+            continue
+        total = candidate * other
+        if (min_pixels and total < min_pixels) or (max_pixels and total > max_pixels):
+            continue
+        score = (abs(candidate - long_side), _stretch(ratio, candidate / other))
+        if best is None or score < best[0]:
+            best = (score, (candidate, other))
+
+    if best is None:
+        raise SscError(
+            "size-unknown",
+            f"{endpoint} accepts no size this build can reach from {width}x{height}",
+            fix=f"ssc model show {endpoint} reports what it takes",
+        )
+
+    chosen_long, chosen_short = best[1]
+    return (chosen_long, chosen_short) if width >= height else (chosen_short, chosen_long)
 
 
 def _tier_for(model: models.Model, field: str, requested: tuple[int, int]) -> tuple[str, bool]:
@@ -513,6 +585,11 @@ class Ask:
     seconds: int | None = None
     size: tuple[int, int] | None = None
     seed: int | None = None
+    #: `specs/model-options/` R3.2. `image_format` rather than `format`, which is a builtin and
+    #: a dataclass field named for one reads as a method everywhere it is used.
+    count: int | None = None
+    quality: str | None = None
+    image_format: str | None = None
     model: str | None = None
     role: str | None = None
     options: dict[str, Any] = field(default_factory=dict)
@@ -538,6 +615,11 @@ class Call:
     image: Image | None = None
     template: str | None = None
     size: Size | None = None
+
+    #: Core options the kind set and the chosen model does not have (R4.2). Reported rather
+    #: than dropped in silence: a kind that defaults `quality` and a model that has none is a
+    #: legitimate pairing, and a caller still has to be able to see it did not apply.
+    skipped_defaults: tuple[str, ...] = ()
 
     def arguments(self, url: str | None) -> dict[str, Any]:
         payload = dict(self.checked)
@@ -566,6 +648,7 @@ class Call:
             "template": self.template,
             "arguments": self.recorded,
             "size": None if self.size is None else self.size.report,
+            "skipped_defaults": list(self.skipped_defaults),
             "cache_key": self.key(),
         }
 
@@ -657,6 +740,15 @@ def build(
         # who asked for reproducibility and did not get it cannot find out except by running
         # twice and comparing.
         core["seed"] = ask.seed
+    # Named on the command line, so the same rule applies to all three (`specs/model-options/`
+    # R3.3): a model without the concept is a refusal, never a drop. A *kind's* default is the
+    # other case and is filled in below.
+    if ask.count is not None:
+        core["count"] = ask.count
+    if ask.quality is not None:
+        core["quality"] = ask.quality
+    if ask.image_format is not None:
+        core["format"] = ask.image_format
 
     image_field: str | None = None
     if ask.image is not None:
@@ -677,6 +769,8 @@ def build(
             [PLACEHOLDER_URL] if option is not None and option.type == "array" else PLACEHOLDER_URL
         )
         core["image"] = placeholder
+
+    skipped = _from_kind(core, profile, mapping, model)
 
     size = reconcile_size(registry, endpoint, ask.size)
     options = dict(ask.options)
@@ -707,7 +801,37 @@ def build(
         image=ask.image,
         template=template,
         size=size,
+        skipped_defaults=skipped,
     )
+
+
+def _from_kind(
+    core: dict[str, Any],
+    profile: kinds.Profile,
+    mapping: dict[str, Any],
+    model: models.Model,
+) -> tuple[str, ...]:
+    """Fill the core options the caller did not name from the kind (R4.1, R4.2, R4.3).
+
+    Skipping what the model does not have, where a *named* option refuses. The asymmetry is the
+    design and `specs/model-options/design.md` argues it: a named option is somebody asking for
+    something, and not doing it silently is the failure `model-registry` R2.4 exists to prevent
+    — while a kind's default is a policy that has to survive being read by two models, and
+    `quality` exists on GPT Image 2 and does not exist on Nano Banana 2.
+
+    What it skipped is returned rather than swallowed, so the result says so.
+    """
+    skipped: list[str] = []
+    for concept, value in profile.options:
+        if concept in core:
+            # Named on the command line, which wins (R4.3).
+            continue
+        field_name = mapping.get(concept)
+        if not isinstance(field_name, str) or field_name not in model.options:
+            skipped.append(concept)
+            continue
+        core[concept] = value
+    return tuple(skipped)
 
 
 def parse_options(pairs: tuple[str, ...]) -> dict[str, Any]:
@@ -871,23 +995,71 @@ def write_result(
     cache: Cache | None = None,
     key: str | None = None,
 ) -> dict[str, Any]:
-    """Fetch what a finished call produced and file it into the asset (R1.5, R4.1, R4.2)."""
-    url = fal.file_url(payload)
-    data = fal.fetch(url)
-    if cache is not None and key is not None:
-        cache.put(key, data)
+    """Fetch what a finished call produced and file it into the asset (R1.5, R4.1, R4.2).
 
+    Every file it produced, not the first (`specs/model-options/` R5.1): `--count 4` is billed
+    four times, and a result carrying four files that becomes one file in the asset is three
+    paid images nobody can find again.
+    """
+    urls = fal.file_urls(payload)
+    collected = [fal.fetch(url) for url in urls]
+    if cache is not None and key is not None:
+        if len(collected) == 1:
+            cache.put(key, collected[0])
+        else:
+            cache.put_set(key, collected)
+
+    return file_all(
+        workspace,
+        address,
+        list(zip(urls, collected, strict=True)),
+        stage=stage,
+        provenance=provenance,
+    )
+
+
+def file_all(
+    workspace: Workspace,
+    address: str,
+    collected: list[tuple[str, bytes]],
+    *,
+    stage: str,
+    provenance: meta.Provenance,
+) -> dict[str, Any]:
+    """File a whole set into the asset, one `source` each (R5.1, R5.2, R5.4).
+
+    The stages are `<stage>-1 … <stage>-N` for a set and plain `<stage>` for one file.
+    `meta.record` refuses a stage an asset already holds — deliberately, so `--from-stage` is
+    never ambiguous — so N files need N names and the suffix cannot be conditional *within* a
+    set. Keeping the bare name for the single case is what leaves every existing chain alone.
+    """
+    named = [
+        (url, data, stage if len(collected) == 1 else f"{stage}-{index + 1}")
+        for index, (url, data) in enumerate(collected)
+    ]
+
+    written: list[dict[str, Any]] = []
     held, record = listing.resolve(workspace, address)
     with held:
-        name = file_into(
-            held,
-            record,
-            data,
-            stage=stage,
-            extension=extension_for(url, data),
-            provenance=provenance,
-        )
-    return {"file": name, "bytes": len(data), "url": url}
+        for url, data, each in named:
+            name = file_into(
+                held,
+                record,
+                data,
+                stage=each,
+                extension=extension_for(url, data),
+                provenance=provenance,
+            )
+            written.append({"file": name, "stage": each, "bytes": len(data), "url": url})
+
+    return {
+        # The first stays under `file`, `bytes` and `url`: one file is what almost every call
+        # produces, and every reader of a result already knows those three names.
+        "file": written[0]["file"],
+        "bytes": written[0]["bytes"],
+        "url": written[0]["url"],
+        "files": written,
+    }
 
 
 def run(
@@ -940,29 +1112,28 @@ def run(
     budget.clear(free)
 
     cache = Cache(workspace.cache)
-    hit = cache.get(key)
+    # One blob first, because that is what almost every call cached and it costs one read.
+    # A set is the `--count` case and lives behind its own manifest — see `Cache.put_set`.
+    single = cache.get(key)
+    hit = [single] if single is not None else cache.get_set(key)
     if hit is not None:
-        held, record = listing.resolve(workspace, address)
-        with held:
-            name = file_into(
-                held,
-                record,
-                hit,
-                stage=ask.stage,
-                # The bytes are the same bytes, so the name is the same name: `extension_for`
-                # reads the content, which is why a cached result does not need the URL that
-                # originally carried it.
-                extension=extension_for("", hit),
-                provenance=meta.Provenance(command=ask.verb, params=call.recorded, cache_key=key),
-            )
+        written = file_all(
+            workspace,
+            address,
+            # The bytes are the same bytes, so the name is the same name: `extension_for` reads
+            # the content, which is why a cached result does not need the URL that carried it.
+            [("", data) for data in hit],
+            stage=ask.stage,
+            provenance=meta.Provenance(command=ask.verb, params=call.recorded, cache_key=key),
+        )
         return Result(
             ask.verb,
-            f"{name} from the cache; nothing was submitted",
+            f"{written['file']} from the cache; nothing was submitted",
             {
                 "asset": address,
                 "stage": ask.stage,
                 "submitted": False,
-                "file": name,
+                **written,
                 **call.report(),
             },
             cached=True,

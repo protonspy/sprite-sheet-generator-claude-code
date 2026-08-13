@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, fields
 from typing import Any
 
-from ssc.cli import config
+from ssc.cli import config, models
 from ssc.cli.errors import SscError, UsageError
 from ssc.cli.names import check_name
 from ssc.cli.sidecar import DEFAULT_FPS, MAX_FPS
@@ -33,6 +33,11 @@ ANCHORS = ANCHOR_MODES
 #: What `atlas-packing` will know how to do. Declared here because the field is declared
 #: here; a layout nobody implements is a promise to a caller that nothing keeps.
 LAYOUTS = ("grid", "bin")
+
+#: The core options a kind may not default, because each is per call by construction: the
+#: prompt and the input image *are* the request, and a size comes from the layout a board
+#: computed. A kind supplying one would make a call nobody wrote.
+PER_CALL_CONCEPTS = ("prompt", "image", "size")
 
 
 @dataclass(frozen=True)
@@ -60,6 +65,12 @@ class Profile:
     image_model: str = ""
     video_model: str = ""
 
+    #: Core options a paid command starts from unless the caller names them
+    #: (`specs/model-options/` R4.1). Pairs rather than a dict because a `Profile` is frozen
+    #: and compared, which is the same reason `checks` is a tuple. A default the chosen model
+    #: does not have is skipped and reported, never a refusal — `gen.build` says why.
+    options: tuple[tuple[str, Any], ...] = ()
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
@@ -74,6 +85,7 @@ class Profile:
             "layered": self.layered,
             "image_model": self.image_model,
             "video_model": self.video_model,
+            "options": dict(self.options),
         }
 
 
@@ -281,6 +293,8 @@ def merge(name: str, stated: dict[str, Any]) -> Resolved:
                     fix=f"write it as a list under kinds.{name}.checks",
                 )
             values[item] = tuple(value)
+        elif item == "options":
+            values[item] = check_options(value, name)
         elif item == "fps":
             values[item] = check_fps(value, name)
         elif item in {"animates", "normal_map", "layered"}:
@@ -296,6 +310,35 @@ def merge(name: str, stated: dict[str, Any]) -> Resolved:
         source[item] = DECLARED
 
     return Resolved(profile=Profile(name=name, **{**_asdict(base), **values}), source=source)
+
+
+def check_options(value: Any, name: str) -> tuple[tuple[str, Any], ...]:
+    """A kind's default core options (`specs/model-options/` R4.1).
+
+    Only the concepts are accepted, and only where they are one field: a kind is a property of
+    the asset, so it cannot default `prompt`, the input image, or a size — each of those is
+    per-call by construction, and a kind quietly supplying one would be a call nobody wrote.
+    Sorted, because it reaches the cache key through the resolved call and an order that
+    depends on how somebody typed their YAML would split one key in two.
+
+    What a value *means* is not checked here: that is the model's schema, and checking it twice
+    is the drifting table `model-registry` exists to avoid.
+    """
+    if not isinstance(value, dict):
+        raise SscError(
+            "invalid-kind",
+            f"kind {name!r} declares options {value!r}, which is not a map",
+            fix=f"write it as a map of option to value under kinds.{name}.options",
+        )
+    allowed = tuple(item for item in models.CONCEPTS if item not in PER_CALL_CONCEPTS)
+    for item in value:
+        if item not in allowed:
+            raise SscError(
+                "invalid-kind",
+                f"kind {name!r} defaults {item!r}, which is not an option a kind can default",
+                fix=f"a kind may default: {', '.join(allowed)}",
+            )
+    return tuple(sorted((str(item), found) for item, found in value.items()))
 
 
 def check_fps(value: Any, name: str) -> int:

@@ -25,7 +25,11 @@ from ssc.cli.errors import SscError, UsageError
 #: through raw and is checked against the schema. Normalising more would mean owning a
 #: translation table that goes stale silently; normalising none would push per-model
 #: divergence into every skill and template.
-CONCEPTS = ("prompt", "image", "seconds", "size", "seed")
+#:
+#: `count`, `quality` and `format` earned a name for a reason that is not symmetry
+#: (`specs/model-options/` R3.1): they are the three an agent has to be *told about* to use at
+#: the right moment, and `count` is the one that multiplies what a call costs.
+CONCEPTS = ("prompt", "image", "seconds", "size", "seed", "count", "quality", "format")
 
 #: Fal serves one of these per endpoint, unauthenticated.
 SCHEMA_URL = "https://fal.ai/api/openapi/queue/openapi.json?endpoint_id={endpoint}"
@@ -67,8 +71,17 @@ class Option:
     required: bool = False
     description: str = ""
 
+    #: Whether the field also takes an object — `specs/model-options/` R2.2. GPT Image 2's
+    #: `image_size` is `anyOf: [$ref ImageSize, enum of seven presets]`, so `type` reads as
+    #: `string` and `allowed` as those presets, and `{"width": …, "height": …}` would be
+    #: refused as not one of them. The `$ref` is not followed: what bounds the value is the
+    #: pixels size shape in `core.json`, not the shape inside the ref.
+    objects: bool = False
+
     def as_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {"name": self.name, "type": self.type, "required": self.required}
+        if self.objects:
+            payload["objects"] = True
         if self.default is not None:
             payload["default"] = self.default
         if self.allowed is not None:
@@ -119,6 +132,20 @@ def _type_of(schema: dict[str, Any]) -> str | None:
     return None
 
 
+def _objects(schema: dict[str, Any]) -> bool:
+    """Whether an object is one of the things this field accepts (R2.2).
+
+    A `$ref` branch counts without being followed: every object shape Fal offers is served as
+    a ref, and the branch existing is the whole fact needed here.
+    """
+    if schema.get("type") == "object" or "$ref" in schema:
+        return True
+    return any(
+        isinstance(branch, dict) and (branch.get("type") == "object" or "$ref" in branch)
+        for branch in schema.get("anyOf", [])
+    )
+
+
 def _allowed(schema: dict[str, Any]) -> list[Any] | None:
     if "enum" in schema:
         return list(schema["enum"])
@@ -143,6 +170,7 @@ def _options(schema: dict[str, Any]) -> dict[str, Option]:
             maximum=described.get("maximum"),
             required=name in required,
             description=str(described.get("description") or ""),
+            objects=_objects(described),
         )
     return found
 
@@ -227,6 +255,10 @@ class Registry:
     models: list[Model]
     core: dict[str, dict[str, Any]]
 
+    #: Media to endpoint, from `core.json`. Empty is legitimate: it means every media has to
+    #: be configured, which is what a workspace predating this had.
+    defaults: dict[str, str] = field(default_factory=dict)
+
     def get(self, name: str) -> Model:
         for model in self.models:
             if model.endpoint == name:
@@ -309,9 +341,20 @@ class Registry:
 
         return self.check(endpoint, resolved)
 
+    def default_for(self, media: str) -> str | None:
+        """The model the package reaches for when nothing else says
+        (`specs/model-options/` R1.5).
+
+        In `core.json` beside the mappings rather than written into a new workspace's
+        `ssc.yaml`: one fact in two places drifts, and the copy in every workspace ever
+        created is the one that would go stale.
+        """
+        found = self.defaults.get(media)
+        return str(found) if found else None
+
     def chosen(self, media: str, *, config: dict[str, Any], from_kind: str | None = None) -> str:
-        """Which model runs for this media (R3.1, R3.2, R3.3)."""
-        named = from_kind or (config.get("models") or {}).get(media)
+        """Which model runs for this media (R3.1, R3.2, R3.3, `specs/model-options/` R1.6)."""
+        named = from_kind or (config.get("models") or {}).get(media) or self.default_for(media)
         if not named:
             raise SscError(
                 "no-model-configured",
@@ -329,6 +372,17 @@ class Registry:
 
 
 def _check_value(model: Model, option: Option, value: Any) -> None:
+    if isinstance(value, dict):
+        # A field offering an object branch is checked no further here (R2.2): what bounds the
+        # value is the pixels size shape in `core.json`, and the enum and the scalar type below
+        # describe the *other* branch — applying either would refuse every object.
+        if option.objects:
+            return
+        raise UsageError(
+            "invalid-option",
+            f"{model.endpoint}.{option.name} does not take an object",
+            fix=f"ssc model show {model.endpoint} reports what it takes",
+        )
     # `value in allowed` alone lets `True` match an integer enum's `1`, because Python says
     # they are equal. The match has to agree about the type as well as the value, and it is
     # per member rather than per enum so a mixed `[true, 5]` still accepts `5`.
@@ -440,4 +494,21 @@ def load(*, fetch: Fetcher | None = None) -> Registry:
                 source=source,
             )
         )
-    return Registry(models=built, core=core)
+    defaults = {
+        str(media): str(endpoint)
+        for media, endpoint in (declared.get("defaults") or {}).items()
+        if endpoint
+    }
+    known = {model.endpoint: model.media for model in built}
+    for media, endpoint in sorted(defaults.items()):
+        # Checked at load rather than at the call it would have chosen: a default naming a
+        # model that is not here is a packaging mistake, and reporting it as
+        # `unknown-model` on somebody's `gen image` names the wrong culprit.
+        if known.get(endpoint) != media:
+            raise SscError(
+                "registry-invalid",
+                f"core.json makes {endpoint!r} the default for {media} and the registry has "
+                f"no {media} model by that name",
+                fix="make them match; the default has to name a model that is in models.json",
+            )
+    return Registry(models=built, core=core, defaults=defaults)

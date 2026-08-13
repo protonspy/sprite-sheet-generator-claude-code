@@ -11,16 +11,14 @@ from ssc.cli import skills
 from ssc.cli.app import main
 
 RELAY = (
-    "sprite-animation",
-    "sprite-character",
-    "sprite-cleanup",
-    "sprite-integrate",
-    "sprite-resource",
-    "sprite-style",
+    "sprite-icons",
+    "sprite-sheet",
+    "sprite-tilemap",
+    "sprite-ui",
 )
 
 
-def test_the_six_relay_skills_ship_in_the_package() -> None:
+def test_the_relay_skills_ship_in_the_package() -> None:
     """They are a template `ssc` installs, so they travel inside it."""
     assert tuple(skill.name for skill in skills.shipped()) == RELAY
 
@@ -45,15 +43,15 @@ def test_install_writes_each_skill_where_the_harness_reads_it(tmp_path: Path) ->
 def test_install_keeps_a_skill_that_is_already_there(tmp_path: Path) -> None:
     """A project may have edited the relay; an install that reverted it silently is worse
     than one that reports doing nothing."""
-    mine = tmp_path / ".claude" / "skills" / "sprite-style"
+    mine = tmp_path / ".claude" / "skills" / "sprite-ui"
     mine.mkdir(parents=True)
     (mine / "SKILL.md").write_text("mine", encoding="utf-8")
 
     installed = skills.install(tmp_path)
 
     assert (mine / "SKILL.md").read_text(encoding="utf-8") == "mine"
-    assert ".claude/skills/sprite-style/SKILL.md" in installed.kept
-    assert ".claude/skills/sprite-style/SKILL.md" not in installed.written
+    assert ".claude/skills/sprite-ui/SKILL.md" in installed.kept
+    assert ".claude/skills/sprite-ui/SKILL.md" not in installed.written
 
 
 def test_install_dry_run_writes_nothing(tmp_path: Path) -> None:
@@ -70,7 +68,7 @@ def test_init_lays_the_skills_out_with_the_workspace(tmp_path: Path, monkeypatch
     assert result.exit_code == 0
     assert len(payload["skills"]) == len(RELAY)
     assert payload["skills_kept"] == []
-    assert (tmp_path / ".claude" / "skills" / "sprite-integrate" / "SKILL.md").is_file()
+    assert (tmp_path / ".claude" / "skills" / "sprite-sheet" / "SKILL.md").is_file()
 
 
 def test_init_no_skills_lays_out_only_the_workspace(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]

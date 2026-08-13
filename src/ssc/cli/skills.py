@@ -1,10 +1,10 @@
 """The harness skills a workspace gets, shipped inside the package.
 
-The six `sprite-*` skills are a template, not a file somebody copies out of this
-repository. `ssc` is the CLI a game project installs, so the relay it drives has to arrive
-with it: `ssc init` writes them into `.claude/skills/`, the same way it writes `ssc.yaml`
-and `assets/`. A project that pinned an older `ssc` gets the skills that version's
-commands actually support, which is the reason to ship them as data rather than to
+The four `sprite-*` skills are a template, not a file somebody copies out of this
+repository. `ssc` is the CLI a game project installs, so the runs it drives have to
+arrive with it: `ssc init` writes them into `.claude/skills/`, the same way it writes
+`ssc.yaml` and `assets/`. A project that pinned an older `ssc` gets the skills that
+older commands actually support, which is the reason to ship them as data rather than to
 document a copy step nobody re-runs on upgrade.
 
 They are read from `ssc.data.skills` with `importlib.resources`, so this works from a
@@ -63,18 +63,20 @@ class Installed:
     kept: tuple[str, ...]
 
 
-def install(root: Path, *, dry_run: bool = False) -> Installed:
-    """Write every shipped skill into `<root>/.claude/skills/<name>/SKILL.md`.
+def install(root: Path, *, skills_dir: str = SKILLS_DIR, dry_run: bool = False) -> Installed:
+    """Write every shipped skill into `<root>/<skills_dir>/<name>/SKILL.md`.
 
-    Nothing overwrites: a skill whose `SKILL.md` is already there is kept and reported,
-    because a project may have edited the relay for its own art pipeline and an install
-    that silently reverted that edit is worse than one that says it did nothing.
+    `skills_dir` is relative to the workspace root and names where the target agent reads
+    skills — `.claude/skills` for Claude Code, `.codex/skills` and `.opencode/skills` for
+    the other two. Nothing overwrites: a skill whose `SKILL.md` is already there is kept
+    and reported, because a project may have edited the relay for its own art pipeline and
+    an install that silently reverted that edit is worse than one that says it did nothing.
     """
-    base = root / Path(SKILLS_DIR)
+    base = root / Path(skills_dir)
     written: list[str] = []
     kept: list[str] = []
     for skill in shipped():
-        relative = f"{SKILLS_DIR}/{skill.name}/{SKILL_FILE}"
+        relative = f"{skills_dir}/{skill.name}/{SKILL_FILE}"
         if (base / skill.name / SKILL_FILE).exists():
             kept.append(relative)
             continue

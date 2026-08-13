@@ -1,9 +1,9 @@
 """`ssc tool style` — the project-locked palette path (task 5.1).
 
 The palette is a *project* decision: locked once from a preset into `palette.json`, then
-applied to every asset. These tests hold the contract the harness skill `sprite-style`
-names — that locking is a one-time act, that a locked palette cannot be overridden per
-call, and that the absence of a palette is answered with the exact command that locks one.
+applied to every asset. These tests hold the contract the harness skills name — that
+locking is a one-time act, that a locked palette cannot be overridden per call, and that
+the absence of a palette is answered with the exact command that locks one.
 """
 
 from __future__ import annotations

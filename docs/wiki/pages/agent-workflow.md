@@ -2,32 +2,34 @@
 
 Every page before this one explains a step. This one explains the run: how an agent goes
 from nothing to `dist/index.json` without a person typing a command, and where the run
-stops because a decision is a person's to make. The six skills under `.claude/skills/`
-are the vehicle — each owns a leg of the relay, names the commands it runs, stops at its
-gate, and says what it hands to the next.
+stops because a decision is a person's to make. The skills under `.claude/skills/`
+are the vehicle — four per-type skills (`sprite-sheet`, `sprite-icons`,
+`sprite-tilemap`, `sprite-ui`) each drive a whole run for one kind of creation, name the
+commands in order, stop at their gates, and hand over `dist/index.json`.
 
 They are shipped inside the package and written out by `ssc init`, beside `ssc.yaml` and
-`assets/`. A game project installs `ssc` and has the relay; it does not copy files out of
+`assets/`. A game project installs `ssc` and has the runs; it does not copy files out of
 this repository, which is what would leave a project driving a version's commands with
 another version's skills. `ssc init --no-skills` lays out the workspace without them, and
 a skill a project has already edited is kept rather than overwritten.
 
-The commands themselves prove the relay holds: `tests/cli/test_chain.py` drives the whole
-chain on one fixture, and goes red when any leg's contract with the next drifts.
+Each skill is self-contained — it names the commands and the rules directly, and does not
+open this wiki. The wiki is how the workflow was designed, not something a skill reads at
+run time. The commands themselves prove the runs hold: `tests/cli/test_chain.py` drives a
+whole chain on one fixture, and goes red when a skill's contract with the commands drifts.
 
-## The relay
+## The four runs
 
-Two skills start a run, depending on what the asset is. The other four are the same relay
-for everything that animates.
+One per kind of creation. The first stage distinguishes them; the middle stages are the
+same shared work measured by the same `doctor` checks; the handover is a sheet, an atlas
+or a tileset depending on the profile.
 
-| Skill | Owns | Hands over |
+| Skill | Owns | Ends at |
 |---|---|---|
-| `sprite-character` | the anchor image: `gen image` against the kind's template, `tool bgremove`, the neutral-pose discipline of [[anchor-and-directions]] | one approved anchor image, keyed and recorded |
-| `sprite-resource` | the kinds that do not animate — tile, icon, ui: generation against the kind's profile, `tool tile` for wrap, `tool ninepatch` for stretch borders | approved sources, ready for style |
-| `sprite-animation` | poses and cycles: `tool board`, `gen image` for pose sheets, `gen video` for walk cycles, `tool cut`, `tool curate` — see [[generating-animations]] | a curated frame set per animation |
-| `sprite-cleanup` | the repairs of [[frame-normalisation]]: `tool snap`, `tool align`, and `tool doctor` to measure the result | frames that pass `doctor`, or a named defect it cannot repair |
-| `sprite-style` | the project's look: `tool style` against the locked `palette.json`, the workspace's dither decision, `tool recolour` for variants | frames quantized against the one palette |
-| `sprite-integrate` | the handover of [[into-an-engine]]: `ssc index`, then `ssc preview` on what the index declares | `dist/index.json`, and the preview a person approves |
+| `sprite-sheet` | an animated sprite's whole sheet — anchor, poses and cycles, cleanup, style, `ssc index` | one **sheet** per asset: equal cells, grid, fps, loop, anchor |
+| `sprite-icons` | a set of icons, source then style then index | one **atlas** per `icon` kind, a rect and an anchor per asset |
+| `sprite-tilemap` | a tile set that wraps — `tool tile` closes the seam, then style then index | one **tileset** per `tile` kind, equal cells with an id per tile |
+| `sprite-ui` | a UI/HUD panel — `tool ninepatch` reports the guides, `tool doctor` measures `nineslice`, then style, index | one **atlas** per `ui` kind with the four stretch borders per entry |
 
 A skill runs its commands through the workspace's `pipeline:` where one is declared, so
 `ssc run` records each stage and a killed session resumes from disk rather than from
@@ -39,26 +41,27 @@ A gate is a decision reserved for a human, held as state in the workspace — a 
 is exit code `3` and a `review/` directory, never a question asked in conversation. The
 run stops at four, and only these:
 
-1. **The anchor image**, at the end of `sprite-character`. Every direction and every
-   animation derives from this one image, so a wrong one is every later paid call wasted.
-   The cheapest moment to reject it is before anything derives from it.
-2. **The curated frame set**, at the end of `sprite-animation`. The paid calls have
-   happened by now; what is being judged is whether the motion reads, which no `doctor`
-   check can measure.
-3. **The palette lock**, once per project, inside `sprite-style`. A palette is a project
-   decision recorded in `palette.json`, not a per-call argument — locking it is the
-   decision, and every asset after it inherits the choice silently.
-4. **The preview**, at the end of `sprite-integrate`. `ssc preview` renders from `dist/`,
-   so what is being approved is exactly what an engine will load.
+1. **The anchor image**, inside `sprite-sheet`, before any direction is generated. Every
+   direction and every animation derives from this one image, so a wrong one is every
+   later paid call wasted.
+2. **The curated frame set**, inside `sprite-sheet`, after the pose sheets are cut. The
+   paid calls have happened by now; what is being judged is whether the motion reads,
+   which no `doctor` check can measure.
+3. **The palette lock**, once per project, before anything is quantized. A palette is a
+   project decision recorded in `palette.json`, not a per-call argument — locking it is
+   the decision, and every asset after it inherits the choice silently.
+4. **The preview**, at the end of every run. `ssc preview` renders from `dist/`, so what
+   is being approved is exactly what an engine will load.
 
-Everything between gates is measurable, and the skills act on measurements: a `doctor`
-defect names its fix, a budget refusal names the free command that answers the same
-question, a pending job is collected rather than resubmitted.
+The first two gates belong to motion and fall only in `sprite-sheet`; the last two every
+run stops at. Everything between gates is measurable, and the skills act on measurements:
+a `doctor` defect names its fix, a budget refusal names the free command that answers the
+same question, a pending job is collected rather than resubmitted.
 
 ## What the handover is made of
 
-The relay works because each leg's output is a recorded stage, not a loose file. A skill
-finds its input by stage in `meta.json`, never by filename; authored intent — playback,
+The runs work because each stage's output is recorded, not a loose file. A skill finds
+its input by stage in `meta.json`, never by filename; authored intent — playback,
 sections, markers, hitboxes and hurtboxes — travels in the sidecar; and the index at the
-end reads both. A skill that wrote a file without recording its stage would break the leg
-after it, which is the drift `tests/cli/test_chain.py` exists to catch.
+end reads both. A skill that wrote a file without recording its stage would break its own
+handover, which is the drift `tests/cli/test_chain.py` exists to catch.

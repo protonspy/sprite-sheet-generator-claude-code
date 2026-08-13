@@ -344,7 +344,12 @@ def check_bleed(sheet: np.ndarray, params: BleedParams | None = None) -> Finding
 
     measurement = {"cells_touching_a_boundary": touching, "cells": params.cols * params.rows}
     if touching:
-        return defect(Check.BLEED, fix="ssc tool cut --mode bbox", **measurement)
+        # `--mode islands`, because what bleed means is that the grid is not where the
+        # content is: a cell's pixels reach into its neighbour's. Cutting by connected
+        # components is the mode that stops trusting the grid and finds the pieces.
+        # It named `--mode bbox` until `plans/harness-accuracy.md` 3.1 — a mode `tool cut`
+        # has never had, so the one thing an agent is told to do about `bleed` exited `2`.
+        return defect(Check.BLEED, fix="ssc tool cut --mode islands", **measurement)
     return ok(Check.BLEED, **measurement)
 
 

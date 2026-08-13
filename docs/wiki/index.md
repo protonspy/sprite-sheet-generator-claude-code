@@ -13,6 +13,8 @@ hold the reasoning behind it.
 
 ## Producing the art
 
+- [[box-art-and-style]] — the concept piece a person approves, why it must not be passed
+  as a reference to the anchor, and how a style stops being an assumption.
 - [[anchor-and-directions]] — the one image everything else derives from, why it must be
   a neutral pose, and how the other three directions come from it.
 - [[reference-boards]] — the checkerboard and the pose board: two images that discipline

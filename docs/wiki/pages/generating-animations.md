@@ -38,6 +38,10 @@ frames spread across it.
 **Never pass a board to a video model.** It merges the grid into the character. See
 [[reference-boards]].
 
+Nor is a board the only image that hurts when it is passed to the wrong step: box art
+passed as a reference to the anchor produces something far too finely detailed to survive
+being reduced to a cell. See [[box-art-and-style]].
+
 ## Clip length is a per-model fact
 
 The sources contradict each other, and both are right about different models. One

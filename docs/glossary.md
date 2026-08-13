@@ -58,6 +58,11 @@ here.
   Avoid: pivot
 - **anchor image** — the one image a character's other directions and animations derive
   from. Say it in full wherever "anchor" alone could be read as the registration point.
+- **gravity** — where a computed rectangle sits inside the canvas it was fitted to:
+  `centre`, `top`, `bottom`, `left`, `right` or one of the four corners, and an axis the
+  name does not mention is centred. `ssc tool crop --aspect` is positioned by one. `tool
+  expand --place` is the same idea for a canvas being grown rather than cut, and keeps its
+  own name because it places content, not a box.
 - **tile** — one square of a tileset, drawn to repeat against copies of itself.
 - **tileset** — one image holding every tile of a kind in equal cells, each addressed by id
   and found by column and row. A sheet holds the frames of one animation; a tileset holds

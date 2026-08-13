@@ -21,6 +21,7 @@ from ssc.cli.commands.convert import (
     snap,
     tile_wrap,
 )
+from ssc.cli.commands.crop import crop_command
 from ssc.cli.commands.doctor import doctor
 from ssc.cli.commands.gate import gate
 from ssc.cli.commands.gen import gen_group
@@ -85,6 +86,7 @@ tool.add_command(expand_canvas)
 tool.add_command(mirror)
 tool.add_command(rotate)
 tool.add_command(trim)
+tool.add_command(crop_command)
 tool.add_command(offset)
 tool.add_command(align)
 tool.add_command(normalise)

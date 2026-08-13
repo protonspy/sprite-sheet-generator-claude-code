@@ -65,6 +65,11 @@ gives a model's options and the provider's price text before you commit to eithe
 - **Stage 1, the anchor** — `gen image` on the default image model,
   `openai/gpt-image-2`. One image, `--quality high`, the size the kind asks for. This is
   the frame every other paid call derives from, so it is the one to pay properly for.
+  **How it is drawn is a decision, not a default.** The kind carries the look — `pixel-art`
+  unless the project declared otherwise under `kinds.<kind>.style` — and `--style` names
+  another for one call: `pixel-art`, `vector`, `hand-painted`, `3d-render`, `flat`, or free
+  text for anything else. Set it once at the anchor and leave it alone: every later frame
+  derives from that image, and a style changed mid-run is a character that changes with it.
 - **Stage 2, the pose sheets** — `gen image` again, and this is the call where `--count`
   earns its cost: generate several boards cheaply (`--count 3-4`, quality and size tier
   down), pick the composition that reads, then regenerate that one at full quality.

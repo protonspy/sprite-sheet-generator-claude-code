@@ -350,6 +350,83 @@ def templates() -> dict[str, str]:
     return {str(name): str(text) for name, text in found.items()}
 
 
+@dataclass(frozen=True)
+class Style:
+    """How the art is drawn — the second decision in front of a paid call, and until this
+    existed the one nobody was asked.
+
+    `shipped` is not decoration. `--style` takes free text on purpose, so the set of names
+    stays a starting point rather than a closed enum, and the cost of that is a typo
+    becoming a style: `pixelart` is perfectly good free text. Reporting which of the two
+    happened is what lets a caller see it before they look at the bill.
+    """
+
+    name: str
+    words: str
+    shipped: bool
+    board: str | None = None
+
+    def report(self) -> dict[str, Any]:
+        return {"name": self.name, "shipped": self.shipped, "board": self.board}
+
+
+def styles() -> dict[str, dict[str, str]]:
+    document: dict[str, Any] = json.loads(
+        resources.files("ssc.data").joinpath("styles.json").read_text(encoding="utf-8")
+    )
+    found = document.get("styles")
+    if not isinstance(found, dict):
+        raise SscError("styles-invalid", "the shipped styles.json declares no styles")
+    return {str(name): dict(record) for name, record in found.items()}
+
+
+#: How long a style may be. A style is a phrase about how the art is drawn, and the longest
+#: one this package ships is under 400 characters — so this is generous rather than tight.
+#:
+#: It is a bound and not a style question, because of where a style can come from. Every
+#: other prompt-shaping field a `ssc.yaml` may set is closed: `template` must name one this
+#: package ships, `checks` and `options` are typed. `style` is the first that is free text,
+#: and an `ssc.yaml` arrives with a cloned repository as often as it is written by the person
+#: running the command. Unbounded, it is a paragraph prepended to every paid call for the
+#: life of the workspace, and nobody typed it.
+MAX_STYLE = 1000
+
+
+def style_for(named: str) -> Style:
+    """The style a name or a phrase resolves to (R1.2, R1.3, R1.4).
+
+    One function for both routes into a style — the flag and the kind's profile — because
+    a project may declare free text on a kind exactly as a caller may pass it on a call,
+    and two resolvers would eventually disagree about which of them a name belongs to.
+    """
+    text = named.strip()
+    if not text:
+        raise UsageError(
+            "invalid-style",
+            "--style was given nothing to apply",
+            fix=f"name one of: {', '.join(sorted(styles()))} — or describe the look in words",
+        )
+    if len(text) > MAX_STYLE:
+        raise UsageError(
+            "invalid-style",
+            f"a style of {len(text)} characters is past {MAX_STYLE}",
+            fix="a style says how the art is drawn; the rest of the request goes in --prompt, "
+            "and a style this long in ssc.yaml would ride every call this kind ever makes",
+        )
+    shipped = styles()
+    found = shipped.get(text)
+    if found is None:
+        # Free text, carried verbatim. The words *are* the name here: there is nothing else
+        # to call it, and a report saying `custom` would hide what was actually sent.
+        return Style(name=text, words=text, shipped=False)
+    return Style(
+        name=text,
+        words=str(found.get("words", "")),
+        shipped=True,
+        board=str(found["board"]) if found.get("board") else None,
+    )
+
+
 #: The named slots a template may carry, and the whole of them. A closed vocabulary rather
 #: than free-form keys: these are the parameters that recur across the character templates
 #: and are worth being structured about, and an open set would drift into a second prompt
@@ -369,7 +446,12 @@ VARIABLES = (
 
 #: Every token a template may carry, the nine named slots plus the three the pipeline fills
 #: itself. One expression, because the substitution is one pass — see `prompt_for`.
-SLOT = re.compile(r"\{(" + "|".join([*VARIABLES, "width", "height", "prompt"]) + r")\}")
+SLOT = re.compile(r"\{(" + "|".join([*VARIABLES, "width", "height", "prompt", "style"]) + r")\}")
+
+#: The slot a style fills. Named here because three places ask whether a template has one:
+#: the substitution, the refusal for a `--style` that would not reach the model, and the
+#: test that a template does not describe a look the style is supposed to own.
+STYLE_SLOT = "{style}"
 
 
 def parse_variables(pairs: tuple[str, ...]) -> dict[str, str]:
@@ -426,6 +508,9 @@ def prompt_for(
     text: str,
     cell: tuple[int, int],
     variables: dict[str, str] | None = None,
+    style: Style | None = None,
+    *,
+    style_named: bool = False,
 ) -> str:
     """The caller's prompt, wrapped in the template the kind named (R2.1, R2.8).
 
@@ -453,6 +538,16 @@ def prompt_for(
         )
 
     body = available[template]
+    if style_named and STYLE_SLOT not in body:
+        # Before the call rather than after, and for the same reason a missing variable is:
+        # what this prevents is paying for a prompt that says nothing about the look the
+        # caller asked for, in an image plausible enough that nobody checks (R2.3).
+        raise UsageError(
+            "style-not-taken",
+            f"the {template!r} template names the look it needs, so --style would not reach "
+            f"the model",
+            fix="drop --style for this template, or use one that takes a style",
+        )
     given = dict(variables or {})
     missing = [name for name in wanted_by(body) if not given.get(name, "").strip()]
     if missing:
@@ -466,7 +561,13 @@ def prompt_for(
         )
 
     width, height = cell
-    filled = {**given, "width": str(width), "height": str(height), "prompt": text}
+    filled = {
+        **given,
+        "width": str(width),
+        "height": str(height),
+        "prompt": text,
+        "style": "" if style is None else style.words,
+    }
     return SLOT.sub(lambda found: filled.get(found.group(1), found.group(0)), body)
 
 
@@ -581,6 +682,10 @@ class Ask:
     stage: str
     prompt: str | None = None
     template: str | None = None
+    #: The look asked for on the command line, or `None` where the kind's own is to be used.
+    #: The string rather than a resolved `Style`, because an `Ask` is what a caller said and
+    #: resolving it needs the profile, which `build` is the first to hold.
+    style: str | None = None
     image: Image | None = None
     seconds: int | None = None
     size: tuple[int, int] | None = None
@@ -614,6 +719,7 @@ class Call:
     image_field: str | None = None
     image: Image | None = None
     template: str | None = None
+    style: Style | None = None
     size: Size | None = None
 
     #: Core options the kind set and the chosen model does not have (R4.2). Reported rather
@@ -646,6 +752,7 @@ class Call:
         return {
             "model": self.endpoint,
             "template": self.template,
+            "style": None if self.style is None else self.style.report(),
             "arguments": self.recorded,
             "size": None if self.size is None else self.size.report,
             "skipped_defaults": list(self.skipped_defaults),
@@ -730,9 +837,21 @@ def build(
 
     core: dict[str, Any] = {}
     template: str | None = None
+    style: Style | None = None
     if ask.prompt is not None:
         template = ask.template or profile.template
-        core["prompt"] = prompt_for(template, ask.prompt, profile.cell, ask.variables)
+        # The flag first, the kind second (R1.1, R3.1) — the same precedence `--template`
+        # has over `profile.template` one line above, and for the same reason: a kind is a
+        # project decision and a flag is this call.
+        style = style_for(ask.style if ask.style is not None else profile.style)
+        core["prompt"] = prompt_for(
+            template,
+            ask.prompt,
+            profile.cell,
+            ask.variables,
+            style,
+            style_named=ask.style is not None,
+        )
     if ask.seconds is not None:
         core["seconds"] = ask.seconds
     if ask.seed is not None:
@@ -800,6 +919,7 @@ def build(
         image_field=image_field,
         image=ask.image,
         template=template,
+        style=style,
         size=size,
         skipped_defaults=skipped,
     )

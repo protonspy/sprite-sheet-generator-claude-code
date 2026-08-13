@@ -1,5 +1,18 @@
 # Wiki changelog
 
+## 2026-08-13 — the style axis exists
+
+`specs/generation-style/` lands the first half of what [[box-art-and-style]] described:
+`gen image --style` takes one of five shipped names or free text, a kind carries the
+default, and `src/ssc/data/templates.json` stops saying how the art is drawn. `pixel-art`
+is the default everywhere, so a workspace that says nothing generates what it always
+generated. The board a style names is reported and not yet sent — carrying more than one
+reference on a call is `specs/reference-images/`.
+
+- **[[prompt-templates]]** — the `{style}` slot, why it is not a `--var`, and the three
+  templates that name none: `box-art`, which states its own look, and the two that animate
+  an image whose look was already decided.
+
 ## 2026-08-13 — the brief, and the look
 
 `plans/authoring-controls.md` opens: what a generation is asked to look like becomes a

@@ -166,6 +166,11 @@ def shared(command: Any) -> Any:
 @click.option("--from-stage", default=None, help="Use this stage of the asset as the reference.")
 @click.option("--template", default=None, help="Override the prompt template the kind names.")
 @click.option(
+    "--style",
+    default=None,
+    help="How it is drawn: a shipped name, or free text. Defaults to what the kind names.",
+)
+@click.option(
     "--var",
     "variables",
     multiple=True,
@@ -178,6 +183,7 @@ def gen_image(
     from_stage: str | None,
     reference: Path | None,
     size: str | None,
+    style: str | None,
     seed: int | None,
     count: int | None,
     quality: str | None,
@@ -222,6 +228,7 @@ def gen_image(
         image_format=image_format,
         model=model,
         template=template,
+        style=style,
         options=gen.parse_options(options),
         variables=gen.parse_variables(variables),
         upload=upload,

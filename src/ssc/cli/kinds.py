@@ -60,6 +60,12 @@ class Profile:
     atlas_layout: str = "grid"
     checks: tuple[str, ...] = ()
     template: str = "generic"
+    #: How assets of this kind are drawn — `specs/generation-style/` R3.1. A project
+    #: decision rather than a per-call one, because two assets generated a week apart in
+    #: two looks is the drift this exists to stop; `gen image --style` overrides it for one
+    #: call. `pixel-art` because that is what every template asserted before the style axis
+    #: existed, so a workspace that says nothing generates what it always generated.
+    style: str = "pixel-art"
     normal_map: bool = False
     layered: bool = False
     image_model: str = ""
@@ -81,6 +87,7 @@ class Profile:
             "atlas_layout": self.atlas_layout,
             "checks": list(self.checks),
             "template": self.template,
+            "style": self.style,
             "normal_map": self.normal_map,
             "layered": self.layered,
             "image_model": self.image_model,

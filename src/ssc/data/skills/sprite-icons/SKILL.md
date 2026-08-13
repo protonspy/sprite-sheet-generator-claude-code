@@ -24,6 +24,14 @@ on this path — and `tool bgremove` strips the chroma-key background, the same
 free path an animated sheet uses. Use the model-backed `--model` path only when
 the background is not clean chroma.
 
+  *The one paid call, and what to set on it.* The default image model,
+  `openai/gpt-image-2`. An icon set is the case `--count` is for: icons are
+  small and a sheet of them is cheap, so generate several candidates with the
+  quality and the size tier down, pick the one that reads at cell size, and
+  regenerate that one at `--quality high`. Past the kind's cell size a larger
+  `--size` buys nothing — the frame is downsampled to the grid anyway.
+  `ssc model show openai/gpt-image-2` names the options and the price text.
+
 **Stage 2 — clean and measure.** `tool snap` recovers the real pixel grid where
 the source came in smeared. `tool doctor` measures the result against the
 kind's checks: `pixel_grid`, `halo`, `palette`, `silhouette`. Ship clean: apply

@@ -10,6 +10,15 @@ from ssc.cli import models
 from ssc.cli.main import ssc_command
 from ssc.cli.output import Result
 
+#: Travels with every price this reports (`specs/model-pricing/` R2.6). The provider writes
+#: its price as prose, in a different billing shape per model, and `ssc` deliberately parses
+#: no number out of it — so a reader has to be told, at the point of reading, that this is
+#: indicative and that the amount actually charged is the one `ssc budget` recorded.
+PRICE_CAVEAT = (
+    "Indicative: the provider's own published text, not a quote, and not parsed into an "
+    "amount. What a run cost is what `ssc budget` recorded."
+)
+
 
 @click.group("model", help="What the providers' models accept.")
 def model() -> None:
@@ -42,6 +51,9 @@ def model_list(media: str | None, *, dry_run: bool) -> Result:
                     "provider": entry.provider,
                     "source": entry.source,
                     "default": registry.default_for(entry.media) == entry.endpoint,
+                    # A boolean here and the sentence in `show` (R2.3): a paragraph of
+                    # Markdown per row would make the one listing an agent scans unreadable.
+                    "priced": entry.price is not None,
                 }
                 for entry in found
             ],
@@ -81,12 +93,17 @@ def resolved_core(registry: models.Registry, found: models.Model) -> dict[str, A
 def model_show(model_id: str, *, dry_run: bool) -> Result:
     registry = models.load()
     found = registry.get(model_id)
+    priced = "" if found.price is None else f", priced {found.price['fetched']}"
     return Result(
         "model show",
         f"{found.endpoint}: {len(found.options)} option"
-        f"{'' if len(found.options) == 1 else 's'}, from the {found.source}",
+        f"{'' if len(found.options) == 1 else 's'}, from the {found.source}{priced}",
         {
             **found.as_dict(),
+            # Beside the price rather than in the file it came from: the caveat is this
+            # command's statement about what it is reporting, and `models.json` is
+            # regenerated wholesale by a script that would carry no such sentence.
+            "price_caveat": PRICE_CAVEAT,
             # The core mapping travels with the schema because it answers the question the
             # schema cannot: which of these fields is this project's `--seed`, and which
             # concepts this model simply does not have.

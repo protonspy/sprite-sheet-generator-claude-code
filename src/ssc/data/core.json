@@ -105,6 +105,36 @@
       "count": null,
       "quality": null,
       "format": "output_format"
+    },
+    "xai/grok-imagine-video/v1.5/image-to-video": {
+      "prompt": "prompt",
+      "image": "image_url",
+      "seconds": "duration",
+      "size": null,
+      "seed": null,
+      "count": null,
+      "quality": null,
+      "format": null
+    },
+    "fal-ai/kling-video/v2.5-turbo/pro/image-to-video": {
+      "prompt": "prompt",
+      "image": "image_url",
+      "seconds": "duration",
+      "size": null,
+      "seed": null,
+      "count": null,
+      "quality": null,
+      "format": null
+    },
+    "bytedance/seedance-2.5/image-to-video": {
+      "prompt": "prompt",
+      "image": "image_url",
+      "seconds": "duration",
+      "size": null,
+      "seed": null,
+      "count": null,
+      "quality": null,
+      "format": null
     }
   }
 }

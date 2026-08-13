@@ -34,7 +34,19 @@ def registry() -> models.Registry:
 
 
 def test_every_shipped_model_is_read(registry: models.Registry) -> None:
-    assert len(registry.models) == 10
+    assert len(registry.models) == 13
+
+
+def test_the_price_survives_a_live_schema_replacing_the_shipped_one() -> None:
+    """`specs/model-pricing/` R2.1 — the endpoint's OpenAPI document carries no price at
+    all, so a fetch that wins on the schema must not be read as saying there is none."""
+    registry = models.load(fetch=lambda endpoint: {"properties": {"prompt": {"type": "string"}}})
+
+    kling = registry.get("fal-ai/kling-video/v2.5-turbo/pro/image-to-video")
+
+    assert kling.source == "provider"
+    assert kling.price is not None
+    assert "$0.35" in kling.price["text"]
     assert NANO in {model.endpoint for model in registry.models}
 
 

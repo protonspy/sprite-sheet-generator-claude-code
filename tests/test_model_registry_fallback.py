@@ -27,6 +27,9 @@ EXPECTED_ENDPOINTS = {
     "xai/grok-imagine-image/v2.0/text-to-image",
     "xai/grok-imagine-image/v2.0/edit",
     "xai/grok-imagine-video/image-to-video",
+    "xai/grok-imagine-video/v1.5/image-to-video",
+    "fal-ai/kling-video/v2.5-turbo/pro/image-to-video",
+    "bytedance/seedance-2.5/image-to-video",
     "fal-ai/birefnet/v2",
 }
 
@@ -139,6 +142,75 @@ def test_a_reference_image_is_an_endpoint_not_a_parameter(
 ) -> None:
     assert "image_urls" not in properties(by_endpoint["fal-ai/gpt-image-1.5"])
     assert "image_urls" in by_endpoint["fal-ai/gpt-image-1.5/edit"]["input_schema"]["required"]
+
+
+def test_background_removal_is_a_role_of_its_own(by_endpoint: dict[str, dict[str, Any]]) -> None:
+    """`gen bgremove` finds its model by role. BiRefNet's provider category is
+    `image-to-image`, which every editing model also carries, so the role has to say the job
+    rather than the shape — and a refresh must not flatten it back."""
+    birefnet = by_endpoint["fal-ai/birefnet/v2"]
+
+    assert birefnet["role"] == "background-removal"
+    assert birefnet["category"] == "image-to-image"
+    roles = [model["role"] for model in by_endpoint.values()]
+    assert roles.count("background-removal") == 1
+
+
+def test_every_core_mapping_names_a_field_the_model_really_has(
+    by_endpoint: dict[str, dict[str, Any]],
+) -> None:
+    """`specs/model-pricing/` R1.3 — the mapping is hand-authored, so nothing checks it but
+    this. A concept mapped onto a field the schema does not have is a value dropped in
+    flight: the call succeeds, the job is billed, and the parameter never arrived."""
+    core = json.loads((REGISTRY.parent / "core.json").read_text(encoding="utf-8"))
+
+    for endpoint, mapping in core["models"].items():
+        available = properties(by_endpoint[endpoint])
+        for concept, mapped in mapping.items():
+            if mapped is None:
+                continue
+            if isinstance(mapped, dict):
+                named = [value for key, value in mapped.items() if key.endswith("_field")]
+                for field in named:
+                    assert field in available, f"{endpoint}.{concept} -> {field}"
+            else:
+                assert mapped in available, f"{endpoint}.{concept} -> {mapped}"
+
+
+def test_the_added_video_models_map_their_own_duration_and_take_no_size(
+    by_endpoint: dict[str, dict[str, Any]],
+) -> None:
+    """R1.3, and the reason `design.md` gives for `size: null` — a `ratio` shape needs a
+    field that enumerates its ratios, and none of the three has one."""
+    core = json.loads((REGISTRY.parent / "core.json").read_text(encoding="utf-8"))
+
+    for endpoint in (
+        "xai/grok-imagine-video/v1.5/image-to-video",
+        "fal-ai/kling-video/v2.5-turbo/pro/image-to-video",
+        "bytedance/seedance-2.5/image-to-video",
+    ):
+        mapping = core["models"][endpoint]
+        assert mapping["seconds"] == "duration", endpoint
+        assert mapping["image"] == "image_url", endpoint
+        assert mapping["size"] is None, endpoint
+        available = properties(by_endpoint[endpoint])
+        offers_ratios = "aspect_ratio" in available and enum_of(
+            by_endpoint[endpoint], "aspect_ratio"
+        )
+        assert not offers_ratios, endpoint
+
+
+def test_every_model_carries_a_price_key_even_where_there_is_no_price(
+    registry: dict[str, Any],
+) -> None:
+    """R2.1, R2.5 — present and null, never absent, and never a number." """
+    for model in registry["models"]:
+        assert "price" in model, model["endpoint_id"]
+        price = model["price"]
+        if price is None:
+            continue
+        assert isinstance(price["text"], str) and price["text"].strip()
+        assert isinstance(price["fetched"], str)
 
 
 def test_video_length_is_a_per_model_parameter(by_endpoint: dict[str, dict[str, Any]]) -> None:

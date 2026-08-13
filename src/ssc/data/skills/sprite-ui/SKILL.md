@@ -27,6 +27,16 @@ on this path) and `tool bgremove` strips the chroma-key background behind
 the panel. Use the model-backed `--model` path only when the background is not
 clean chroma.
 
+  *The one paid call, and what to set on it.* The default image model,
+  `openai/gpt-image-2`. One image at `--quality high`: a panel is stretched by
+  its nine-patch rather than regenerated per size, so this call is paid once and
+  reused at every size the UI asks for. Ask for the size the kind states — the
+  guides in Stage 2 have to land on the pixel grid, and a resample to fit would
+  move them. Raise `--count` only while the panel's design is still open — with
+  the quality and the size tier down, to judge the shape — and drop back to one
+  image at full quality once it is settled. `ssc model show openai/gpt-image-2`
+  names the options and the price text.
+
 **Stage 2 — the guides.** `tool ninepatch` reports the guides an engine
 stretches the panel by. Omit `--guides` to read the derived one-pixel-art-pixel
 ones off the art and adjust from the reported nine region sizes; a derived

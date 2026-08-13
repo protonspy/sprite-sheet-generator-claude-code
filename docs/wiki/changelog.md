@@ -1,5 +1,22 @@
 # Wiki changelog
 
+## 2026-08-13 — three video models, and the price the provider publishes
+
+`specs/model-pricing/`: Grok Imagine Video 1.5, Kling 2.5 Turbo Pro and Seedance 2.5 join
+the registry, all image-to-video, none of them the default — the default for `video` stays
+Grok Imagine Video and the default for `image` stays GPT Image 2. Every entry gains the
+price text the provider published, with the day it was read; nothing parses a number out of
+it, because the five models bill in five different shapes and a parser over prose is wrong
+silently. `ssc model show` reports the text with a caveat naming it indicative, `ssc model
+list` says which rows have one, and `ssc budget` stays the only record of what a run cost.
+`scripts/fetch_model_schemas.py` — named by `CLAUDE.md` and `core.json` since before it
+existed — now exists, and reads both provider documents without credentials. The shipped
+instruction files and the four `sprite-*` skills gained the choice itself: which model a
+step reaches for, and what to set when the work is one icon rather than a forty-frame sheet.
+
+- **[[model-parameters]]** — the endpoint table grows to thirteen; new sections on the
+  published price and on why the three added models take no `--size`.
+
 ## 2026-08-12 — four endpoints, a size in pixels, and options with names
 
 `specs/model-options/`: GPT Image 2 and Grok Imagine Image join the registry, each with its

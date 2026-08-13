@@ -1,5 +1,22 @@
 # Wiki changelog
 
+## 2026-08-13 — the brief, and the look
+
+`plans/authoring-controls.md` opens: what a generation is asked to look like becomes a
+decision somebody makes rather than a sentence in every prompt template, and the concept
+piece a person approves gets a name and a stage of its own. `docs/glossary.md` gains
+**style**, **reference image**, **box art** and **paid step** — style deliberately scoped
+rather than unique, because `ssc tool style` keeps meaning quantization against the
+palette. `adr:0014-a-pipeline-step-may-bill-behind-a-gate` reverses the flat refusal in
+`specs/gates-and-resume/` R4.9: a step may bill, with a gate opened before the call and a
+budget reservation behind it.
+
+- **[[box-art-and-style]]** — new. Why box art is generated only when no reference exists,
+  why passing it to the anchor makes the anchor worse, and why a style carries an
+  attachment rather than being a string.
+- **[[generating-animations]]** — a second image that hurts at the wrong step, alongside
+  the board a video model must never see.
+
 ## 2026-08-13 — three video models, and the price the provider publishes
 
 `specs/model-pricing/`: Grok Imagine Video 1.5, Kling 2.5 Turbo Pro and Seedance 2.5 join

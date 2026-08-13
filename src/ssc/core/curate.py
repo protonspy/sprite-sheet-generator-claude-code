@@ -1,8 +1,9 @@
 """Which frames of an animation are saying nothing new.
 
 Pure. `curate` reports and, when asked, drops; **which frames an action actually needs is a
-judgement and stays out** — that is `sprite-animation`'s, in M4. What is measurable is how
-far one frame is from the one before it, and that is all this decides.
+judgement and stays out** — that is `sprite-sheet`'s, at its curated-frame-set gate. What
+is measurable is how far one frame is from the one before it, and that is all this
+decides.
 """
 
 from __future__ import annotations

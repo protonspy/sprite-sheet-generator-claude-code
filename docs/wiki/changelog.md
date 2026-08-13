@@ -1,5 +1,18 @@
 # Wiki changelog
 
+## 2026-08-07 — four per-type skills replace the relay legs
+
+`ssc init` now ships four self-contained skills, one per kind of creation — `sprite-sheet`
+(an animated sprite that ends as a sheet, with the anchor and curated-set gates),
+`sprite-icons` (a set of icons, one atlas per kind), `sprite-tilemap` (a tile set that
+wraps, ending as a tileset) and `sprite-ui` (a stretchable UI/HUD panel with its
+nine-patch). The six relay leg skills — character, animation, cleanup, style, resource,
+integrate — are gone; their knowledge is folded straight into the four, which name the
+commands and rules directly and do not open this wiki at run time.
+
+- **[[agent-workflow]]** — rewritten: the four runs, where each gate falls, and why the
+  skills are self-contained.
+
 ## 2026-08-05 — the gate that holds between one asset's animations
 
 `plans/sprite-normalisation-gate.md`: three leaves — `tool bounds`, `tool normalise`,

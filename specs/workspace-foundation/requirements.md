@@ -22,6 +22,10 @@ much, for an agent driving `ssc` with no eyes on the directory.
 - **R1.4** The `ssc` CLI shall locate the workspace by searching the current directory and its ancestors for `ssc.yaml`.
 - **R1.5** If a workspace command runs outside a workspace, then the `ssc` CLI shall exit `2` and report that no workspace was found.
 - **R1.6** Where a command takes `--in` and `--out`, the `ssc` CLI shall run that command without a workspace.
+`ssc init` also lays out the selected coding agent's harness and its root instruction file
+alongside the workspace files of R1.2. That behavior belongs to `specs/agent-harness/`,
+which owns it end to end — it is named here so a reader of R1.2 knows `ssc init` writes
+more than `ssc.yaml`, `assets/` and `cache/`.
 
 ## R2 · Assets on disk
 

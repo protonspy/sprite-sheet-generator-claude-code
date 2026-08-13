@@ -1,0 +1,151 @@
+{
+  "files": [
+    {
+      "hash": "393afa1710b47b77369766a36613720516d903262035d76116adda208c921619",
+      "path": ".opencode/agent/code-review.md",
+      "version": "14"
+    },
+    {
+      "hash": "84e00da6d0ab55c25377256a3f63d24e565335c0d6ac2f243bba611d6fcadb0e",
+      "path": ".opencode/agent/security-review.md",
+      "version": "14"
+    },
+    {
+      "hash": "7f5a2eb4b9b3c3d8f5b5ffabf94093e21460499ed66596cfd1361ce404ca21d6",
+      "path": ".opencode/command/scc-adr.md",
+      "version": "14"
+    },
+    {
+      "hash": "933db4fb36a0a1e9c90e2727786f35f9a0e1237082b1fbedb402033b703547ee",
+      "path": ".opencode/command/scc-codewiki.md",
+      "version": "14"
+    },
+    {
+      "hash": "afd20d28878bd08f172edf2eaa6f9317b6060890e79a9e0feabec0bc2a169908",
+      "path": ".opencode/command/scc-glossary.md",
+      "version": "14"
+    },
+    {
+      "hash": "20edbcee7755193de3b03ad4e664b83ef0962b5aaa507e529b53ac54d6c4b803",
+      "path": ".opencode/command/scc-plan-run.md",
+      "version": "14"
+    },
+    {
+      "hash": "3494b5fe1dd79655de56d33bf2fb1b14b10d96cd34e2a940469c858f901761e2",
+      "path": ".opencode/command/scc-prd.md",
+      "version": "14"
+    },
+    {
+      "hash": "691ca8bbe28634e4bd881132fcac5915dba9b76e8abd95b58580e687e5c74056",
+      "path": ".opencode/command/scc-stack.md",
+      "version": "14"
+    },
+    {
+      "hash": "3e276f396fcf5dc3010a5792c089731328c8e2f9fd7516efbeac21753f190387",
+      "path": ".opencode/command/scc-wiki.md",
+      "version": "14"
+    },
+    {
+      "hash": "4d497f72b2fe6d596351b36c00d31482eb52aa10a4c89c3ab09c5bd9360d9cb8",
+      "path": ".opencode/rules/artifacts.md",
+      "version": "14"
+    },
+    {
+      "hash": "6d277b3c9be7f444857b4c15afc4d2d57b1fc4502ab643a212b8725acf6a950f",
+      "path": ".opencode/rules/autonomy.md",
+      "version": "14"
+    },
+    {
+      "hash": "8eee2d450faada83295a4a04e5a1267bf5f717df9e7ac7da5fddd7649c666499",
+      "path": ".opencode/rules/caveman.md",
+      "version": "14"
+    },
+    {
+      "hash": "82fc6b4c3406daaee2a83d928c9347c9a3e03011d425a5f582a1b34a5860c566",
+      "path": ".opencode/rules/code-search.md",
+      "version": "14"
+    },
+    {
+      "hash": "b3e98a7f84e580d2c7f941a1f3d19a4434907c4d943ec413fa7788257b646b18",
+      "path": ".opencode/rules/delivery.md",
+      "version": "14"
+    },
+    {
+      "hash": "f8b89a350e676935d358a4520b0dd4c0c3e43b698323ce8896c05a10984f6f14",
+      "path": ".opencode/rules/knowledge-base.md",
+      "version": "14"
+    },
+    {
+      "hash": "79d5cbf1ab7fd09d26e9ea9119f3f283615467dbc35d3a4b1d4a030044b3598f",
+      "path": ".opencode/rules/methodology.md",
+      "version": "14"
+    },
+    {
+      "hash": "075870d305b63294935b474d307ae3a01e704ddb0e97e73a3da26788c0867f2f",
+      "path": ".opencode/rules/project.md",
+      "version": "14"
+    },
+    {
+      "hash": "c8502ace5978c7b9c0543c49ebb5c9550584b1a3405e12c0217b595647e27722",
+      "path": ".opencode/rules/routing.md",
+      "version": "14"
+    },
+    {
+      "hash": "9d2cb860de6426ac350124d1b83dd75783ad6b00c583fe3d9590eff9a6f33cf8",
+      "path": ".opencode/rules/specs.md",
+      "version": "14"
+    },
+    {
+      "hash": "350bfe758d894f0318517fa8000ce7160094ef71e15bd41e3771b492de14fcf6",
+      "path": ".opencode/rules/tasks.md",
+      "version": "14"
+    },
+    {
+      "hash": "67817671b75ab832f8b3c7dd0d25d59289ed688da31cf78931ce3de56918399a",
+      "path": ".opencode/rules/verification.md",
+      "version": "14"
+    },
+    {
+      "hash": "ab82457a041c898ee429ec5294b2ec28da1732e4a203be186d2ddc752a62c2de",
+      "path": ".opencode/skills/adr/SKILL.md",
+      "version": "14"
+    },
+    {
+      "hash": "79ee54893ed4fea2924f6fc88b6b84f6b547c75659963944faaaf919337a5315",
+      "path": ".opencode/skills/codewiki/SKILL.md",
+      "version": "14"
+    },
+    {
+      "hash": "e45042edc7178888e7b3c5b5075f515f72db5477b551eea4785ea71dfaeb06be",
+      "path": ".opencode/skills/glossary/SKILL.md",
+      "version": "14"
+    },
+    {
+      "hash": "f78ea44c494f1767ef19c5f84f5856d15be314df1f4361581bdfe99e2a63806f",
+      "path": ".opencode/skills/plan-run/SKILL.md",
+      "version": "14"
+    },
+    {
+      "hash": "526769381998c830fd6d82f359df634e489009c784139a864a8cf64cd0b060a0",
+      "path": ".opencode/skills/prd/SKILL.md",
+      "version": "14"
+    },
+    {
+      "hash": "8cbc5b32a4260c00c0f6f87f502ef73770438896c7b9b84539f2d12848b524bc",
+      "path": ".opencode/skills/stack/SKILL.md",
+      "version": "14"
+    },
+    {
+      "hash": "9f0aacd853d5d31361f8bb4e2065b446045b02872a290ee2f3b11203bf9fe69c",
+      "path": ".opencode/skills/wiki/SKILL.md",
+      "version": "14"
+    },
+    {
+      "hash": "744918c6e2fff9cffd840b6e385627bd05563d414329ea30076bfb218f25c229",
+      "path": "AGENTS.md",
+      "version": "14"
+    }
+  ],
+  "harness": "opencode",
+  "scc": "v0.13.0"
+}

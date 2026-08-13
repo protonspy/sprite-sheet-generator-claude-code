@@ -1,0 +1,63 @@
+---
+name: sprite-icons
+description: The complete flow for a set of icons — own the run from an empty asset to the atlas a person approves. Use it when the work is game UI icons or item/ability icons, anything of the `icon` kind, which packages as one atlas per kind rather than as a sheet: `asset new --kind icon`, generation, background removal, quantizing to the project's palette, and `ssc index` plus the preview at the end. Not for animated sheets (`sprite-sheet`) and not for stretchable panels (`sprite-ui`).
+---
+
+You own the whole run for a set of icons: going from nothing to the atlas an
+engine loads and the preview a person approves. Icons are a resource kind — they
+do not animate, so there is no anchor and no cycle — and they package as one
+**atlas** per kind, a rect and an anchor per asset, not as a sheet. The run is
+shorter than `sprite-sheet`'s and skips the gates that exist only for motion.
+The rules of the trade hold: **every resize is nearest neighbour** and **a hard
+guide sits on the pixel grid**, never inside a block.
+
+## Stages you run, in order
+
+Run through the workspace's `pipeline:` where one is declared, so `ssc run`
+records each stage and a killed session resumes from disk rather than from
+memory. A stage you write without recording it breaks the atlas after you.
+
+**Stage 1 — the source.** `asset new <key> --kind icon` creates the asset; the
+kind's profile carries the cell size and the checks — you do not invent them.
+`gen image` produces the source against the kind's template — the one paid call
+on this path — and `tool bgremove` strips the chroma-key background, the same
+free path an animated sheet uses. Use the model-backed `--model` path only when
+the background is not clean chroma.
+
+**Stage 2 — clean and measure.** `tool snap` recovers the real pixel grid where
+the source came in smeared. `tool doctor` measures the result against the
+kind's checks: `pixel_grid`, `halo`, `palette`, `silhouette`. Ship clean: apply
+the fix each named defect carries and re-measure.
+
+**Stage 3 — the look.** `tool style` quantizes against the project's locked
+`palette.json`, never ad-hoc colours: with no palette locked yet, `--preset
+pico8|nes|gameboy|sweetie16` locks one in and applies it; once locked, the
+preset is refused and the locked palette is applied. The dither decision is
+recorded once under ``style:`` in ``ssc.yaml``, never per call. **GATE — the
+palette lock, once per project** (a project's icons inherit the first asset's
+choice silently). `tool recolour` makes recoloured variants free.
+
+**Stage 4 — hand over.** `ssc index` writes `dist/index.json`: one **atlas** per
+`icon` kind — the `icon` profile declares `atlas_layout: bin` — with a rect and
+an anchor per asset, one texture bind for the whole set. `ssc preview <address>`
+renders from `dist/` so a person approves exactly what an engine will load.
+**GATE here.**
+
+## Your gates
+
+Two of the four project gates fall inside this run, held as state in the
+workspace — a pending one is exit code `3` and a `review/` directory, never a
+question asked in conversation. You do not decide at a gate: you surface it and
+stop.
+
+1. **The palette lock**, once per project, before anything is quantized against
+   the palette.
+2. **The preview**, at the end, rendered from `dist/`.
+
+There is no anchor gate and no curated-frame-set gate: nothing animates here, so
+neither question is asked.
+
+## What you hand over
+
+`dist/index.json` — one atlas per icon kind, a rect and an anchor per asset —
+and the preview a person approves. The end of the run; there is no next skill.

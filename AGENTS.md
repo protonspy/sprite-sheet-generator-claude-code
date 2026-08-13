@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 Spec-driven development, scaffolded and checked by `scc`. The methodology lives in `.claude/rules/` — never inline it here.
 

@@ -331,7 +331,7 @@ def test_content_crossing_into_a_neighbour_is_counted() -> None:
     finding = check_bleed(art, BleedParams(cols=2, rows=1))
     assert finding.measurement["cells_touching_a_boundary"] == 2
     assert finding.status is Status.DEFECT
-    assert finding.fix == "ssc tool cut --mode bbox"
+    assert finding.fix == "ssc tool cut --mode islands"
 
 
 def test_content_at_the_outer_edge_has_nowhere_to_bleed() -> None:

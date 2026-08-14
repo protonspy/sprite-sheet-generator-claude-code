@@ -1,0 +1,21 @@
+{
+  "note": "The looks `gen image --style` ships, and the wording each one puts into a template's `{style}` slot. Data rather than a Python literal for the reason `templates.json` is: this is prose, tuned by whoever reads the results of a paid call, and prose inside code is prose nobody edits. A style says how the art is drawn and nothing else - what is true of the output whatever it looks like stays in the template, which is why these sentences never mention a cell, a background or a watermark. `board` names the reference board this style needs alongside its words: `pixel-art` is the only one that does, because words alone do not impose block discipline - see docs/wiki/reference-boards.md. Nothing here sends that board; `specs/generation-style/` reports which one a style names and `specs/reference-images/` is where it starts travelling with the call. A name this file does not carry is not an error: `--style` takes free text and hands it to the model unchanged, so this set is a starting point and never a closed enum.",
+  "styles": {
+    "pixel-art": {
+      "words": "Drawn as pixel art, large enough that every sprite pixel lands as a clean block. Polished 16-bit console sprite work: chunky readable silhouette, crisp hard edges, limited flat cel shading with small highlight pixels, one consistent light source from the top left. No photorealism, no painterly blending, no anti-aliased edges, no motion blur, no depth of field.",
+      "board": "checker"
+    },
+    "vector": {
+      "words": "Drawn as flat vector art: clean geometric shapes, curves that stay crisp at any size, uniform line weight, large areas of solid colour. No texture, no grain, no brushwork, no photorealism, and no gradient beyond a single flat step."
+    },
+    "hand-painted": {
+      "words": "Painted by hand: visible brushwork, soft blended shading, warm colour transitions, and one light source falling across the form. No flat cel banding, no vector geometry, no pixel grid, no digital crispness."
+    },
+    "3d-render": {
+      "words": "A rendered three-dimensional model: physically plausible shading, soft shadow on the form itself, subtle material response between matte and glossy. No brushwork, no pixel grid, no flat vector shapes."
+    },
+    "flat": {
+      "words": "Flat illustration: solid fills, minimal shading, no gradients and no texture. The shapes read by silhouette and colour alone, with any outline at a single uniform weight."
+    }
+  }
+}

@@ -390,6 +390,164 @@ def test_the_correction_template_preserves_identity_and_strips_the_effect(
     assert "Do not redesign the character" in sent
 
 
+# specs/generation-style R1.1, R2.3, R3.2, R3.3 — how the art is drawn, on the command line.
+
+
+def test_the_kinds_style_is_what_a_call_uses_when_nobody_says(space: Path, api: FakeClient) -> None:
+    """Nothing declared and nothing passed, so a workspace generates what it always did."""
+    _, payload = run(
+        "gen", "image", "--asset", "character/hero", "--prompt", "a knight", "--dry-run"
+    )
+
+    assert payload["style"] == {"name": "pixel-art", "shipped": True, "board": "checker"}
+    assert "16-bit console sprite work" in payload["arguments"]["prompt"]
+
+
+def test_a_style_on_the_call_overrides_the_one_the_kind_names(space: Path, api: FakeClient) -> None:
+    _, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--style",
+        "hand-painted",
+        "--dry-run",
+    )
+
+    sent = payload["arguments"]["prompt"]
+    assert payload["style"]["name"] == "hand-painted"
+    assert "visible brushwork" in sent
+    assert "16-bit" not in sent
+    # the template's own half is untouched by the look
+    assert "chroma-green" in sent and "64x64" in sent
+
+
+def test_free_text_reaches_the_model_and_is_reported_as_unshipped(
+    space: Path, api: FakeClient
+) -> None:
+    _, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--style",
+        "torn paper collage",
+        "--dry-run",
+    )
+
+    assert payload["style"] == {"name": "torn paper collage", "shipped": False, "board": None}
+    assert "torn paper collage" in payload["arguments"]["prompt"]
+
+
+def test_a_project_that_declares_a_style_generates_in_it(space: Path, api: FakeClient) -> None:
+    (space / "ssc.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "schema": 1,
+                "models": {"image": NANO, "video": GROK},
+                "kinds": {"character": {"style": "vector"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    _, payload = run(
+        "gen", "image", "--asset", "character/hero", "--prompt", "a knight", "--dry-run"
+    )
+
+    assert payload["style"]["name"] == "vector"
+    assert "flat vector art" in payload["arguments"]["prompt"]
+
+
+def test_gen_expand_inherits_the_kinds_style_and_takes_no_flag_of_its_own(
+    space: Path, api: FakeClient
+) -> None:
+    """Outpainting goes through the kind's own template, so it says what the asset is drawn
+    in. The look is not a thing to pick again halfway through extending a canvas — which is
+    why there is no `--style` here and the kind's answer is the whole of it."""
+    (space / "ssc.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "schema": 1,
+                "models": {"image": NANO, "video": GROK},
+                "kinds": {"character": {"style": "hand-painted"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    _, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--dry-run",
+    )
+    assert "visible brushwork" in payload["arguments"]["prompt"]
+
+    _, expanded = run(
+        "gen",
+        "expand",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "more of the frozen fen",
+        "--in",
+        str(png_at(space)),
+        "--dry-run",
+    )
+    assert "visible brushwork" in expanded["arguments"]["prompt"]
+    assert expanded["style"]["name"] == "hand-painted"
+
+
+def test_a_style_against_a_template_that_takes_none_is_refused_before_the_money(
+    space: Path, api: FakeClient
+) -> None:
+    """R2.3 — box art states the look it needs, so `--style` would never reach the model.
+    Silently ignoring it is a paid image that is not what was asked for."""
+    CliRunner().invoke(main, ["asset", "new", "kael", "--kind", "box-art"])
+
+    code, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "box-art/kael",
+        "--prompt",
+        "a knight",
+        "--style",
+        "vector",
+        "--dry-run",
+    )
+
+    assert code == 2
+    assert payload["error"]["code"] == "style-not-taken"
+    assert api.submitted == []
+
+
+def test_a_blank_style_is_refused_before_the_money(space: Path, api: FakeClient) -> None:
+    code, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--style",
+        "   ",
+        "--dry-run",
+    )
+
+    assert code == 2
+    assert payload["error"]["code"] == "invalid-style"
+    assert api.submitted == []
+
+
 # R2.8 — the named slots, and the refusal that keeps `{name}` out of a paid prompt.
 
 

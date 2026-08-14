@@ -41,6 +41,29 @@ The check runs against the *template*, before the caller's text is substituted, 
 `{prompt}` goes in last. Somebody writing `a knight {holding a torch}` is describing a
 knight; a check against the finished string would refuse them for punctuation.
 
+## How the art is drawn is not the template's to say
+
+A template used to answer two questions at once. "A single game character sprite for a
+64x64 cell, feet flat on an invisible ground line" is one; "16-bit console sprite work, no
+anti-aliased edges" is the other, and the second belongs to whoever is choosing what the
+game looks like. So it moved out: every image template carries `{style}` where its drawing
+instructions used to be, and the words come from `src/ssc/data/styles.json` or from free
+text — see [[box-art-and-style]].
+
+`{style}` is not one of the `--var` slots and does not behave like one. It is never filled
+by hand, it is always filled — the kind names `pixel-art` when nobody else does — and it
+resolves against a shipped set rather than being taken verbatim, because a style can carry
+an attachment as well as words.
+
+Two templates deliberately name no style slot, and giving them `--style` is a refusal
+rather than a silent no-op:
+
+- **`box-art`** says its look outright. The brief is not drawn in the deliverable's style,
+  which is the whole of what box art is for.
+- **`video` and `walk`** animate an image that already exists. They preserve the look the
+  input has, and until this landed they asserted a *pixelated sprite* one — which told a
+  hand-painted asset to become something else on its way to being animated.
+
 ## What every sprite template asks for, and the one that does not
 
 Every template that produces a sprite asks for a flat `#00b140` chroma-green field, because

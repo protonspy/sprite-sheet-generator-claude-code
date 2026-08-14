@@ -17,6 +17,14 @@ Run through the workspace's `pipeline:` where one is declared, so `ssc run`
 records each stage and a killed session resumes from disk rather than from
 memory. A stage you write without recording it breaks the run after you.
 
+**Stage 0 — the brief, when there is nothing to derive from.** `gen boxart`
+produces the concept piece: what the character *is*, at full fidelity, before
+anything decides how it is drawn. Only when the caller has no art of their own —
+a commission, an earlier character, a sketch answers the same question for free.
+**GATE — a person says yes, that is the character, before four directions and
+five animations are derived from it.** The sprite then comes from it with `tool
+pixelart`; never pass it as a reference to Stage 1, which `ssc` now refuses.
+
 **Stage 1 — the anchor image.** `asset new <key> --kind character` creates the
 asset; the kind's profile carries the cell size, the anchor and the checks —
 you do not invent them. `gen image` produces the anchor against the kind's

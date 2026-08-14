@@ -37,6 +37,13 @@ What the anchor takes instead is the checkerboard from [[reference-boards]], who
 job is to impose block discipline. Box art informs the *prompt* — the words describing the
 character — and stays out of the payload.
 
+**This is enforced now.** `ssc gen boxart` records what it produced, and `gen image`
+refuses a `--from-stage` naming it, pointing at `tool pixelart` instead. The check reads
+the provenance rather than the stage name, so renaming the stage does not get past it.
+What it cannot see is a copy: bytes lifted out of the asset and passed with `--ref` carry
+nothing that says where they came from. That is the honest limit of enforcing this at the
+command surface, and the path it does close is the one an agent takes.
+
 ## Style answers the second question
 
 A style is what the generation is asked to look like: a name this package ships, or free

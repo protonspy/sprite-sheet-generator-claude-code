@@ -13,7 +13,7 @@ from typing import Any
 
 import click
 
-from ssc.cli import fal, gen, listing
+from ssc.cli import fal, gen, kinds, listing, meta
 from ssc.cli.errors import UsageError
 from ssc.cli.main import ssc_command
 from ssc.cli.output import Result
@@ -66,7 +66,12 @@ def check_wait(timeout: float, poll: float) -> None:
 
 
 def source_image(
-    workspace: Workspace, asset: str, stage: str | None, source: Path | None
+    workspace: Workspace,
+    asset: str,
+    stage: str | None,
+    source: Path | None,
+    *,
+    into_a_sprite: bool = False,
 ) -> gen.Image:
     """The image being sent, from a stage of the asset or from a loose file (R2.2).
 
@@ -74,6 +79,13 @@ def source_image(
     naming both is two answers to one question. This is the *subject* case — `gen video`,
     `gen expand` and `gen bgremove` each transform one image — and it stays singular for
     that reason; `gen image` takes references instead, through `references_for`.
+
+    `into_a_sprite` is what decides whether box art may be the subject, and the three
+    commands answer it differently (R3.1, R3.2). A clip is frames, and frames at box art's
+    fidelity are the same unusable frames an anchor drawn from it would be — so `gen video`
+    says yes and is refused. `gen expand` widens the concept piece and `gen bgremove` cuts
+    the character out of it: both produce box art, which is a roster image somebody may
+    legitimately want, so both say no and are allowed.
     """
     if (stage is None) == (source is None):
         raise UsageError(
@@ -90,6 +102,8 @@ def source_image(
     held, record = listing.resolve(workspace, asset)
     with held:
         entry = record.stage(str(stage))
+        if into_a_sprite:
+            refuse_box_art(entry, str(stage))
         return gen.image_in(held, entry.path)
 
 
@@ -125,6 +139,40 @@ def split_role(value: str, *, is_path: bool) -> tuple[str, str | None]:
     return value, None
 
 
+#: The kind whose profile says what box art is: its cell, and the template it is drawn to.
+#: A kind rather than constants here, so a project that redeclares it moves both — and the
+#: same kind an asset can be, because a roster piece is a deliverable in its own right.
+BOX_ART_KIND = "box-art"
+
+#: The stage box art lands in by default, and the verb its record carries — which is what
+#: says a file *is* box art after `--stage` has renamed the stage.
+BOX_ART_STAGE = "boxart"
+BOX_ART_VERB = "gen boxart"
+
+
+def refuse_box_art(entry: meta.FileRecord, named: str) -> None:
+    """Box art makes a worse anchor, and this is where that stops being a rule nobody
+    enforces (`specs/box-art/` R3.1).
+
+    The model honours it, which is the problem: the anchor comes back at box art's fidelity,
+    richly shaded and finely detailed, when what a sprite cell needs is the opposite. The
+    detail cannot survive the trip down to 64 pixels, so it arrives as noise `tool normalise`
+    then has to fight — see `docs/wiki/box-art-and-style.md`.
+
+    Against the provenance rather than the stage name: `--stage` renames the stage, and the
+    record is what remembers where a file came from.
+    """
+    if entry.produced_by.command != BOX_ART_VERB:
+        return
+    raise UsageError(
+        "box-art-as-reference",
+        f"{named} is box art, and box art passed as a reference comes back as itself: "
+        f"too finely detailed to survive being reduced to a cell",
+        fix="box art informs the prompt, not the payload — derive the sprite from it with "
+        "ssc tool pixelart, and pass that",
+    )
+
+
 def references_for(
     workspace: Workspace, asset: str, stages: tuple[str, ...], refs: tuple[str, ...]
 ) -> tuple[gen.Reference, ...]:
@@ -153,7 +201,9 @@ def references_for(
         with held:
             for stage in stages:
                 name, role = split_role(stage, is_path=False)
-                found.append(gen.Reference(gen.image_in(held, record.stage(name).path), role))
+                entry = record.stage(name)
+                refuse_box_art(entry, name)
+                found.append(gen.Reference(gen.image_in(held, entry.path), role))
     for ref in refs:
         path, role = split_role(ref, is_path=True)
         found.append(gen.Reference(gen.image_at(Path(path)), role))
@@ -326,6 +376,85 @@ def gen_image(
     )
 
 
+@ssc_command(
+    "boxart",
+    help="Generate the concept piece a person approves. Costs money.",
+    needs_workspace=True,
+)
+@shared
+@imaging
+@click.option("--size", default=None, help="Override the size; the box-art cell by default.")
+@click.option(
+    "--var",
+    "variables",
+    multiple=True,
+    help="Fill a named slot in the template, as key=value. Repeatable.",
+)
+@click.option("--prompt", required=True, help="Who the character is.")
+def gen_boxart(
+    asset: str,
+    prompt: str,
+    size: str | None,
+    count: int | None,
+    quality: str | None,
+    image_format: str | None,
+    stage: str | None,
+    model: str | None,
+    variables: tuple[str, ...],
+    options: tuple[str, ...],
+    upload: bool,
+    no_wait: bool,
+    timeout: float,
+    poll: float,
+    *,
+    dry_run: bool,
+    workspace: Workspace,
+) -> Result:
+    """The first decision in front of a character: what it *is*, before how it is drawn.
+
+    A command rather than a flag on `gen image`, because the flag would have to disable
+    `--ref`, `--from-stage`, `--board` and `--style` and override the template and the cell
+    — six behaviours conditional on one flag, which is a second command wearing a disguise.
+    Here those options are not absent by a check but by not existing, which is how R2.1 and
+    R1.4 are met: there is nothing to pass.
+    """
+    check_wait(timeout, poll)
+    profile = kinds.resolve(BOX_ART_KIND, workspace).profile
+    ask = gen.Ask(
+        verb=BOX_ART_VERB,
+        media="image",
+        stage=stage or BOX_ART_STAGE,
+        prompt=prompt,
+        template=profile.template,
+        # Both from the `box-art` profile, and neither from the asset's own kind: a
+        # character's cell is 64x64 and its concept piece is a portrait at a size no cell
+        # ever is. `--size` still overrides, for a caller who wants another shape.
+        cell=profile.cell,
+        size=parse_size(size) or profile.cell,
+        count=count,
+        quality=quality,
+        image_format=image_format,
+        model=model,
+        options=gen.parse_options(options),
+        variables=gen.parse_variables(variables),
+        upload=upload,
+    )
+    produced = gen.run(
+        workspace,
+        ask,
+        asset,
+        provider=provider(),
+        dry_run=dry_run,
+        wait=not no_wait,
+        timeout=timeout,
+        poll=poll,
+    )
+    # What to do with it (R1.5). Box art is a brief, not a draft: the sprite is *derived*
+    # from it and never generated again, and the command that derives it is the free one.
+    produced.data["derive"] = f"ssc tool pixelart --in <the approved image> --out {ask.stage}/"
+    return produced
+
+
 @ssc_command("video", help="Animate an image into a clip. Costs money.", needs_workspace=True)
 @shared
 @click.option("--seconds", type=int, default=None, help="Clip length, where the model takes one.")
@@ -379,7 +508,9 @@ def gen_video(
         # One image, and no way to make it two: a video model given a board paints the grid
         # onto the character, and a mistake that cannot be expressed cannot be made under
         # time pressure (`specs/reference-images/` R4.1, docs/wiki/reference-boards.md).
-        references=(gen.Reference(source_image(workspace, asset, from_stage, source)),),
+        references=(
+            gen.Reference(source_image(workspace, asset, from_stage, source, into_a_sprite=True)),
+        ),
         seconds=seconds,
         model=model,
         options=gen.parse_options(options),
@@ -549,6 +680,7 @@ def gen_collect(
 
 
 gen_group.add_command(gen_image)
+gen_group.add_command(gen_boxart)
 gen_group.add_command(gen_video)
 gen_group.add_command(gen_expand)
 gen_group.add_command(gen_bgremove)

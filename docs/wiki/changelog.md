@@ -1,5 +1,18 @@
 # Wiki changelog
 
+## 2026-08-14 — the brief has a command
+
+`specs/box-art/`: `ssc gen boxart` generates the concept piece into an asset as its own
+stage, on the `box-art` template and at the `box-art` kind's cell whatever the asset's own
+kind says. It offers no reference, no board and no style — not by a check but by there
+being nothing to pass — because a caller holding art has already answered the question box
+art asks, and the look of the brief is not the look of the deliverable. The result names
+`tool pixelart`, which is what derives the sprite from it.
+
+- **[[box-art-and-style]]** — the trap is enforced now: `gen image` refuses a stage that
+  `gen boxart` produced, reading the provenance rather than the stage name. What it cannot
+  see, and why, is stated rather than implied.
+
 ## 2026-08-14 — a call carries more than one image
 
 `specs/reference-images/`: `--ref` and `--from-stage` repeat, each optionally saying what its

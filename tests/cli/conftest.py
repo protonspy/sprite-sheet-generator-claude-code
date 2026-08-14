@@ -5,12 +5,93 @@ from __future__ import annotations
 import subprocess
 import sys
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from ssc.cli import meta
+from ssc.cli import fal, jobs, meta, models
+from ssc.cli import gen as pipeline
 from ssc.cli.atomic import Directory
+from ssc.cli.commands import gen as commands
+
+#: A real PNG header, so `extension_for` names a collected file from its content.
+PNG = b"\x89PNG\r\n\x1a\n" + b"the rest of a png"
+
+
+class Completed:
+    error = None
+
+
+@dataclass
+class Handle:
+    request_id: str = "req-42"
+
+
+@dataclass
+class FakeClient:
+    """The five functions `cli/fal.py` needs, and a record of what each was asked."""
+
+    payload: dict[str, Any] = field(
+        default_factory=lambda: {"images": [{"url": "https://v3.fal.media/files/a.png"}]}
+    )
+    submitted: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
+    encoded: list[bytes] = field(default_factory=list)
+    uploaded: list[bytes] = field(default_factory=list)
+
+    def submit(self, application: str, arguments: dict[str, Any]) -> Any:
+        self.submitted.append((application, dict(arguments)))
+        return Handle()
+
+    def status(self, application: str, request_id: str) -> Any:
+        return Completed()
+
+    def result(self, application: str, request_id: str) -> dict[str, Any]:
+        return self.payload
+
+    def cancel(self, application: str, request_id: str) -> None:  # pragma: no cover
+        raise AssertionError("nothing here cancels")
+
+    def encode(self, data: str | bytes, content_type: str) -> str:
+        self.encoded.append(bytes(data))  # type: ignore[arg-type]
+        return f"data:{content_type};base64,AAAA"
+
+    def upload(self, data: str | bytes, content_type: str) -> str:
+        self.uploaded.append(bytes(data))  # type: ignore[arg-type]
+        return "https://v3.fal.media/files/uploaded.png"
+
+
+@pytest.fixture
+def api(monkeypatch: pytest.MonkeyPatch) -> FakeClient:
+    """The fake, wired in where the commands look for a provider and where the pipeline
+    fetches a result. The registry is pinned to the shipped copy, so no test reaches fal for
+    a schema either.
+
+    Here rather than in `test_gen_commands.py`, where it was: `specs/box-art/` needed the
+    same fake in a second file, and importing a fixture by name from another test module
+    makes it a redefinition rather than a reuse. A fixture two files share is what a
+    `conftest.py` is.
+    """
+    client = FakeClient()
+    # The original, captured before the patch: `pipeline.models` *is* the models module, so a
+    # lambda calling `models.load` after the patch would call itself.
+    shipped = models.load
+    monkeypatch.setattr(commands, "provider", lambda: fal.Fal(api=client))
+    monkeypatch.setattr(models, "load", lambda: shipped(fetch=lambda _: None))
+    monkeypatch.setattr(pipeline.fal, "fetch", lambda url, **rest: PNG)
+    # `gen` reaches its provider through `commands.provider`; `ssc job resume` reaches one
+    # through the registry instead. Patching only the first left every `job` command talking
+    # to the real fal client — which failed on a missing credential *before* reaching what
+    # the test meant to exercise, so the assertion passed on nothing and the run made a live
+    # HTTPS call. Both reviews caught it; this is the fix.
+    monkeypatch.setitem(jobs.PROVIDERS, fal.PROVIDER, fal.Fal(api=client))
+    return client
+
+
+@pytest.fixture
+def keyed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(fal.KEY_VARIABLE, "a-fal-key-for-tests")
 
 
 def save_meta(directory: Path, record: meta.AssetMeta) -> Path:

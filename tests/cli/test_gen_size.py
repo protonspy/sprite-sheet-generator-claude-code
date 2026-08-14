@@ -231,7 +231,9 @@ def test_an_image_at_a_model_with_no_editing_endpoint_is_refused(
         stage="gen",
         prompt="a knight",
         model=GPT,
-        image=gen.Image(path=Path("a.png"), data=b"bytes", content_type="image/png"),
+        references=(
+            gen.Reference(gen.Image(path=Path("a.png"), data=b"bytes", content_type="image/png")),
+        ),
     )
     with pytest.raises(UsageError) as refused:
         gen.build(without(registry, f"{GPT}/edit"), ask, profile_named(), {})
@@ -250,7 +252,9 @@ def test_an_image_reaches_the_editing_endpoint_when_there_is_one(
         stage="gen",
         prompt="a knight",
         model=GPT,
-        image=gen.Image(path=Path("a.png"), data=b"bytes", content_type="image/png"),
+        references=(
+            gen.Reference(gen.Image(path=Path("a.png"), data=b"bytes", content_type="image/png")),
+        ),
     )
     assert gen.build(registry, ask, profile_named(), {}).endpoint == f"{GPT}/edit"
 

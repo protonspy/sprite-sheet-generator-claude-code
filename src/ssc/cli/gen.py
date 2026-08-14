@@ -26,8 +26,10 @@ from ssc.cli import budget, config, fal, jobs, kinds, listing, meta, models
 from ssc.cli.atomic import Directory
 from ssc.cli.cache import Cache, cache_key
 from ssc.cli.errors import SscError, UsageError
+from ssc.cli.frames import MAX_FILE_BYTES, encode
 from ssc.cli.output import Result
 from ssc.cli.workspace import Workspace
+from ssc.core.board import checkerboard
 
 #: How far a model's nearest shape may be from the one asked for before this refuses.
 #:
@@ -370,6 +372,46 @@ class Style:
         return {"name": self.name, "shipped": self.shipped, "board": self.board}
 
 
+#: What an image with no stated role is called, where another one alongside it has a role.
+#: The numbering has to stay aligned with the order the images are sent, so an unnamed
+#: reference takes a place in the list rather than being left out of it.
+UNNAMED_REFERENCE = "a reference to derive from"
+
+
+def roles() -> dict[str, str]:
+    """What each role tells the model the image is for.
+
+    Beside the templates rather than in a file of its own: it is the same kind of thing —
+    prose sent to a model, tuned by whoever reads what came back — and the anchor
+    template's own sentence about the board moved here, because that lesson belongs to the
+    image it is about and not to a template that may or may not be carrying one.
+    """
+    document: dict[str, Any] = json.loads(
+        resources.files("ssc.data").joinpath("templates.json").read_text(encoding="utf-8")
+    )
+    found = document.get("roles")
+    if not isinstance(found, dict):
+        raise SscError("templates-invalid", "the shipped templates.json declares no roles")
+    return {str(name): str(text) for name, text in found.items()}
+
+
+def about(references: tuple[Reference, ...]) -> str:
+    """The sentence naming what each image is for, in the order they are sent (R2.1, R2.3).
+
+    Empty where no reference carries a role: a single image next to a template that already
+    says what it expects needs no announcement, and a sentence that says *a reference to
+    derive from* and nothing else is words a model has to spend attention on for nothing.
+    """
+    if not any(reference.role for reference in references):
+        return ""
+    phrases = roles()
+    named = [phrases.get(item.role or "", UNNAMED_REFERENCE) for item in references]
+    if len(named) == 1:
+        return f"The image supplied alongside this prompt is {named[0]}."
+    listed = "; ".join(f"({index + 1}) {phrase}" for index, phrase in enumerate(named))
+    return f"The images supplied alongside this prompt, in order: {listed}."
+
+
 def styles() -> dict[str, dict[str, str]]:
     document: dict[str, Any] = json.loads(
         resources.files("ssc.data").joinpath("styles.json").read_text(encoding="utf-8")
@@ -509,6 +551,7 @@ def prompt_for(
     cell: tuple[int, int],
     variables: dict[str, str] | None = None,
     style: Style | None = None,
+    references: tuple[Reference, ...] = (),
     *,
     style_named: bool = False,
 ) -> str:
@@ -568,7 +611,12 @@ def prompt_for(
         "prompt": text,
         "style": "" if style is None else style.words,
     }
-    return SLOT.sub(lambda found: filled.get(found.group(1), found.group(0)), body)
+    written = SLOT.sub(lambda found: filled.get(found.group(1), found.group(0)), body)
+    # Appended after the substitution rather than through a slot of its own: what the images
+    # are is a fact about *this call*, not a hole in the template, and every template would
+    # otherwise need a slot for something most calls do not carry.
+    naming = about(references)
+    return f"{written}\n\n{naming}" if naming else written
 
 
 # ------------------------------------------------------------- what is asked
@@ -639,6 +687,15 @@ def image_at(path: Path) -> Image:
     """
     content_type = _content_type(path)
     try:
+        if path.stat().st_size > MAX_FILE_BYTES:
+            # Checked from the header rather than after the read, the way `check_set_size`
+            # refuses a frame set: a file past the ceiling must not be resident before
+            # anything can decide about it. `--ref` repeats, so this is now a multiple.
+            raise UsageError(
+                "file-too-large",
+                f"{path.name} is over the {MAX_FILE_BYTES:,}-byte ceiling",
+                fix="send a smaller image; a reference is art, not an archive",
+            )
         data = path.read_bytes()
     except OSError as unreadable:
         raise UsageError(
@@ -659,7 +716,10 @@ def image_in(held: Directory, relative: str) -> Image:
     """
     content_type = _content_type(Path(relative))
     try:
-        data = held.read(relative)
+        # `max_bytes` for the reason `Directory.read`'s own docstring gives: bytes read
+        # through a binding are in memory before anything can inspect them. Every other
+        # reader of a bound directory passes it, and this one is a multiple now.
+        data = held.read(relative, max_bytes=MAX_FILE_BYTES)
     except OSError as unreadable:
         raise UsageError(
             "no-input",
@@ -667,6 +727,91 @@ def image_in(held: Directory, relative: str) -> Image:
             fix="check that the stage still names a file",
         ) from unreadable
     return Image(path=Path(relative), data=data, content_type=content_type)
+
+
+#: The board a style names, where nothing else decides its size. `tool board checker`'s own
+#: defaults, so the two commands produce the same image from the same words.
+BOARD_SIZE = (1024, 1024)
+BOARD_SQUARE = 8
+
+#: How many images one call may carry. Not a provider limit — it is a bound on this
+#: process: every reference is read whole into memory before any of them is sent, and
+#: `--ref` repeating is what made that a multiple rather than a single file. A call
+#: pointing at more than a handful of images is a mistake in a script, not a generation.
+MAX_REFERENCES = 8
+
+
+#: What a reference is for. A closed vocabulary, for `gen.VARIABLES`' reason: an open set
+#: becomes a second prompt language nobody documents, and these four are what a caller
+#: actually points at — the character to stay faithful to, the colours to use, the pose to
+#: hold, and the board that imposes discipline.
+ROLES = ("identity", "palette", "pose", "board")
+
+
+@dataclass(frozen=True)
+class Reference:
+    """One image on its way to a model, and what it is for.
+
+    The role is optional because a single reference next to a template that already says
+    what it expects needs no announcement. It stops being optional in practice the moment
+    there are two: nothing in a payload of two URLs says which is the anchor.
+    """
+
+    image: Image
+    role: str | None = None
+
+    def report(self) -> dict[str, Any]:
+        return {"file": self.image.path.name, "role": self.role, "sha256": self.image.digest}
+
+
+def board_for(style: Style | None, size: tuple[int, int] | None) -> Reference:
+    """The board the resolved style names, generated now (R3.1, R3.2).
+
+    Generated rather than taken as a path, which is what `docs/wiki/reference-boards.md`
+    argues for: both boards are trivially computable, and keeping the square size a
+    parameter is the difference between a board that tracks the project and a PNG somebody
+    made once. The same `core/board.py` `tool board checker` uses, so the two produce the
+    same image from the same numbers.
+    """
+    if style is None or style.board is None:
+        named = "no style is resolved for this call" if style is None else f"{style.name!r}"
+        raise UsageError(
+            "no-board",
+            f"--board attaches the board a style names, and {named} names none",
+            fix="drop --board, or generate one with ssc tool board checker and pass it "
+            "with --ref <path>:board",
+        )
+    if style.board != "checker":
+        # The registry of boards is `styles.json`, and `checker` is the only one any shipped
+        # style names. A style declaring another is a data file ahead of this code, which is
+        # worth saying rather than silently drawing a checkerboard for.
+        raise SscError(
+            "unknown-board",
+            f"{style.name!r} names the board {style.board!r}, which this build cannot draw",
+            fix="upgrade ssc, or pass the board with --ref <path>:board",
+        )
+    # Imported here rather than at the top: `commands/convert.py` is a command module and
+    # this is the pipeline it is built on, so the dependency only points this way inside the
+    # one function that needs it. The bound is taken from there rather than restated,
+    # because a ceiling written down twice is two ceilings.
+    from ssc.cli.commands.convert import MAX_BOARD_SIDE
+
+    width, height = size or BOARD_SIZE
+    if max(width, height) > MAX_BOARD_SIDE:
+        # The bound `tool board checker` holds the same function to. `build` runs before the
+        # dry-run report, before the cache and before the budget, so an unbounded side here
+        # is a `np.zeros` big enough to take the process down without a call being made —
+        # and the docstring above claims parity with that command, which has to be true.
+        raise UsageError(
+            "invalid-size",
+            f"a board at {width}x{height} is past {MAX_BOARD_SIDE} on a side",
+            fix=f"ask for a size up to {MAX_BOARD_SIDE}x{MAX_BOARD_SIDE}",
+        )
+    image, _ = checkerboard(BOARD_SQUARE, width, height)
+    return Reference(
+        Image(path=Path("checker.png"), data=encode(image), content_type="image/png"),
+        role="board",
+    )
 
 
 @dataclass(frozen=True)
@@ -686,7 +831,14 @@ class Ask:
     #: The string rather than a resolved `Style`, because an `Ask` is what a caller said and
     #: resolving it needs the profile, which `build` is the first to hold.
     style: str | None = None
-    image: Image | None = None
+    #: Every image this call sends, in the order they were given. A tuple rather than one
+    #: `Image`: the payload has always modelled an array where the model declares one, and
+    #: an anchor plus a board is the ordinary way a direction is generated.
+    references: tuple[Reference, ...] = ()
+    #: Whether to attach the board the resolved style names. A flag rather than a path: the
+    #: board is computed, and the square size is a parameter that should track the project
+    #: rather than a file somebody generated once — see `docs/wiki/reference-boards.md`.
+    board: bool = False
     seconds: int | None = None
     size: tuple[int, int] | None = None
     seed: int | None = None
@@ -717,7 +869,7 @@ class Call:
     recorded: dict[str, Any]
     inputs: tuple[str, ...]
     image_field: str | None = None
-    image: Image | None = None
+    references: tuple[Reference, ...] = ()
     template: str | None = None
     style: Style | None = None
     size: Size | None = None
@@ -727,11 +879,18 @@ class Call:
     #: legitimate pairing, and a caller still has to be able to see it did not apply.
     skipped_defaults: tuple[str, ...] = ()
 
-    def arguments(self, url: str | None) -> dict[str, Any]:
+    def arguments(self, urls: list[str]) -> dict[str, Any]:
+        """The payload, with the placeholders replaced by the URLs the references became.
+
+        The shape the schema check produced is kept: a field the model declares as an array
+        stays an array, and one it declares as a string takes the single URL. `build` has
+        already refused more than one reference against a field that holds one, so the
+        `urls[0]` here is never a silent truncation.
+        """
         payload = dict(self.checked)
-        if self.image_field is not None and url is not None:
+        if self.image_field is not None and urls:
             existing = payload.get(self.image_field)
-            payload[self.image_field] = [url] if isinstance(existing, list) else url
+            payload[self.image_field] = list(urls) if isinstance(existing, list) else urls[0]
         return payload
 
     def key(self) -> str:
@@ -753,6 +912,7 @@ class Call:
             "model": self.endpoint,
             "template": self.template,
             "style": None if self.style is None else self.style.report(),
+            "references": [reference.report() for reference in self.references],
             "arguments": self.recorded,
             "size": None if self.size is None else self.size.report,
             "skipped_defaults": list(self.skipped_defaults),
@@ -791,8 +951,14 @@ def endpoint_for(
     ask: Ask,
     profile: kinds.Profile,
     settings: dict[str, Any],
+    references: tuple[Reference, ...] = (),
 ) -> str:
-    """Which model runs, and — when an image is passed — which of its endpoints (R2.6)."""
+    """Which model runs, and — when an image is passed — which of its endpoints (R2.6).
+
+    `references` rather than `ask.references`, because a board attached by `--board` is an
+    image this call carries and the ask does not name: routing off the ask alone would send
+    a call with a board on it to the endpoint that takes no image at all.
+    """
     if ask.model is not None:
         # Named on the command line. Checked against the registry rather than trusted, so a
         # typo is a refusal here instead of a bill from an endpoint nobody meant.
@@ -803,7 +969,7 @@ def endpoint_for(
         from_kind = profile.image_model if ask.media == "image" else profile.video_model
         endpoint = registry.chosen(ask.media, config=settings, from_kind=from_kind or None)
 
-    if ask.image is None or registry.core_for(endpoint).get("image"):
+    if not references or registry.core_for(endpoint).get("image"):
         return endpoint
 
     # Passing a reference image is a different endpoint, not a parameter — both image models
@@ -831,25 +997,38 @@ def build(
     Nothing here touches the network. That is what lets `--dry-run` report the whole resolved
     call, and what lets the cache be consulted before a byte is uploaded.
     """
-    endpoint = endpoint_for(registry, ask, profile, settings)
-    model = registry.get(endpoint)
-    mapping = registry.core_for(endpoint)
-
-    core: dict[str, Any] = {}
+    # The style, then the images, then the model: the board is the style's, and which images
+    # a call carries decides which endpoint it goes to.
     template: str | None = None
     style: Style | None = None
     if ask.prompt is not None:
         template = ask.template or profile.template
         # The flag first, the kind second (R1.1, R3.1) — the same precedence `--template`
-        # has over `profile.template` one line above, and for the same reason: a kind is a
-        # project decision and a flag is this call.
+        # has over `profile.template`, and for the same reason: a kind is a project decision
+        # and a flag is this call.
         style = style_for(ask.style if ask.style is not None else profile.style)
+    references = ask.references + ((board_for(style, ask.size),) if ask.board else ())
+    if len(references) > MAX_REFERENCES:
+        raise UsageError(
+            "too-many-references",
+            f"{len(references)} references is past {MAX_REFERENCES}",
+            fix="a generation derives from a handful of images; send fewer",
+        )
+
+    endpoint = endpoint_for(registry, ask, profile, settings, references)
+    model = registry.get(endpoint)
+    mapping = registry.core_for(endpoint)
+
+    core: dict[str, Any] = {}
+    if ask.prompt is not None:
+        assert template is not None
         core["prompt"] = prompt_for(
             template,
             ask.prompt,
             profile.cell,
             ask.variables,
             style,
+            references,
             style_named=ask.style is not None,
         )
     if ask.seconds is not None:
@@ -870,7 +1049,7 @@ def build(
         core["format"] = ask.image_format
 
     image_field: str | None = None
-    if ask.image is not None:
+    if references:
         image_field = mapping.get("image")
         if not isinstance(image_field, str):
             # Not reachable through `endpoint_for`, which has already resolved to an endpoint
@@ -884,10 +1063,19 @@ def build(
                 fix=f"ssc model show {endpoint}",
             )
         option = model.options.get(image_field)
-        placeholder: Any = (
-            [PLACEHOLDER_URL] if option is not None and option.type == "array" else PLACEHOLDER_URL
-        )
-        core["image"] = placeholder
+        several = option is not None and option.type == "array"
+        if not several and len(references) > 1:
+            # Refused rather than truncated (R1.3): the field holds one URL, and sending the
+            # first of two is a paid call missing half of what it was asked to work from —
+            # in an image plausible enough that nobody checks, which is the shape of every
+            # refusal in this pipeline.
+            raise UsageError(
+                "too-many-references",
+                f"{endpoint} takes one image, and {len(references)} were given",
+                fix=f"send one reference, or name a model that takes several: "
+                f"ssc model show {endpoint}",
+            )
+        core["image"] = [PLACEHOLDER_URL] * len(references) if several else PLACEHOLDER_URL
 
     skipped = _from_kind(core, profile, mapping, model)
 
@@ -905,19 +1093,20 @@ def build(
 
     checked = registry.resolve(endpoint, core=core, options=options)
     recorded = dict(checked)
-    if image_field is not None and ask.image is not None:
+    if image_field is not None and references:
         # The shape is kept — a list stays a list — so the record reads as the call that was
         # made rather than as a differently shaped summary of it.
-        elided = ask.image.elided()
-        recorded[image_field] = [elided] if isinstance(checked.get(image_field), list) else elided
+        elided = [reference.image.elided() for reference in references]
+        recorded[image_field] = elided if isinstance(checked.get(image_field), list) else elided[0]
 
     return Call(
         endpoint=endpoint,
         checked=checked,
         recorded=recorded,
-        inputs=() if ask.image is None else (ask.image.digest,),
+        # Every reference, so a call differing only in its second image is a different key.
+        inputs=tuple(reference.image.digest for reference in references),
         image_field=image_field,
-        image=ask.image,
+        references=references,
         template=template,
         style=style,
         size=size,
@@ -1263,9 +1452,10 @@ def run(
     # having been attempted.
     fal.credential()
 
-    url = None
-    if call.image is not None:
-        url = provider.reference(call.image.data, call.image.content_type, upload=ask.upload)
+    urls = [
+        provider.reference(reference.image.data, reference.image.content_type, upload=ask.upload)
+        for reference in call.references
+    ]
 
     job = jobs.Job.new(
         id=job_id(),
@@ -1281,7 +1471,7 @@ def run(
         # pays for again.
         cache_key=key,
     )
-    arguments = call.arguments(url)
+    arguments = call.arguments(urls)
 
     # Reserved before the call, not counted after it. After the cache, because a hit submits
     # nothing and refusing one for being over budget would be refusing to spend nothing

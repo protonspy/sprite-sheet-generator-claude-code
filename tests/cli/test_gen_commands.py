@@ -18,13 +18,14 @@ import yaml
 from click.testing import CliRunner
 from conftest import load_meta
 
-from ssc.cli import budget, fal, jobs, meta, models
+from ssc.cli import budget, fal, frames, jobs, meta, models
 from ssc.cli import gen as pipeline
 from ssc.cli import workspace as ws
 from ssc.cli.app import main
 from ssc.cli.atomic import Directory
 from ssc.cli.commands import gen as commands
 from ssc.cli.errors import UsageError
+from ssc.core import board
 
 NANO = "fal-ai/nano-banana-2"
 NANO_EDIT = "fal-ai/nano-banana-2/edit"
@@ -261,6 +262,11 @@ def test_the_anchor_template_carries_the_rules_the_wiki_paid_for(
     The neutral pose is the expensive one: an object in the anchor becomes attached to the
     body in every frame derived from it, and removing it afterwards is hand-work per frame.
     The board's role is the other: unstated, the model paints the checkerboard into the art.
+
+    The second lesson moved with `specs/reference-images/`: it used to be a sentence in the
+    template saying *any image supplied alongside this prompt is a board*, which stopped
+    being true the moment a call could carry two. It now travels with the image it is about,
+    so it is asserted here where that image is attached.
     """
     _, payload = run(
         "gen",
@@ -271,6 +277,7 @@ def test_the_anchor_template_carries_the_rules_the_wiki_paid_for(
         "a knight",
         "--template",
         "anchor",
+        "--board",
         *HERO,
         "--dry-run",
     )
@@ -388,6 +395,492 @@ def test_the_correction_template_preserves_identity_and_strips_the_effect(
     assert "identity to preserve" in sent
     assert "every single frame derived from this one" in sent
     assert "Do not redesign the character" in sent
+
+
+# specs/reference-images R1 — more than one reference, in the order they were given.
+
+
+def png_named(space: Path, name: str, body: bytes) -> Path:
+    """A PNG that is a real PNG and is not the same bytes as the others."""
+    path = space / name
+    path.write_bytes(PNG + body)
+    return path
+
+
+def test_two_references_both_reach_the_payload_in_order(space: Path, api: FakeClient) -> None:
+    """An anchor plus a checkerboard is how every direction after the first is generated, so
+    two is the ordinary case rather than the exotic one."""
+    anchor = png_named(space, "anchor.png", b"one")
+    board = png_named(space, "board.png", b"two")
+
+    _, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "the anchor, turned West",
+        "--ref",
+        str(anchor),
+        "--ref",
+        str(board),
+        "--dry-run",
+    )
+
+    sent = payload["arguments"]["image_urls"]
+    assert [entry["from"] for entry in sent] == ["anchor.png", "board.png"]
+    assert payload["model"] == NANO_EDIT
+
+
+def staged(space: Path, name: str = "001_hero.gen.png", stage: str = "gen") -> None:
+    """A file recorded into the asset under a stage, so `--from-stage` can address it."""
+    directory = space / "assets" / "character" / "hero"
+    (directory / name).write_bytes(PNG + b"staged")
+    record = load_meta(directory)
+    with Directory.open(directory) as held:
+        meta.record(
+            record,
+            path=name,
+            stage=stage,
+            file_class="source",
+            data=PNG + b"staged",
+            produced_by=meta.Provenance(command="test", params={}),
+        )
+        meta.save(held, record)
+
+
+def test_a_stage_and_a_file_are_one_ordered_list(space: Path, api: FakeClient) -> None:
+    """Stages first, then loose paths — the order a caller builds a call in: the asset's own
+    chain is what a direction derives from, and the board is what is added to it."""
+    staged(space)
+
+    _, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "the anchor, turned West",
+        "--ref",
+        str(png_named(space, "board.png", b"two")),
+        "--from-stage",
+        "gen",
+        "--dry-run",
+    )
+
+    sent = payload["arguments"]["image_urls"]
+    assert [entry["from"] for entry in sent] == ["001_hero.gen.png", "board.png"]
+
+
+def test_every_reference_is_uploaded_and_submitted(
+    space: Path, api: FakeClient, keyed: None
+) -> None:
+    code, _ = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "the anchor, turned West",
+        "--ref",
+        str(png_named(space, "anchor.png", b"one")),
+        "--ref",
+        str(png_named(space, "board.png", b"two")),
+    )
+
+    assert code == 0
+    assert len(api.encoded) == 2
+    _, arguments = api.submitted[0]
+    assert len(arguments["image_urls"]) == 2
+
+
+def test_a_model_that_takes_one_image_refuses_the_second(space: Path, api: FakeClient) -> None:
+    """Refused rather than truncated: the field holds one URL, and sending the first of two
+    is a paid call missing half of what it was asked to work from."""
+    code, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--model",
+        BIREFNET,
+        "--ref",
+        str(png_named(space, "anchor.png", b"one")),
+        "--ref",
+        str(png_named(space, "board.png", b"two")),
+        "--dry-run",
+    )
+
+    assert code == 2
+    assert payload["error"]["code"] == "too-many-references"
+    assert "1 image" in payload["error"]["message"] or "one image" in payload["error"]["message"]
+
+
+def test_the_second_reference_is_part_of_the_key(space: Path, api: FakeClient) -> None:
+    """A call differing only in its second image is a different call, and a cache that
+    conflated them would file one result under both."""
+    anchor = png_named(space, "anchor.png", b"one")
+    argv = (
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--ref",
+        str(anchor),
+    )
+
+    _, alone = run(*argv, "--dry-run")
+    _, with_board = run(*argv, "--ref", str(png_named(space, "board.png", b"two")), "--dry-run")
+
+    assert alone["cache_key"] != with_board["cache_key"]
+
+
+def test_each_reference_is_recorded_by_digest_rather_than_by_its_bytes(
+    space: Path, api: FakeClient
+) -> None:
+    _, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--ref",
+        str(png_named(space, "anchor.png", b"one")),
+        "--ref",
+        str(png_named(space, "board.png", b"two")),
+        "--dry-run",
+    )
+
+    for entry in payload["arguments"]["image_urls"]:
+        assert set(entry) == {"sha256", "bytes", "from"}
+    digests = {entry["sha256"] for entry in payload["arguments"]["image_urls"]}
+    assert len(digests) == 2
+
+
+def test_more_references_than_ssc_carries_are_refused_before_any_is_read(
+    space: Path, api: FakeClient
+) -> None:
+    """Before the first read: every reference is resident by the time the pipeline sees the
+    list, so a ceiling checked there is a ceiling checked too late."""
+    many = [
+        argument
+        for index in range(pipeline.MAX_REFERENCES + 1)
+        for argument in ("--ref", str(space / f"missing-{index}.png"))
+    ]
+
+    code, payload = run(
+        "gen", "image", "--asset", "character/hero", "--prompt", "a knight", *many, "--dry-run"
+    )
+
+    assert code == 2
+    assert payload["error"]["code"] == "too-many-references"
+    # not `no-input`: nothing was opened, which is the point of checking here
+    assert "past" in payload["error"]["message"]
+
+
+def test_a_reference_over_the_file_ceiling_is_refused(
+    space: Path, api: FakeClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """From the header rather than after the read, the way a frame set is refused: a file
+    past the ceiling must not be resident before anything can decide about it."""
+    monkeypatch.setattr(pipeline, "MAX_FILE_BYTES", 8)
+
+    code, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--ref",
+        str(png_named(space, "anchor.png", b"far more than eight bytes")),
+        "--dry-run",
+    )
+
+    assert code == 2
+    assert payload["error"]["code"] == "file-too-large"
+
+
+# specs/reference-images R2 — what each image is for, said in the prompt.
+
+
+def test_a_role_says_in_the_prompt_what_the_image_is_for(space: Path, api: FakeClient) -> None:
+    _, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "the anchor, turned West",
+        "--ref",
+        f"{png_named(space, 'anchor.png', b'one')}:identity",
+        "--dry-run",
+    )
+
+    sent = payload["arguments"]["prompt"]
+    assert "The image supplied alongside this prompt is the character to stay faithful to" in sent
+
+
+def test_two_roles_are_named_in_the_order_the_images_are_sent(space: Path, api: FakeClient) -> None:
+    """Nothing in a payload of two URLs says which is the anchor, so the prompt does."""
+    _, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "the anchor, turned West",
+        "--ref",
+        f"{png_named(space, 'anchor.png', b'one')}:identity",
+        "--ref",
+        f"{png_named(space, 'swatch.png', b'two')}:palette",
+        "--dry-run",
+    )
+
+    sent = payload["arguments"]["prompt"]
+    assert "(1) the character to stay faithful to" in sent
+    assert "(2) the colours to work in" in sent
+    assert sent.index("(1)") < sent.index("(2)")
+
+
+def test_an_image_with_no_role_keeps_its_place_in_the_numbering(
+    space: Path, api: FakeClient
+) -> None:
+    """The numbering is the only thing tying a phrase to an image, so an unnamed one is
+    listed rather than skipped."""
+    _, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "the anchor, turned West",
+        "--ref",
+        str(png_named(space, "anchor.png", b"one")),
+        "--ref",
+        f"{png_named(space, 'board.png', b'two')}:board",
+        "--dry-run",
+    )
+
+    sent = payload["arguments"]["prompt"]
+    assert "(1) a reference to derive from" in sent
+    assert "(2) a pixel-grid board" in sent
+
+
+def test_a_reference_with_no_role_at_all_adds_no_sentence(space: Path, api: FakeClient) -> None:
+    """One image beside a template that already says what it expects needs no announcement,
+    and a sentence saying nothing is words the model spends attention on for nothing."""
+    _, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--ref",
+        str(png_named(space, "anchor.png", b"one")),
+        "--dry-run",
+    )
+
+    assert "supplied alongside this prompt" not in payload["arguments"]["prompt"]
+
+
+def test_a_role_nobody_defined_is_refused(space: Path, api: FakeClient) -> None:
+    code, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--ref",
+        f"{png_named(space, 'anchor.png', b'one')}:identtiy",
+        "--dry-run",
+    )
+
+    assert code == 2
+    assert payload["error"]["code"] == "unknown-role"
+    assert "identity" in payload["error"]["fix"]
+
+
+def test_a_path_that_is_not_a_role_suffix_stays_a_path(space: Path, api: FakeClient) -> None:
+    """A colon inside a path is a path — a Windows drive letter is the ordinary case — so
+    the suffix is only read as a role where the head names a file that is really there."""
+    path, role = commands.split_role(r"C:\art\anchor.png", is_path=True)
+
+    assert (path, role) == (r"C:\art\anchor.png", None)
+
+
+def test_a_stage_takes_a_role_the_same_way_a_path_does(space: Path, api: FakeClient) -> None:
+    staged(space)
+
+    _, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "the anchor, turned West",
+        "--from-stage",
+        "gen:identity",
+        "--dry-run",
+    )
+
+    assert payload["references"][0]["role"] == "identity"
+
+
+def test_a_mistyped_role_on_a_stage_is_refused_as_a_role(space: Path, api: FakeClient) -> None:
+    """A stage is a name and no legal one holds a colon, so a suffix was meant to be a role.
+    Reading it as part of the stage name refuses for the wrong reason: `unknown-stage` sends
+    the caller looking at their asset for something that was never the problem."""
+    staged(space)
+
+    code, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--from-stage",
+        "gen:identtiy",
+        "--dry-run",
+    )
+
+    assert code == 2
+    assert payload["error"]["code"] == "unknown-role"
+
+
+def test_every_reference_is_reported_with_its_role(space: Path, api: FakeClient) -> None:
+    _, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "the anchor, turned West",
+        "--ref",
+        f"{png_named(space, 'anchor.png', b'one')}:identity",
+        "--ref",
+        str(png_named(space, "swatch.png", b"two")),
+        "--dry-run",
+    )
+
+    assert [(entry["file"], entry["role"]) for entry in payload["references"]] == [
+        ("anchor.png", "identity"),
+        ("swatch.png", None),
+    ]
+    assert all(entry["sha256"] for entry in payload["references"])
+
+
+# specs/reference-images R3 — the board a style names.
+
+
+def test_the_board_is_generated_and_sent_after_what_the_caller_named(
+    space: Path, api: FakeClient
+) -> None:
+    _, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--ref",
+        f"{png_named(space, 'anchor.png', b'one')}:identity",
+        "--board",
+        "--dry-run",
+    )
+
+    assert [entry["file"] for entry in payload["references"]] == ["anchor.png", "checker.png"]
+    assert payload["references"][-1]["role"] == "board"
+    assert "a pixel-grid board" in payload["arguments"]["prompt"]
+
+
+def test_the_board_alone_still_moves_the_call_to_the_editing_endpoint(
+    space: Path, api: FakeClient
+) -> None:
+    """The board is an image this call carries and the ask does not name, so routing off the
+    ask alone would send it to the endpoint that takes no image at all."""
+    _, payload = run(
+        "gen", "image", "--asset", "character/hero", "--prompt", "a knight", "--board", "--dry-run"
+    )
+
+    assert payload["model"] == NANO_EDIT
+    assert [entry["file"] for entry in payload["references"]] == ["checker.png"]
+
+
+def test_the_board_is_the_same_image_tool_board_checker_draws(space: Path, api: FakeClient) -> None:
+    """Generated rather than vendored, and by the same function, so the two commands cannot
+    drift into drawing two different boards."""
+    drawn, _ = board.checkerboard(pipeline.BOARD_SQUARE, *pipeline.BOARD_SIZE)
+    reference = pipeline.board_for(pipeline.style_for("pixel-art"), None)
+
+    assert reference.image.data == frames.encode(drawn)
+    assert reference.role == "board"
+
+
+def test_a_board_past_the_side_tool_board_holds_one_to_is_refused(
+    space: Path, api: FakeClient
+) -> None:
+    """`build` runs before the dry-run report, before the cache and before the budget, so an
+    unbounded side here is an allocation big enough to take the process down without a call
+    being made. The bound is `tool board checker`'s, taken from there rather than restated."""
+    code, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--board",
+        "--size",
+        "99999x99999",
+        "--dry-run",
+    )
+
+    assert code == 2
+    assert payload["error"]["code"] == "invalid-size"
+    assert api.submitted == []
+
+
+def test_a_style_that_names_no_board_refuses_the_flag(space: Path, api: FakeClient) -> None:
+    code, payload = run(
+        "gen",
+        "image",
+        "--asset",
+        "character/hero",
+        "--prompt",
+        "a knight",
+        "--style",
+        "vector",
+        "--board",
+        "--dry-run",
+    )
+
+    assert code == 2
+    assert payload["error"]["code"] == "no-board"
+    assert "tool board checker" in payload["error"]["fix"]
+
+
+# specs/reference-images R4.1 — a board cannot be expressed on a video call.
+
+
+def test_a_video_call_takes_one_image_and_offers_no_board() -> None:
+    """A video model given a grid paints the grid onto the character. The wiki's argument for
+    two commands rather than one with a flag is that a mistake which cannot be expressed
+    cannot be made under time pressure — so this asserts the surface, not a refusal."""
+    repeatable = {parameter.name for parameter in commands.gen_video.params if parameter.multiple}
+
+    assert "board" not in {parameter.name for parameter in commands.gen_video.params}
+    # `--opt` and `--var` are repeatable and neither carries an image; nothing that does is.
+    assert repeatable == {"options", "variables"}
+    assert "references" not in repeatable and "stages" not in repeatable
 
 
 # specs/generation-style R1.1, R2.3, R3.2, R3.3 — how the art is drawn, on the command line.

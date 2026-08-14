@@ -1,5 +1,17 @@
 # Wiki changelog
 
+## 2026-08-14 — a call carries more than one image
+
+`specs/reference-images/`: `--ref` and `--from-stage` repeat, each optionally saying what its
+image is for (`identity`, `palette`, `pose`, `board`), and the prompt names them in the order
+they are sent — an anchor plus a checkerboard is how every direction after the first is
+generated, so two is the ordinary case. `--board` attaches the board the style names,
+completing the seam `specs/generation-style/` left. A model whose image field holds one URL
+refuses the second rather than dropping it.
+
+- **[[reference-boards]]** — how a board is attached now, and why it is a flag rather than
+  something a style does on its own.
+
 ## 2026-08-13 — the style axis exists
 
 `specs/generation-style/` lands the first half of what [[box-art-and-style]] described:

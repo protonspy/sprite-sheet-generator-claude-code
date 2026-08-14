@@ -34,6 +34,21 @@ character's body — the lines end up painted on the armour. This is why image a
 generation are separate commands with separate templates rather than one command with a
 flag: a mistake that is structurally impossible cannot be made under time pressure.
 
+## Attaching one
+
+`ssc gen image --board` attaches the board the resolved style names — `pixel-art` names the
+checkerboard, and no other shipped style names one — generating it at the size the call asks
+for. It is a flag rather than something the style does on its own: `pixel-art` is the
+default look for every kind, so attaching a board whenever the style names one would put a
+grid on every image call ever made, and a board is right for an anchor and wrong for a
+direction being drawn *from* that anchor.
+
+Any file can be a board instead: `--ref <path>:board` says what the image is for without
+generating anything. The role is what carries the lesson — *take block discipline from it
+and never take its content* — which used to be a sentence in the `anchor` template. It moved
+because that sentence said **any** image supplied alongside the prompt is a board, and a
+call can now carry two.
+
 ## Boards are generated, not downloaded
 
 Both are trivially computable, and both are distributed by their popularisers as

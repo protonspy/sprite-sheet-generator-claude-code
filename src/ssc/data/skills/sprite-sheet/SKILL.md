@@ -70,6 +70,10 @@ gives a model's options and the provider's price text before you commit to eithe
   another for one call: `pixel-art`, `vector`, `hand-painted`, `3d-render`, `flat`, or free
   text for anything else. Set it once at the anchor and leave it alone: every later frame
   derives from that image, and a style changed mid-run is a character that changes with it.
+  Add `--board` here and only here — it attaches the checkerboard `pixel-art` names, which is
+  what makes the anchor come back as blocks rather than as a painting of blocks. Every later
+  call points at the approved anchor instead: `--ref <path>:identity`, repeatable, with
+  `:palette` or `:pose` where a second image is doing a different job.
 - **Stage 2, the pose sheets** — `gen image` again, and this is the call where `--count`
   earns its cost: generate several boards cheaply (`--count 3-4`, quality and size tier
   down), pick the composition that reads, then regenerate that one at full quality.

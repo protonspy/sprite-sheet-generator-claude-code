@@ -32,7 +32,7 @@ the check that runs before submission, and `specs/job-store/` is the record.
 ## R2 · What is sent
 
 - **R2.1** The `ssc` CLI shall build the prompt it sends from the template the target asset's kind names.
-- **R2.2** The `ssc` CLI shall send a local image to the model inline, as a data URL.
+- **R2.2** The `ssc` CLI shall send every local image a call carries to the model inline, as a data URL.
 - **R2.3** Where the caller asks for it, the `ssc` CLI shall upload a local image to the provider's storage and send that URL instead.
 - **R2.4** If an image is too large to send inline and no upload was asked for, then the `ssc` CLI shall refuse and name the option that uploads it.
 - **R2.5** The `ssc` CLI shall check every option against the chosen model's schema before submitting.

@@ -71,7 +71,9 @@ def source_image(
     """The image being sent, from a stage of the asset or from a loose file (R2.2).
 
     Exactly one of the two, because naming neither is a call with nothing to work from and
-    naming both is two answers to one question.
+    naming both is two answers to one question. This is the *subject* case — `gen video`,
+    `gen expand` and `gen bgremove` each transform one image — and it stays singular for
+    that reason; `gen image` takes references instead, through `references_for`.
     """
     if (stage is None) == (source is None):
         raise UsageError(
@@ -89,6 +91,73 @@ def source_image(
     with held:
         entry = record.stage(str(stage))
         return gen.image_in(held, entry.path)
+
+
+def split_role(value: str, *, is_path: bool) -> tuple[str, str | None]:
+    """`x` or `x:role` into the two, with the role checked against `gen.ROLES`.
+
+    Split on the last colon, and only where what follows is a role this package defines.
+    What the rest of the value *is* decides how hard that is: a **stage** is a name, and
+    `workspace-foundation`'s naming rules leave no legal colon in one, so any suffix at all
+    was meant to be a role and one that is not is refused. A **path** may legitimately hold
+    a colon — `C:\\art\\anchor.png` is the ordinary Windows case — so a suffix is only read
+    as a role attempt where the head names a file that is really there.
+
+    The distinction is the caller's to state rather than something to infer. Inferring it
+    from the filesystem is what the first draft did, and it silently gave up on the stage
+    case: no stage name is ever a file in the working directory, so `--from-stage
+    gen:identtiy` came back as `unknown-stage` — a true error, about the wrong thing.
+    """
+    head, separator, tail = value.rpartition(":")
+    if not separator or not head:
+        return value, None
+    if tail in gen.ROLES:
+        return head, tail
+    if not is_path or Path(head).is_file():
+        # The head is a stage, or it names a real file, so the tail was meant to be a role
+        # and is not one. Reading it as part of the name instead refuses for the wrong
+        # reason and sends the caller looking for something that was never the problem.
+        raise UsageError(
+            "unknown-role",
+            f"{tail!r} is not what a reference can be for",
+            fix=f"the roles are: {', '.join(gen.ROLES)} — or drop the suffix",
+        )
+    return value, None
+
+
+def references_for(
+    workspace: Workspace, asset: str, stages: tuple[str, ...], refs: tuple[str, ...]
+) -> tuple[gen.Reference, ...]:
+    """Every image this call sends, in the order they were named (R1.1, R1.2).
+
+    Stages first, then loose paths — a stable order, and the one that reads the way a caller
+    builds a call: the asset's own chain is what a direction derives from, and the board or
+    the swatch is the thing added to it.
+    """
+    if len(stages) + len(refs) > gen.MAX_REFERENCES:
+        # Before the first read rather than in `build`, which is where the same ceiling is
+        # checked against the finished list: this one is about memory, and by the time the
+        # pipeline sees them they are all resident. Both, because they bound different
+        # things — the images a caller named, and the images a call ends up carrying.
+        raise UsageError(
+            "too-many-references",
+            f"{len(stages) + len(refs)} references is past {gen.MAX_REFERENCES}",
+            fix="a generation derives from a handful of images; send fewer",
+        )
+
+    found: list[gen.Reference] = []
+    if stages:
+        # One hold for every stage, rather than one per stage: the record and the files it
+        # names are read through the same binding, which is what R3.7 asks for.
+        held, record = listing.resolve(workspace, asset)
+        with held:
+            for stage in stages:
+                name, role = split_role(stage, is_path=False)
+                found.append(gen.Reference(gen.image_in(held, record.stage(name).path), role))
+    for ref in refs:
+        path, role = split_role(ref, is_path=True)
+        found.append(gen.Reference(gen.image_at(Path(path)), role))
+    return tuple(found)
 
 
 def imaging(command: Any) -> Any:
@@ -162,8 +231,23 @@ def shared(command: Any) -> Any:
 @imaging
 @click.option("--seed", type=int, default=None, help="Where the model supports one.")
 @click.option("--size", default=None, help="The size the layout needs, as WxH.")
-@click.option("--ref", "reference", default=None, type=click.Path(path_type=Path))
-@click.option("--from-stage", default=None, help="Use this stage of the asset as the reference.")
+@click.option(
+    "--board",
+    is_flag=True,
+    help="Attach the reference board the resolved style names, generated now.",
+)
+@click.option(
+    "--ref",
+    "references",
+    multiple=True,
+    help="A file to derive from, as <path> or <path>:<role>. Repeatable.",
+)
+@click.option(
+    "--from-stage",
+    "stages",
+    multiple=True,
+    help="A stage of the asset to derive from, as <stage> or <stage>:<role>. Repeatable.",
+)
 @click.option("--template", default=None, help="Override the prompt template the kind names.")
 @click.option(
     "--style",
@@ -180,8 +264,9 @@ def shared(command: Any) -> Any:
 def gen_image(
     asset: str,
     prompt: str,
-    from_stage: str | None,
-    reference: Path | None,
+    stages: tuple[str, ...],
+    references: tuple[str, ...],
+    board: bool,
     size: str | None,
     style: str | None,
     seed: int | None,
@@ -210,17 +295,13 @@ def gen_image(
     *asset*, which is not what a kind is.
     """
     check_wait(timeout, poll)
-    image = (
-        source_image(workspace, asset, from_stage, reference)
-        if (from_stage is not None or reference is not None)
-        else None
-    )
     ask = gen.Ask(
         verb="gen image",
         media="image",
         stage=stage or "gen",
         prompt=prompt,
-        image=image,
+        references=references_for(workspace, asset, stages, references),
+        board=board,
         size=parse_size(size),
         seed=seed,
         count=count,
@@ -295,7 +376,10 @@ def gen_video(
         stage=stage or "video",
         prompt=prompt,
         template=template or gen.VIDEO_TEMPLATE,
-        image=source_image(workspace, asset, from_stage, source),
+        # One image, and no way to make it two: a video model given a board paints the grid
+        # onto the character, and a mistake that cannot be expressed cannot be made under
+        # time pressure (`specs/reference-images/` R4.1, docs/wiki/reference-boards.md).
+        references=(gen.Reference(source_image(workspace, asset, from_stage, source)),),
         seconds=seconds,
         model=model,
         options=gen.parse_options(options),
@@ -352,7 +436,7 @@ def gen_expand(
         media="image",
         stage=stage or "expand",
         prompt=prompt,
-        image=source_image(workspace, asset, from_stage, source),
+        references=(gen.Reference(source_image(workspace, asset, from_stage, source)),),
         size=parse_size(size),
         count=count,
         quality=quality,
@@ -407,7 +491,7 @@ def gen_bgremove(
         media="image",
         stage=stage or "nobg",
         role="background-removal",
-        image=source_image(workspace, asset, from_stage, source),
+        references=(gen.Reference(source_image(workspace, asset, from_stage, source)),),
         image_format=image_format,
         model=model,
         options=gen.parse_options(options),

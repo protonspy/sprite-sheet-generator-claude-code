@@ -1,5 +1,21 @@
 # Wiki changelog
 
+## 2026-08-15 — a pipeline step may bill
+
+`specs/generation-gates/` builds `adr:0014`: `ssc run` no longer refuses a step that costs
+money, provided the step declares a gate. The gate opens **before** the call rather than
+after it — every other gate in `ssc` asks about output that exists, and a paid step's output
+is the thing that costs — and it names the model that would run and what the call is
+estimated to cost, because a gate that said only "this step bills" would be asking somebody
+to approve a number they cannot see. The reservation behind it is `budget-guard`'s,
+unchanged. `ssc gate list` now names the topics with a standing approval in the line a
+person reads: since a step may bill, an adopted default on a generating topic is a standing
+authorisation to spend.
+
+- **[[agent-workflow]]** — the pipeline can now carry a character from an approved anchor to
+  a packed sheet without an operator between the steps, which is what the harness skills
+  were written against.
+
 ## 2026-08-14 — the brief has a command
 
 `specs/box-art/`: `ssc gen boxart` generates the concept piece into an asset as its own

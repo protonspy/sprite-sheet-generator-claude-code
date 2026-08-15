@@ -48,15 +48,20 @@ and that is lost the moment the context is compacted.
 - **R4.6** The `ssc` CLI shall report each step as done, blocked or outstanding, and name the step that would run next.
 - **R4.7** If the workspace declares no pipeline, then the `ssc` CLI shall refuse to run or report one, naming where a pipeline is declared.
 - **R4.8** If a step names a command that cannot be run, then the `ssc` CLI shall refuse before executing any step.
-- **R4.9** If a step would bill, then the `ssc` CLI shall refuse, naming the command that performs it.
+- **R4.9** If a step would bill and declares no gate, then the `ssc` CLI shall refuse, naming the gate it needs.
 
 ## Out of scope
 
-**Paid steps.** R4.9 refuses them outright. `run` is unattended by construction — that is the
-point of resuming from disk — and an unattended chainer that submits paid calls is what
-`specs/budget-guard/` was written to prevent one layer down. A pipeline that generates is a
-decision this leaf does not have the material to take: nothing in the plan describes one, and
-inventing it here would bind the leaf that eventually does.
+**A paid step that declares no gate.** R4.9 refuses it, and the reasoning it was written with
+still holds for that case: `run` is unattended by construction — that is the point of
+resuming from disk — and an unattended chainer that submits paid calls is what
+`specs/budget-guard/` was written to prevent one layer down.
+
+What has changed is that the leaf which had the material arrived.
+`adr:0014-a-pipeline-step-may-bill-behind-a-gate` turned R4.9 from a refusal into a
+condition, and `specs/generation-gates/` builds it: a step may bill where it declares a gate,
+opened before the call rather than after it, with the reservation `budget-guard` already
+takes standing behind it. This spec keeps the refusal for the case the ADR left refused.
 
 **A gate on anything but a step.** Gates are opened by `run` at a declared step, and by hand.
 Nothing else opens one.

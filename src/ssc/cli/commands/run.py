@@ -13,9 +13,11 @@ from typing import Any
 
 import click
 
-from ssc.cli import config, gates, meta, steps
+from ssc.cli import budget, config, gates, kinds, meta, models, steps
+from ssc.cli import gen as gen
 from ssc.cli import workspace as ws
 from ssc.cli.atomic import Directory
+from ssc.cli.commands import gen as gen_commands
 from ssc.cli.commands.recover import asset_dir_for
 from ssc.cli.errors import EXIT_GATE_PENDING, SscError
 from ssc.cli.frames import encode
@@ -166,6 +168,27 @@ def run(address: str, *, dry_run: bool, workspace: ws.Workspace) -> Result:
                 return _stopped(address, one, ran, planned, dry_run=dry_run)
 
             step = one.step
+            if step.bills:
+                stopped = _bill(
+                    workspace,
+                    asset_dir,
+                    record,
+                    one,
+                    address,
+                    ran,
+                    planned,
+                    dry_run=dry_run,
+                )
+                if stopped is not None:
+                    return stopped
+                # `gen.run` files what came back through its own handle on the asset, so the
+                # record this loop is holding no longer knows about the stage that just
+                # landed. Re-read it: a later free step saving a stale record would drop the
+                # paid stage out of `meta.json` — the one file that says what a paid call
+                # produced, and the one thing that cannot be recomputed.
+                record = meta.load(asset_dir)
+                continue
+
             if one.needs == "run":
                 source = source_stage(declared, position)
                 if dry_run:
@@ -218,6 +241,137 @@ def run(address: str, *, dry_run: bool, workspace: ws.Workspace) -> Result:
             {"asset": address, "ran": ran, "complete": True},
             dry_run=dry_run,
         )
+
+
+def _reference_for(
+    asset_dir: Directory, record: meta.AssetMeta, step: steps.Step
+) -> tuple[Any, ...]:
+    """The stage a paid step points at, read as a reference (R2.2).
+
+    Through the held directory, like every read of an asset's own file: the bytes a call is
+    paid to work from come through the binding the address was checked against.
+    """
+    named = step.params.get("from_stage")
+    if named is None:
+        return ()
+    entry = record.stage(str(named))
+    return (gen.Reference(gen.image_in(asset_dir, entry.path), step.params.get("role")),)
+
+
+def _standing(workspace: ws.Workspace, topic: str) -> gates.Default | None:
+    """The standing approval for this topic, where one was really given here (R4.3).
+
+    `adr:0014` allows a topic to be adopted — a project that has decided it trusts
+    unattended generation of, say, direction frames records that once rather than answering
+    per asset — and this is where that stops being taken on trust. `defaults.json` is a file
+    in the workspace like any other, so one that arrived with a cloned repository would
+    otherwise be a standing authorisation to spend that nobody in this workspace ever gave.
+    The gate it names has to be here, and approved.
+    """
+    adopted = gates.defaults(workspace).get(topic)
+    if adopted is None:
+        return None
+    came_from = gates.path_of(workspace, adopted.came_from)
+    if not came_from.is_file():
+        return None
+    origin = gates.load(workspace, adopted.came_from)
+    return adopted if origin.state == gates.APPROVED else None
+
+
+def _bill(
+    workspace: ws.Workspace,
+    asset_dir: Directory,
+    record: meta.AssetMeta,
+    one: steps.Planned,
+    address: str,
+    ran: list[str],
+    planned: list[steps.Planned],
+    *,
+    dry_run: bool,
+) -> Result | None:
+    """A step that costs money: the gate first, then the call (`adr:0014`).
+
+    `None` back means the step ran and the loop carries on; a `Result` means the run stopped,
+    either at the gate or because the caller asked for a dry run.
+
+    The call is built before the gate is opened even though nothing is submitted yet, and
+    that is the point: `gen.build` touches no network — which is what makes `--dry-run`
+    possible and what makes this possible — so the question put to a person can name the
+    model that would run and what it is estimated to cost (R1.4). A gate that said only
+    "this step bills" would be asking somebody to approve a number they cannot see.
+    """
+    step = one.step
+    profile = kinds.resolve(gen.BOX_ART_KIND, workspace).profile
+    ask = steps.ask_for(step, profile=profile, references=_reference_for(asset_dir, record, step))
+    registry = models.load()
+    settings = config.document(workspace)
+    call = gen.build(registry, ask, kinds.resolve(record.kind, workspace).profile, settings)
+    estimate = budget.estimate_for(registry, call)
+
+    if one.needs == "run" and (one.gate is None or one.gate.authorises != call.key()):
+        # The approval is bound to the call it was shown, not to the asset and the stage.
+        # `ssc.yaml` is re-read every run and is workspace data — it arrives with a cloned
+        # repository as often as it is written by whoever runs the command — so between
+        # `gate approve` and the next `ssc run` the model, the prompt or `count` can change
+        # under a signature given for something else. A gate that does not name this call
+        # authorises nothing, and the question is put again.
+        one = steps.Planned(step=step, state=steps.OUTSTANDING, needs="gate")
+
+    if one.needs == "gate":
+        if dry_run:
+            return Result(
+                "run",
+                f"would open the gate on {step.stage} before calling {call.endpoint}",
+                {
+                    "asset": address,
+                    "would_gate": step.stage,
+                    "ran": ran,
+                    "model": call.endpoint,
+                    "estimate_usd": estimate,
+                },
+                dry_run=True,
+            )
+        opened = gates.Gate.new(
+            subject=record.key,
+            topic=step.stage,
+            question=f"{step.gate or ''} — {step.command} on {call.endpoint}"
+            + (f", about ${estimate:.2f}" if estimate is not None else ", price unknown"),
+            material=None,
+            at=gates.now(),
+            authorises=call.key(),
+        )
+        adopted = _standing(workspace, step.stage)
+        if adopted is None:
+            gates.save(workspace, opened)
+            return _stopped(
+                address,
+                steps.Planned(step=step, state=steps.BLOCKED, gate=opened),
+                ran,
+                planned,
+                dry_run=dry_run,
+            )
+        # R3.2 of `gates-and-resume` — a topic this workspace has settled does not stop the
+        # run again. Here that is a standing authorisation to spend, which is the blast
+        # radius `adr:0014` names and `ssc gate list` is where somebody sees it.
+        gates.save(workspace, opened.inheriting(adopted, at=gates.now()))
+
+    if dry_run:
+        return Result(
+            "run",
+            f"would call {call.endpoint} for {step.stage} on {address}",
+            {"asset": address, "would_run": step.stage, "ran": ran, **call.report()},
+            dry_run=True,
+        )
+
+    # The same path a hand-typed call takes: the job record before submission, the
+    # reservation, the cache, and the result filed as a `source`. `budget.reserve` raises to
+    # refuse, which stops the run with nothing submitted (R3.1, R3.2).
+    # Through `commands/gen.py`'s own accessor rather than constructing a client here: one
+    # seam for the provider means a test that stands a fake in front of `gen image` stands
+    # the same fake in front of a step that runs it.
+    gen.run(workspace, ask, address, provider=gen_commands.provider(), registry=registry)
+    ran.append(step.stage)
+    return None
 
 
 def _stopped(

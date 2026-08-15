@@ -729,6 +729,16 @@ def image_in(held: Directory, relative: str) -> Image:
     return Image(path=Path(relative), data=data, content_type=content_type)
 
 
+#: The kind whose profile says what box art is: its cell, and the template it is drawn to.
+#: A kind rather than constants, so a project that redeclares it moves both — and the same
+#: kind an asset can be, because a roster piece is a deliverable in its own right.
+BOX_ART_KIND = "box-art"
+
+#: The stage box art lands in by default, and the verb its record carries — which is what
+#: says a file *is* box art after `--stage` has renamed the stage.
+BOX_ART_STAGE = "boxart"
+BOX_ART_VERB = "gen boxart"
+
 #: The board a style names, where nothing else decides its size. `tool board checker`'s own
 #: defaults, so the two commands produce the same image from the same words.
 BOARD_SIZE = (1024, 1024)

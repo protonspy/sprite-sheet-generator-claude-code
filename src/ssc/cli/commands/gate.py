@@ -100,16 +100,20 @@ def gate_list(*, dry_run: bool, workspace: ws.Workspace) -> Result:
     "I could not tell you" and "I told you, and it is pending" the same value."""
     found, unreadable = gates.every(workspace)
     pending = [one for one in found if one.pending]
+    adopted = gates.defaults(workspace)
     return Result(
         "gate list",
-        f"{len(found)} gate{'' if len(found) == 1 else 's'}, {len(pending)} pending",
+        f"{len(found)} gate{'' if len(found) == 1 else 's'}, {len(pending)} pending"
+        # In the line a person reads, not only in the JSON (`specs/generation-gates/` R4.1).
+        # `adr:0014` asks for it by name: since a step may bill, a standing approval on a
+        # topic that generates is a standing authorisation to spend, and the ADR's own
+        # consequence is that it has to be visible in one place somebody goes and looks at.
+        + (f"; standing approval for {', '.join(sorted(adopted))}" if adopted else ""),
         {
             "count": len(found),
             "pending": len(pending),
             "gates": [one.as_dict() for one in sorted(found, key=lambda one: one.id)],
-            "defaults": {
-                topic: one.as_dict() for topic, one in sorted(gates.defaults(workspace).items())
-            },
+            "defaults": {topic: one.as_dict() for topic, one in sorted(adopted.items())},
             # Reported rather than raised: `list` is how somebody diagnoses a broken `gates/`.
             "unreadable": unreadable,
         },

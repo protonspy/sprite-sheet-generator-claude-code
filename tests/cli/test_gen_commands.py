@@ -9,16 +9,15 @@ this half bills.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 from click.testing import CliRunner
-from conftest import load_meta
+from conftest import PNG, FakeClient, load_meta
 
-from ssc.cli import budget, fal, frames, jobs, meta, models
+from ssc.cli import budget, fal, frames, jobs, meta
 from ssc.cli import gen as pipeline
 from ssc.cli import workspace as ws
 from ssc.cli.app import main
@@ -32,72 +31,6 @@ NANO_EDIT = "fal-ai/nano-banana-2/edit"
 GROK = "xai/grok-imagine-video/image-to-video"
 BIREFNET = "fal-ai/birefnet/v2"
 
-#: A real PNG header, so `extension_for` names the collected file from its content.
-PNG = b"\x89PNG\r\n\x1a\n" + b"the rest of a png"
-
-
-class Completed:
-    error = None
-
-
-@dataclass
-class Handle:
-    request_id: str = "req-42"
-
-
-@dataclass
-class FakeClient:
-    """The five functions `cli/fal.py` needs, and a record of what each was asked."""
-
-    payload: dict[str, Any] = field(
-        default_factory=lambda: {"images": [{"url": "https://v3.fal.media/files/a.png"}]}
-    )
-    submitted: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
-    encoded: list[bytes] = field(default_factory=list)
-    uploaded: list[bytes] = field(default_factory=list)
-
-    def submit(self, application: str, arguments: dict[str, Any]) -> Any:
-        self.submitted.append((application, dict(arguments)))
-        return Handle()
-
-    def status(self, application: str, request_id: str) -> Any:
-        return Completed()
-
-    def result(self, application: str, request_id: str) -> dict[str, Any]:
-        return self.payload
-
-    def cancel(self, application: str, request_id: str) -> None:  # pragma: no cover
-        raise AssertionError("nothing here cancels")
-
-    def encode(self, data: str | bytes, content_type: str) -> str:
-        self.encoded.append(bytes(data))  # type: ignore[arg-type]
-        return f"data:{content_type};base64,AAAA"
-
-    def upload(self, data: str | bytes, content_type: str) -> str:
-        self.uploaded.append(bytes(data))  # type: ignore[arg-type]
-        return "https://v3.fal.media/files/uploaded.png"
-
-
-@pytest.fixture
-def api(monkeypatch: pytest.MonkeyPatch) -> FakeClient:
-    """The fake, wired in where the commands look for a provider and where the pipeline
-    fetches a result. The registry is pinned to the shipped copy, so no test reaches fal for
-    a schema either."""
-    client = FakeClient()
-    # The original, captured before the patch: `pipeline.models` *is* the models module, so a
-    # lambda calling `models.load` after the patch would call itself.
-    shipped = models.load
-    monkeypatch.setattr(commands, "provider", lambda: fal.Fal(api=client))
-    monkeypatch.setattr(models, "load", lambda: shipped(fetch=lambda _: None))
-    monkeypatch.setattr(pipeline.fal, "fetch", lambda url, **rest: PNG)
-    # `gen` reaches its provider through `commands.provider`; `ssc job resume` reaches one
-    # through the registry instead. Patching only the first left every `job` command in this
-    # file talking to the real fal client — which failed on a missing credential *before*
-    # reaching what the test meant to exercise, so the assertion passed on nothing and the
-    # run made a live HTTPS call. Both reviews caught it; this is the fix.
-    monkeypatch.setitem(jobs.PROVIDERS, fal.PROVIDER, fal.Fal(api=client))
-    return client
-
 
 @pytest.fixture
 def space(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -108,11 +41,6 @@ def space(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     )
     CliRunner().invoke(main, ["asset", "new", "hero", "--kind", "character"])
     return tmp_path
-
-
-@pytest.fixture
-def keyed(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(fal.KEY_VARIABLE, "a-fal-key-for-tests")
 
 
 def run(*argv: str) -> tuple[int, dict[str, Any]]:

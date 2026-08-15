@@ -835,6 +835,10 @@ class Ask:
     #: `Image`: the payload has always modelled an array where the model declares one, and
     #: an anchor plus a board is the ordinary way a direction is generated.
     references: tuple[Reference, ...] = ()
+    #: The cell the prompt's `{width}` and `{height}` are filled from, where that is not the
+    #: asset's own. Box art is the one call whose size has nothing to do with the asset's
+    #: cell: a character's cell is 64x64 and its concept piece is a 1024x1536 portrait.
+    cell: tuple[int, int] | None = None
     #: Whether to attach the board the resolved style names. A flag rather than a path: the
     #: board is computed, and the square size is a parameter that should track the project
     #: rather than a file somebody generated once — see `docs/wiki/reference-boards.md`.
@@ -1025,7 +1029,7 @@ def build(
         core["prompt"] = prompt_for(
             template,
             ask.prompt,
-            profile.cell,
+            ask.cell or profile.cell,
             ask.variables,
             style,
             references,

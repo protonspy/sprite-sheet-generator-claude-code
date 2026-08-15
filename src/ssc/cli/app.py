@@ -10,6 +10,7 @@ from ssc.cli.commands.asset import asset
 from ssc.cli.commands.bounds import bounds
 from ssc.cli.commands.budget import budget
 from ssc.cli.commands.clean import clean
+from ssc.cli.commands.clip import clip_command
 from ssc.cli.commands.convert import (
     bgremove,
     board,
@@ -87,6 +88,7 @@ tool.add_command(mirror)
 tool.add_command(rotate)
 tool.add_command(trim)
 tool.add_command(crop_command)
+tool.add_command(clip_command)
 tool.add_command(offset)
 tool.add_command(align)
 tool.add_command(normalise)

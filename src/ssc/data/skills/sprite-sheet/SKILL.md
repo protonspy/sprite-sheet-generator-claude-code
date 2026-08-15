@@ -38,8 +38,10 @@ by a person before anything derives from it.**
 **Stage 2 — poses and cycles.** `tool board` lays out the empty cell grid the
 generation step fills. `gen image` fills pose sheets against the anchor as the
 reference, `gen video` makes a walk cycle (a wrong anchor wastes both). `tool
-cut --grid` takes the sheet apart into one frame per pose, and `tool curate`
-drops frames that say nothing new. **GATE — the curated frame set approved
+cut --grid` takes the sheet apart into one frame per pose, `tool clip` takes the
+clip apart — it finds where the cycle closes and samples 8 to 12 frames across
+that one repetition, never both ends of it — and `tool curate` drops frames that
+say nothing new. **GATE — the curated frame set approved
 before the style pass:** the price has been paid by now; what is judged is
 whether the motion reads, which no measurement can decide.
 

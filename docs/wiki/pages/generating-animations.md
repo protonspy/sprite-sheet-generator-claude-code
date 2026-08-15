@@ -38,6 +38,17 @@ frames spread across it.
 **Never pass a board to a video model.** It merges the grid into the character. See
 [[reference-boards]].
 
+`ssc tool clip` is what takes the result apart. It reads the clip, finds the frame where
+the motion returns to its first — the cycle — and samples the number of frames asked for
+evenly across it. Two things about it are worth knowing before you read its output:
+
+- **The closing frame is never among them.** A cycle's last frame is its first frame again,
+  and a sheet holding both plays the opening pose twice: a stutter exactly at the loop
+  point, which is where an animation is looked at.
+- **A clip that does not loop is reported, not guessed at.** A death animation has no frame
+  near its first, and the command says `cycle: null` and samples the whole clip rather than
+  cutting the motion somewhere meaningless. `--whole` asks for that outright.
+
 Nor is a board the only image that hurts when it is passed to the wrong step: box art
 passed as a reference to the anchor produces something far too finely detailed to survive
 being reduced to a cell. See [[box-art-and-style]].

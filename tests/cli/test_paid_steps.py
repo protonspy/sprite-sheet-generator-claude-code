@@ -273,6 +273,12 @@ def test_a_dry_run_reports_the_resolved_call_and_submits_nothing(
 
     assert code == 0, payload
     assert payload["would_gate"] == "anchor"
+    # The resolved call, which is what R2.4 asks for — not only the model and the price.
+    # This is the branch a dry run normally lands in: checking a paid step before opening a
+    # gate is what somebody uses one for.
+    assert "a frost warden" in payload["arguments"]["prompt"]
+    assert payload["references"] and payload["references"][0]["role"] == "board"
+    assert payload["cache_key"]
     # `board: true` carries an image, so the call routes to the editing endpoint
     assert payload["model"].startswith(NANO)
     assert "estimate_usd" in payload

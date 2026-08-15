@@ -326,8 +326,12 @@ def _bill(
                     "asset": address,
                     "would_gate": step.stage,
                     "ran": ran,
-                    "model": call.endpoint,
                     "estimate_usd": estimate,
+                    # The whole resolved call, not just the model (R2.4). This is the branch
+                    # a dry run normally lands in — checking a paid step *before* opening a
+                    # gate is what somebody uses it for — so reporting less here than after
+                    # an approval would answer the question in the case nobody asks it in.
+                    **call.report(),
                 },
                 dry_run=True,
             )

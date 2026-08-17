@@ -26,7 +26,16 @@ from ssc.cli.names import check_name
 from ssc.cli.redact import scrubbed
 from ssc.cli.workspace import Workspace
 
-SCHEMA = 1
+#: Bumped from 1 by `specs/generation-gates/`, which added `authorises`: a gate in front of a
+#: paid call has to remember *which* call it was shown, or an approval is a blank cheque for
+#: whatever the pipeline says next time it runs.
+SCHEMA = 2
+
+#: What this build will read. A record written before `authorises` existed is still a valid
+#: record of a decision — the field is absent, which reads as authorising nothing, and only a
+#: paid step asks that question. Refusing them instead would make every gate in every
+#: existing workspace unreadable to buy nothing.
+READABLE = (1, SCHEMA)
 
 GATES_DIR = "gates"
 
@@ -76,6 +85,13 @@ class Gate:
     topic: str
     question: str
     material: str | None = None
+    #: What an approval of this gate authorises, where authorising is what it is for: the
+    #: key of the resolved call the question was asked about. A gate in front of money is
+    #: shown a model, a prompt and a price; without this, the *approval* is bound to nothing
+    #: but the asset and the stage, and the next run submits whatever `ssc.yaml` now says
+    #: under a signature given for something else. `None` where there is nothing to bind —
+    #: every gate that stands in front of work already done.
+    authorises: str | None = None
     state: str = PENDING
     choice: str | None = None
     why: str | None = None
@@ -91,6 +107,7 @@ class Gate:
         question: str,
         material: str | None,
         at: str,
+        authorises: str | None = None,
     ) -> Gate:
         return cls(
             id=identifier(subject, topic),
@@ -98,6 +115,7 @@ class Gate:
             topic=topic,
             question=question,
             material=material,
+            authorises=authorises,
             history=[{"state": PENDING, "at": at}],
         )
 
@@ -153,6 +171,7 @@ class Gate:
             "topic": self.topic,
             "question": self.question,
             "material": self.material,
+            "authorises": self.authorises,
             "state": self.state,
             "choice": self.choice,
             "why": self.why,
@@ -162,8 +181,10 @@ class Gate:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Gate:
-        if not isinstance(data, dict) or data.get("schema") != SCHEMA:
-            raise ValueError(f"not a schema {SCHEMA} gate record")
+        if not isinstance(data, dict) or data.get("schema") not in READABLE:
+            raise ValueError(
+                f"not a schema {' or '.join(str(one) for one in READABLE)} gate record"
+            )
         missing = [
             key for key in ("id", "subject", "topic", "question", "state") if key not in data
         ]
@@ -183,7 +204,7 @@ class Gate:
             isinstance(entry, dict) and {"state", "at"} <= set(entry) for entry in history
         ):
             raise ValueError("a gate record's history is a list of {state, at}")
-        for name in ("material", "choice", "why", "inherited_from"):
+        for name in ("material", "authorises", "choice", "why", "inherited_from"):
             value = data.get(name)
             if value is not None and not isinstance(value, str):
                 raise ValueError(f"a gate record's {name} is a string or null")
@@ -197,6 +218,7 @@ class Gate:
             topic=str(data["topic"]),
             question=str(data["question"]),
             material=data.get("material"),
+            authorises=data.get("authorises"),
             state=str(data["state"]),
             choice=data.get("choice"),
             why=data.get("why"),

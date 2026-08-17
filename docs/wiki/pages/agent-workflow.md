@@ -35,6 +35,14 @@ A skill runs its commands through the workspace's `pipeline:` where one is decla
 `ssc run` records each stage and a killed session resumes from disk rather than from
 memory. What a skill never does is decide at a gate.
 
+**A pipeline step may now be a paid one.** `ssc run` used to refuse a step that costs money
+and cover only the free tail, which left the operator typing every `gen` call by hand — the
+part a chainer helps with least. `adr:0014` reversed it: a step that declares a gate may
+bill, and the gate opens *before* the call. That inversion is the whole of it. Every other
+gate in `ssc` asks about output that already exists; here the output is what costs, so the
+question — naming the model and the estimate — is put first and the call is submitted on the
+next run, once somebody has said yes.
+
 ## Where the gates fall
 
 A gate is a decision reserved for a human, held as state in the workspace — a pending one

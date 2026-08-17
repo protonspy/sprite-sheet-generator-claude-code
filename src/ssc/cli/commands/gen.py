@@ -139,15 +139,11 @@ def split_role(value: str, *, is_path: bool) -> tuple[str, str | None]:
     return value, None
 
 
-#: The kind whose profile says what box art is: its cell, and the template it is drawn to.
-#: A kind rather than constants here, so a project that redeclares it moves both — and the
-#: same kind an asset can be, because a roster piece is a deliverable in its own right.
-BOX_ART_KIND = "box-art"
-
-#: The stage box art lands in by default, and the verb its record carries — which is what
-#: says a file *is* box art after `--stage` has renamed the stage.
-BOX_ART_STAGE = "boxart"
-BOX_ART_VERB = "gen boxart"
+#: Beside the pipeline they belong to, so a paid *step* naming box art reads the same three
+#: values this command surface does — `specs/generation-gates/` is the second caller.
+BOX_ART_KIND = gen.BOX_ART_KIND
+BOX_ART_STAGE = gen.BOX_ART_STAGE
+BOX_ART_VERB = gen.BOX_ART_VERB
 
 
 def refuse_box_art(entry: meta.FileRecord, named: str) -> None:

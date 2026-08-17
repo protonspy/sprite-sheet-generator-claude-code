@@ -255,3 +255,7 @@ package.json
 package-lock.json
 
 .headroom_*
+
+# A throwaway workspace for driving the published CLI by hand. The art in it is not
+# ours, and the workspace itself is whatever `ssc init` last wrote there.
+test1/

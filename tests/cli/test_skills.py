@@ -3,19 +3,45 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from click.testing import CliRunner
 
-from ssc.cli import skills
+from ssc.cli import kinds, skills
 from ssc.cli.app import main
 
 RELAY = (
+    "sprite-background",
+    "sprite-boxart",
     "sprite-icons",
     "sprite-sheet",
+    "sprite-still",
     "sprite-tilemap",
     "sprite-ui",
 )
+
+
+def description(skill: skills.Skill) -> str:
+    """The `description:` line of a skill's frontmatter.
+
+    One line however long it runs, because that is what the harness reads to decide
+    whether the skill applies at all.
+    """
+    for line in skill.text.splitlines():
+        if line.startswith("description:"):
+            return line
+    raise AssertionError(f"{skill.name} carries no description")
+
+
+def claims(kind: str, text: str) -> bool:
+    """Whether a description claims to drive `kind`.
+
+    Two forms, and only two: the kind backticked, or `--kind <name>`. Prose does not
+    count — `sprite-icons` says "background removal" in its own description, and a
+    whole-word match would read that as a claim to drive the `background` kind.
+    """
+    return bool(re.search(rf"`{re.escape(kind)}`|--kind {re.escape(kind)}\b", text))
 
 
 def test_the_relay_skills_ship_in_the_package() -> None:
@@ -71,6 +97,16 @@ def test_init_lays_the_skills_out_with_the_workspace(tmp_path: Path, monkeypatch
     assert (tmp_path / ".claude" / "skills" / "sprite-sheet" / "SKILL.md").is_file()
 
 
+def test_init_lays_out_a_skill_the_payload_gained(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """R1.5 — a skill is data. The three added for the kinds nothing drove reach a
+    workspace through the installer that was already there, unchanged."""
+    monkeypatch.chdir(tmp_path)
+    CliRunner().invoke(main, ["init", "--json"], catch_exceptions=False)
+
+    for name in ("sprite-background", "sprite-still", "sprite-boxart"):
+        assert (tmp_path / ".claude" / "skills" / name / "SKILL.md").is_file(), name
+
+
 def test_init_no_skills_lays_out_only_the_workspace(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.chdir(tmp_path)
     result = CliRunner().invoke(main, ["init", "--no-skills", "--json"], catch_exceptions=False)
@@ -90,3 +126,27 @@ def test_init_dry_run_names_the_skills_and_writes_none(tmp_path: Path, monkeypat
     assert payload["dry_run"] is True
     assert len(payload["skills"]) == len(RELAY)
     assert list(tmp_path.iterdir()) == []
+
+
+def test_every_built_in_kind_is_driven_by_a_skill() -> None:
+    """R1.1, R1.2, R1.4 — a kind the payload declares and no skill claims is a run an
+    agent composes from scratch every time it is asked for one."""
+    shipped = skills.shipped()
+
+    unclaimed = sorted(
+        kind
+        for kind in kinds.BUILT_INS
+        if not any(claims(kind, description(skill)) for skill in shipped)
+    )
+
+    assert not unclaimed, f"no shipped skill drives {unclaimed}"
+
+
+def test_the_coverage_check_reads_the_descriptions_it_thinks_it_reads() -> None:
+    """The floor under the test above. A `claims` that matched nothing would report
+    every kind covered by an empty payload and never fail again."""
+    by_name = {skill.name: skill for skill in skills.shipped()}
+
+    assert len(kinds.BUILT_INS) >= 8
+    assert claims("icon", description(by_name["sprite-icons"]))
+    assert not claims("background", "description: strips the background from a frame")

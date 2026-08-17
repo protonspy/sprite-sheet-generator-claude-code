@@ -31,6 +31,17 @@ free path the other resource kinds use.
   Raise `--count` only when the texture itself is what is in question.
   `ssc model show openai/gpt-image-2` names the options and the price text.
 
+  *What decides the look, and what anchors it.* `gen image --style` says how the
+  art is drawn — the kind's style unless you override it. `--ref` anchors a call
+  on art that already exists, which is how a tile set stays one set: generate the
+  ground tile, then pass it as the reference for the wall and the decor, naming
+  the palette and the lighting as what is being anchored. `--board` attaches a
+  generated board where the style names one. A first tile with nothing to anchor
+  it stops at a box-art gate before anything derives from it — that run is
+  `sprite-boxart`. **Do not `tool crop` a tile.** Cropping moves the edges, and
+  the edges are the whole contract a tile has with its neighbours; reframe by
+  generating at the size the kind states.
+
 **Stage 2 — close the wrap.** `tool tile` makes the tile meet itself on every
 side. `edge`, the default, copies the last column over the first and the last
 row over the first, so across the wrap neighbouring pixels are identical by

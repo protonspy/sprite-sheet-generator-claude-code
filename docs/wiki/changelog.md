@@ -283,3 +283,7 @@ Distilled from the `ssc` design document and three video transcripts collected i
   template, the eight named slots and why the vocabulary is closed, the asymmetry between
   a missing slot and a spare one, chroma on every sprite template and deliberately not on
   `box-art`, and the base animation template against the walk cycle.
+- **[[agent-workflow]]** — three runs added, so every kind the package ships is driven by
+  a skill: `sprite-background` for the layered kind, `sprite-still` for `banner` and `map`,
+  `sprite-boxart` for the brief a person approves. Coverage is now a test rather than a
+  claim, and so is every command a skill names.

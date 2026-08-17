@@ -37,6 +37,17 @@ clean chroma.
   image at full quality once it is settled. `ssc model show openai/gpt-image-2`
   names the options and the price text.
 
+  *What decides the look, and what anchors it.* `gen image --style` says how the
+  art is drawn — the kind's style unless you override it — and UI is where a
+  pixel-art project most often is not pixel art. `--ref` anchors a call on art
+  that already exists: generate the panel, then pass it as the reference for the
+  buttons and the HUD frame, so one interface does not arrive in three visual
+  languages. `--board` attaches a generated board where the style names one. A
+  first panel with nothing to anchor it stops at a box-art gate before anything
+  derives from it — that run is `sprite-boxart`. `tool crop --inset` trims a
+  margin the model left, for free; crop before Stage 2, because the guides are
+  measured off the art as it stands.
+
 **Stage 2 — the guides.** `tool ninepatch` reports the guides an engine
 stretches the panel by. Omit `--guides` to read the derived one-pixel-art-pixel
 ones off the art and adjust from the reported nine region sizes; a derived

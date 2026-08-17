@@ -12,7 +12,10 @@ import json
 import re
 from pathlib import Path
 
+import click
 import pytest
+
+from ssc.cli.app import main
 
 DATA = Path(__file__).resolve().parent.parent / "src" / "ssc" / "data"
 
@@ -93,3 +96,112 @@ def test_every_skill_says_what_to_set_at_each_end_of_the_work(path: Path) -> Non
 
     assert "--count" in text, path.parent.name
     assert "--quality" in text, path.parent.name
+
+
+# --- skill-coverage R3.1-R3.2: the text answers to the CLI -------------------------
+
+#: Words that end an invocation's command path: a placeholder, a flag, a quoted value, a
+#: shell construct. Anything else bare is either a subcommand or an argument, and which one
+#: it is depends on whether the node reached so far takes subcommands.
+STOPS = ("-", "<", "[", "{", "(", '"', "'", "$", "|")
+
+TRAILING = ".,;:!?)`'"
+
+
+def command_tree() -> dict[tuple[str, ...], tuple[bool, set[str]]]:
+    """Every command path `ssc` answers to, with the options it takes and whether it
+    dispatches further.
+
+    Read from the Click tree rather than from `--help` text: the tree is what actually
+    resolves an invocation, and parsing help output would test the formatter.
+    """
+    tree: dict[tuple[str, ...], tuple[bool, set[str]]] = {}
+
+    def walk(command: click.Command, path: tuple[str, ...]) -> None:
+        options: set[str] = set()
+        for param in command.params:
+            options.update(param.opts)
+            options.update(param.secondary_opts)
+        group = isinstance(command, click.Group)
+        tree[path] = (group, options)
+        if isinstance(command, click.Group):
+            for name, sub in command.commands.items():
+                walk(sub, (*path, name))
+
+    walk(main, ())
+    return tree
+
+
+def invocations(text: str) -> list[str]:
+    """Every backticked token that tells an agent to run something.
+
+    The skills write a command both ways — `ssc index` in a sentence about the CLI,
+    `tool bgremove` in a sentence about a stage — so a scan that demanded the binary
+    would read four fifths of the run as prose.
+    """
+    top = {path[0] for path in command_tree() if len(path) == 1}
+    found = []
+    for token in BACKTICKED.findall(text):
+        head = token.split()[0].strip(TRAILING) if token.split() else ""
+        if head == "ssc" or head in top:
+            found.append(token if head == "ssc" else "ssc " + token)
+    return found
+
+
+def unresolved(token: str, tree: dict[tuple[str, ...], tuple[bool, set[str]]]) -> list[str]:
+    """What in this invocation the CLI would not answer to."""
+    words = [word.strip(TRAILING) for word in token.split()][1:]
+    faults: list[str] = []
+    path: tuple[str, ...] = ()
+
+    consuming = True
+    for word in words:
+        if not word:
+            continue
+        if word.startswith(STOPS):
+            consuming = False
+        elif consuming and (*path, word) in tree:
+            path = (*path, word)
+            continue
+        elif consuming and tree[path][0]:
+            # The node reached dispatches, so a bare word here is a subcommand it does
+            # not have — not an argument, which only a leaf takes.
+            faults.append(f"{' '.join(('ssc', *path, word))} is not a command")
+            consuming = False
+        else:
+            consuming = False
+
+        if word.startswith("--"):
+            flag = word.split("=")[0]
+            if flag not in tree[path][1]:
+                faults.append(f"{flag} is not an option of {' '.join(('ssc', *path))}")
+
+    return faults
+
+
+@pytest.mark.parametrize("path", SKILLS, ids=lambda p: p.parent.name)
+def test_every_command_a_skill_names_resolves(path: Path) -> None:
+    """R3.1, R3.2 — a skill is read before anything has been run, so a command that does
+    not exist is not a typo an agent recovers from: it is the first step of the run."""
+    tree = command_tree()
+
+    faults = [
+        fault
+        for token in invocations(path.read_text(encoding="utf-8"))
+        for fault in unresolved(token, tree)
+    ]
+
+    assert not faults, f"{path.parent.name}: " + "; ".join(sorted(set(faults)))
+
+
+def test_the_resolution_check_reads_the_invocations_it_thinks_it_reads() -> None:
+    """The floor. A scan that stopped matching would report every text clean for good, so
+    assert it still finds invocations, still resolves them, and still rejects a fake."""
+    tree = command_tree()
+    found = [token for path in SKILLS for token in invocations(path.read_text(encoding="utf-8"))]
+
+    assert len(found) > 80, "the skills name fewer commands than any of them did"
+    assert ("tool", "doctor") in tree
+    assert not unresolved("ssc tool doctor --in frames/", tree)
+    assert unresolved("ssc tool nonesuch", tree)
+    assert unresolved("ssc tool doctor --nonesuch", tree)

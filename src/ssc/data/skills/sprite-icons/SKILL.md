@@ -32,6 +32,18 @@ the background is not clean chroma.
   `--size` buys nothing — the frame is downsampled to the grid anyway.
   `ssc model show openai/gpt-image-2` names the options and the price text.
 
+  *What decides the look, and what anchors it.* `gen image --style` says how the
+  art is drawn — the kind's style unless you override it — so a project whose
+  icons are flat or vector asks for that here rather than fighting a pixel-art
+  template. `--ref` anchors a call on art that already exists, and a set of
+  icons is the case it was built for: generate the first, then pass it as the
+  reference for every icon after, saying what it is anchoring — the palette and
+  the line weight, not the subject. `--board` attaches a generated board where
+  the style names one. A first icon with nothing to anchor it stops at a box-art
+  gate before anything derives from it — that run is `sprite-boxart`. `tool crop
+  --inset` takes off the margin a model leaves around a small subject, and it is
+  free: never pay a second call to reframe one.
+
 **Stage 2 — clean and measure.** `tool snap` recovers the real pixel grid where
 the source came in smeared. `tool doctor` measures the result against the
 kind's checks: `pixel_grid`, `halo`, `palette`, `silhouette`. Ship clean: apply

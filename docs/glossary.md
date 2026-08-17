@@ -13,6 +13,10 @@ here.
   animates, its atlas layout, which `doctor` checks apply to it and which generation
   template it uses. Built-ins ship with the package; a project adds its own in `ssc.yaml`.
   Never a closed enum.
+- **still** — an asset that does not animate, is not cut out on chroma and packs whole:
+  the `banner` and `map` kinds are the two the package ships. One skill drives both,
+  because a still's stages do not vary with what the picture is of.
+  Avoid: flat art, plate, still image
 - **stage** — the named step that produced a file (`snap`, `nobg`, `cut`), recorded in
   `meta.json`. A stage is how a file is addressed; the numeric prefix on the filename
   orders the chain for a human reading `ls` and is never an address.

@@ -3,9 +3,10 @@
 Every page before this one explains a step. This one explains the run: how an agent goes
 from nothing to `dist/index.json` without a person typing a command, and where the run
 stops because a decision is a person's to make. The skills under `.claude/skills/`
-are the vehicle — four per-type skills (`sprite-sheet`, `sprite-icons`,
-`sprite-tilemap`, `sprite-ui`) each drive a whole run for one kind of creation, name the
-commands in order, stop at their gates, and hand over `dist/index.json`.
+are the vehicle — seven per-type skills (`sprite-sheet`, `sprite-icons`,
+`sprite-tilemap`, `sprite-ui`, `sprite-background`, `sprite-still`, `sprite-boxart`) each
+drive a whole run for one kind of creation, name the commands in order, stop at their
+gates, and hand over `dist/index.json`.
 
 They are shipped inside the package and written out by `ssc init`, beside `ssc.yaml` and
 `assets/`. A game project installs `ssc` and has the runs; it does not copy files out of
@@ -18,11 +19,14 @@ open this wiki. The wiki is how the workflow was designed, not something a skill
 run time. The commands themselves prove the runs hold: `tests/cli/test_chain.py` drives a
 whole chain on one fixture, and goes red when a skill's contract with the commands drifts.
 
-## The four runs
+## The seven runs
 
-One per kind of creation. The first stage distinguishes them; the middle stages are the
-same shared work measured by the same `doctor` checks; the handover is a sheet, an atlas
-or a tileset depending on the profile.
+One per kind of creation, and every kind the package ships is driven by one of them —
+which is a property a test holds rather than a claim this page makes: a built-in kind no
+skill's description names fails the suite. The first stage distinguishes them; the middle
+stages are the same shared work measured by the same `doctor` checks; the handover is a
+sheet, an atlas or a tileset depending on the profile — except for `box-art`, which is a
+brief a person approves and is never packed at all.
 
 | Skill | Owns | Ends at |
 |---|---|---|
@@ -30,6 +34,9 @@ or a tileset depending on the profile.
 | `sprite-icons` | a set of icons, source then style then index | one **atlas** per `icon` kind, a rect and an anchor per asset |
 | `sprite-tilemap` | a tile set that wraps — `tool tile` closes the seam, then style then index | one **tileset** per `tile` kind, equal cells with an id per tile |
 | `sprite-ui` | a UI/HUD panel — `tool ninepatch` reports the guides, `tool doctor` measures `nineslice`, then style, index | one **atlas** per `ui` kind with the four stretch borders per entry |
+| `sprite-background` | a scrolling backdrop — one generation per layer, one size for all, then `tool layers` | the layer files in order and a scroll factor per layer; the index carries no scroll |
+| `sprite-still` | a `banner` or a `map` — one generation, `tool crop` frames it, then style, index | one **atlas** per kind, a rect and an anchor per asset |
+| `sprite-boxart` | the concept piece — `gen boxart`, the gate a person answers, `tool pixelart` derives the source | an approved illustration and the source a sprite run starts from; never indexed |
 
 A skill runs its commands through the workspace's `pipeline:` where one is declared, so
 `ssc run` records each stage and a killed session resumes from disk rather than from

@@ -9,9 +9,13 @@ drift, flicker, visible tiling seams — so each one can be **measured** rather 
 `ssc` is the set of primitives that measures them and repairs them, one command at a time.
 
 > **Status: implemented.** Install it with `pip install sprite-sheet-generator-claude-code`
-> (or `uv tool install .`), run `ssc init` in a project, and drive the pipeline. The
-> decomposition lives in [`plans/ssc-pipeline.md`](plans/ssc-pipeline.md) and the reasoning
-> behind it in [`docs/wiki/`](docs/wiki/index.md).
+> (or `uv tool install .`), run `ssc init` in a project, and drive the pipeline. `ssc init`
+> also lays out the seven skills that drive a run per kind, for the coding agent you name.
+> The deterministic core, every asset kind and the paid generation path are in
+> [`plans/archive/ssc-pipeline.md`](plans/archive/ssc-pipeline.md); what an engine reads,
+> the harness and the model-backed commands are in
+> [`plans/ssc-completion.md`](plans/ssc-completion.md); and the reasoning behind all of it
+> is in [`docs/wiki/`](docs/wiki/index.md).
 
 ## Principles
 

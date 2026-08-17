@@ -1,5 +1,16 @@
 # Wiki changelog
 
+## 2026-08-15 — a clip becomes a frame set
+
+`specs/clip-sampling/` closes `plans/authoring-controls.md`: `ssc tool clip` reads a
+generated clip, finds where the motion returns to its first frame, and samples across that
+one cycle. The closing frame is never taken — it is the opening frame again, and a sheet
+holding both stutters at the loop point. A clip that does not loop is reported as such and
+sampled whole rather than cut somewhere meaningless.
+
+- **[[generating-animations]]** — what happens to the clip after `gen video` returns it,
+  which was the one part of the reference workflow with no surface at all.
+
 ## 2026-08-15 — a pipeline step may bill
 
 `specs/generation-gates/` builds `adr:0014`: `ssc run` no longer refuses a step that costs
